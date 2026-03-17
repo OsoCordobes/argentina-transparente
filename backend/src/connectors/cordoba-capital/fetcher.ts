@@ -20,19 +20,33 @@ interface RecursoAPI {
 
 export async function fetchXLSXUrl(anio: number): Promise<string> {
   const versionId = DATASET_VERSION_IDS[anio]
-  if (!versionId) {
-    throw new Error(`Año ${anio} no disponible. Años soportados: ${Object.keys(DATASET_VERSION_IDS).join(', ')}`)
+
+  if (versionId) {
+    const url = `${API_BASE}/dato/2/version-dato/${versionId}/recurso`
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`API Córdoba error ${res.status}: ${url}`)
+
+    const data = await res.json() as { results: RecursoAPI[] }
+    const recurso = data.results?.[0]
+    if (!recurso?.url) throw new Error(`No se encontró recurso para año ${anio}`)
+
+    return recurso.url
   }
 
-  const url = `${API_BASE}/dato/2/version-dato/${versionId}/recurso`
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`API Córdoba error ${res.status}: ${url}`)
-
-  const data = await res.json() as { results: RecursoAPI[] }
-  const recurso = data.results?.[0]
-  if (!recurso?.url) throw new Error(`No se encontró recurso para año ${anio}`)
-
-  return recurso.url
+  // Si el año no está en el mapa estático, buscar en la API
+  const searchUrl = `${API_BASE}/dato/2/version-dato`
+  const res = await fetch(searchUrl)
+  const data = await res.json() as { results: { id: string; titulo: string }[] }
+  const match = data.results?.find(r => r.titulo.includes(String(anio)))
+  if (match) {
+    // usar match.id como versionId dinámico
+    const recursoUrl = `${API_BASE}/dato/2/version-dato/${match.id}/recurso`
+    const rRes = await fetch(recursoUrl)
+    const rData = await rRes.json() as { results: RecursoAPI[] }
+    const recurso = rData.results?.[0]
+    if (recurso?.url) return recurso.url
+  }
+  throw new Error(`Año ${anio} no disponible en el portal de Córdoba Capital. El portal publica con aproximadamente 1 año de retraso.`)
 }
 
 export async function downloadXLSX(url: string): Promise<Buffer> {

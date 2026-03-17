@@ -2,10 +2,21 @@ import { MunicipioConnector, Contrato } from '../../types'
 import { fetchRawRows } from './fetcher'
 import { parseRows } from './parser'
 
+function getAniosDisponibles(): number[] {
+  const anioActual = new Date().getFullYear()
+  const anios: number[] = []
+  // El portal publica con ~1 año de retraso
+  // Mínimo histórico: 2019
+  for (let a = 2019; a <= anioActual; a++) {
+    anios.push(a)
+  }
+  return anios
+}
+
 export const cordobaCapitalConnector: MunicipioConnector = {
   id: 'cordoba-capital',
   nombre: 'Córdoba Capital',
-  aniosDisponibles: [2019, 2020, 2021, 2022, 2023],
+  aniosDisponibles: getAniosDisponibles(),
 
   async getContratos(anioDesde: number, anioHasta: number): Promise<Contrato[]> {
     const todos: Contrato[] = []
@@ -17,10 +28,14 @@ export const cordobaCapitalConnector: MunicipioConnector = {
       }
 
       console.log(`[cordoba-capital] Descargando contratos ${anio}...`)
-      const rows = await fetchRawRows(anio)
-      const contratos = parseRows(rows, anio)
-      console.log(`[cordoba-capital] ${contratos.length} contratos parseados para ${anio}`)
-      todos.push(...contratos)
+      try {
+        const rows = await fetchRawRows(anio)
+        const contratos = parseRows(rows, anio)
+        console.log(`[cordoba-capital] ${contratos.length} contratos parseados para ${anio}`)
+        todos.push(...contratos)
+      } catch (err) {
+        console.error(`[cordoba-capital] Error para año ${anio}: ${(err as Error).message}`)
+      }
     }
 
     return todos
