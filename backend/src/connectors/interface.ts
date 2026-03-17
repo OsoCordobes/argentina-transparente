@@ -1,14 +1,14 @@
-import type { MunicipioConnector } from '../types'
+import { MunicipioConnector } from '../types'
+import { cordobaCapitalConnector } from './cordoba-capital'
 
-export type { MunicipioConnector }
-
-// Registry of all available connectors
-export const connectors: Map<string, MunicipioConnector> = new Map()
-
-export function registerConnector(connector: MunicipioConnector): void {
-  connectors.set(connector.id, connector)
+export const registry: Record<string, MunicipioConnector> = {
+  'cordoba-capital': cordobaCapitalConnector,
 }
 
-export function getConnector(id: string): MunicipioConnector | undefined {
-  return connectors.get(id)
+export function getConnector(municipioId: string): MunicipioConnector {
+  const connector = registry[municipioId]
+  if (!connector) {
+    throw new Error(`Municipio '${municipioId}' no disponible. Disponibles: ${Object.keys(registry).join(', ')}`)
+  }
+  return connector
 }
