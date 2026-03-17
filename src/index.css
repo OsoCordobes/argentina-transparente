@@ -1,0 +1,258 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Argentina Transparente - Design System
+   Civic transparency portal - Professional, neutral, accessible
+   All colors in HSL format */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:wght@400;600&display=swap');
+
+@layer base {
+  :root {
+    /* Core palette - Clean, professional civic design */
+    --background: 0 0% 100%;
+    --foreground: 220 13% 18%;
+
+    /* Card surfaces with subtle warmth */
+    --card: 0 0% 100%;
+    --card-foreground: 220 13% 18%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 13% 18%;
+
+    /* Primary - Violet accent as requested #A020F0 */
+    --primary: 276 87% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary - Neutral gray for UI elements */
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 220 13% 18%;
+
+    /* Muted - For subtle backgrounds and disabled states */
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+
+    /* Accent - Lighter violet for hover states */
+    --accent: 276 60% 95%;
+    --accent-foreground: 276 87% 40%;
+
+    /* Destructive - For alerts and warnings */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Success - For positive indicators */
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    /* Warning - For attention items */
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    /* Info - For neutral information */
+    --info: 199 89% 48%;
+    --info-foreground: 0 0% 100%;
+
+    /* Border and input */
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 276 87% 53%;
+
+    --radius: 0.5rem;
+
+    /* Chart colors - Professional data viz palette */
+    --chart-1: 276 87% 53%;
+    --chart-2: 199 89% 48%;
+    --chart-3: 142 71% 45%;
+    --chart-4: 38 92% 50%;
+    --chart-5: 0 84% 60%;
+
+    /* Sidebar */
+    --sidebar-background: 220 14% 98%;
+    --sidebar-foreground: 220 13% 18%;
+    --sidebar-primary: 276 87% 53%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 276 60% 95%;
+    --sidebar-accent-foreground: 276 87% 40%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 276 87% 53%;
+
+    /* Custom tokens for transparency portal */
+    --header-bg: 220 14% 98%;
+    --disclaimer-bg: 38 100% 97%;
+    --disclaimer-border: 38 92% 70%;
+    --table-header: 220 14% 96%;
+    --table-row-hover: 276 60% 98%;
+    --stat-card-gradient: linear-gradient(135deg, hsl(276 87% 53% / 0.1), hsl(276 87% 53% / 0.05));
+  }
+
+  .dark {
+    --background: 220 13% 10%;
+    --foreground: 220 14% 96%;
+
+    --card: 220 13% 13%;
+    --card-foreground: 220 14% 96%;
+
+    --popover: 220 13% 13%;
+    --popover-foreground: 220 14% 96%;
+
+    --primary: 276 87% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 13% 18%;
+    --secondary-foreground: 220 14% 96%;
+
+    --muted: 220 13% 18%;
+    --muted-foreground: 220 9% 60%;
+
+    --accent: 276 40% 20%;
+    --accent-foreground: 276 87% 70%;
+
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 20%;
+    --input: 220 13% 20%;
+    --ring: 276 87% 60%;
+
+    --sidebar-background: 220 13% 8%;
+    --sidebar-foreground: 220 14% 96%;
+    --sidebar-primary: 276 87% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 276 40% 20%;
+    --sidebar-accent-foreground: 276 87% 70%;
+    --sidebar-border: 220 13% 20%;
+    --sidebar-ring: 276 87% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Source Serif 4', Georgia, serif;
+    @apply font-semibold tracking-tight;
+  }
+}
+
+@layer components {
+  /* Disclaimer banner styling */
+  .disclaimer-banner {
+    @apply px-4 py-3 text-sm border-l-4 rounded-r-md;
+    background: hsl(var(--disclaimer-bg));
+    border-color: hsl(var(--disclaimer-border));
+  }
+
+  /* Stat card with gradient */
+  .stat-card {
+    @apply relative overflow-hidden rounded-lg border bg-card p-6;
+    background: var(--stat-card-gradient);
+  }
+
+  .stat-card::before {
+    content: '';
+    @apply absolute top-0 right-0 w-24 h-24 opacity-10;
+    background: radial-gradient(circle at top right, hsl(var(--primary)), transparent);
+  }
+
+  /* Data table styling */
+  .data-table {
+    @apply w-full text-sm;
+  }
+
+  .data-table th {
+    @apply px-4 py-3 text-left font-medium text-muted-foreground uppercase tracking-wider text-xs;
+    background: hsl(var(--table-header));
+  }
+
+  .data-table td {
+    @apply px-4 py-3 border-b border-border;
+  }
+
+  .data-table tr:hover td {
+    background: hsl(var(--table-row-hover));
+  }
+
+  /* Chart container */
+  .chart-container {
+    @apply bg-card rounded-lg border p-4;
+  }
+
+  /* Export button styling */
+  .export-btn {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md;
+    @apply bg-secondary text-secondary-foreground hover:bg-secondary/80;
+    @apply transition-colors duration-200;
+  }
+
+  /* Filter panel */
+  .filter-panel {
+    @apply p-4 rounded-lg border bg-card space-y-4;
+  }
+
+  /* Tab indicator animation */
+  .tab-active {
+    @apply relative;
+  }
+
+  .tab-active::after {
+    content: '';
+    @apply absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full;
+    animation: slideIn 0.2s ease-out;
+  }
+
+  @keyframes slideIn {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+
+  /* Outlier badge */
+  .outlier-badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full;
+    @apply bg-warning/10 text-warning border border-warning/20;
+  }
+
+  /* Entity tag */
+  .entity-tag {
+    @apply inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md;
+    @apply bg-primary/10 text-primary;
+  }
+
+  /* Loading skeleton pulse */
+  .skeleton-pulse {
+    @apply animate-pulse bg-muted rounded;
+  }
+}
+
+@layer utilities {
+  /* Smooth scroll */
+  .scroll-smooth {
+    scroll-behavior: smooth;
+  }
+
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Text balance for headings */
+  .text-balance {
+    text-wrap: balance;
+  }
+}

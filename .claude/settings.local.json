@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{content_type} %{size_download}\" \"https://digestoaltagracia.com.ar/decretos\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{content_type} %{size_download}\" \"https://altagracia.gob.ar/subareas/proveedores-2/\")"
+    ]
+  }
+}

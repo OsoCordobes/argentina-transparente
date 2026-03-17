@@ -1,0 +1,31 @@
+project_id = "ogeqneeevsevhsjowppm"
+
+[functions.analyze-corruption]
+verify_jwt = false
+
+[functions.create-checkout]
+verify_jwt = false
+
+[functions.check-subscription]
+verify_jwt = false
+
+[functions.customer-portal]
+verify_jwt = false
+
+[functions.la-bestia-chat]
+verify_jwt = false
+
+[functions.api-jobs]
+verify_jwt = false
+
+[functions.n8n-webhook]
+verify_jwt = false
+
+[functions.api-localities]
+verify_jwt = false
+
+[functions.api-signals]
+verify_jwt = false
+
+[functions.api-reports]
+verify_jwt = false
