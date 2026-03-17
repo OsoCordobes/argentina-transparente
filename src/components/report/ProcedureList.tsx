@@ -1,7 +1,7 @@
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { FileText } from 'lucide-react';
-import type { Procedure } from '@/lib/n8n-config';
+import type { Procedure } from '@/lib/api';
 
 const TYPE_LABELS: Record<string, string> = {
   licitacion: 'Licitación',

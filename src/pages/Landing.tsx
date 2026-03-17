@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { AppHeader } from '@/components/layout/AppHeader';
-import { MUNICIPALITIES, BESTIA_RUN_ENDPOINT } from '@/lib/n8n-config';
+import { MUNICIPALITIES, BESTIA_RUN_ENDPOINT } from '@/lib/api';
 import { formatPopulation } from '@/data/municipios-cordoba';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';

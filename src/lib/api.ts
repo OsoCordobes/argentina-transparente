@@ -1,0 +1,57 @@
+// placeholder — backend en construcción
+
+const BACKEND_BASE_URL = (import.meta.env.VITE_BACKEND_URL as string | undefined) || '';
+
+export const BESTIA_RUN_ENDPOINT    = `${BACKEND_BASE_URL}/webhook/bestia-run`;
+export const BESTIA_STATUS_ENDPOINT = `${BACKEND_BASE_URL}/webhook/bestia-status`;
+export const BESTIA_RESULT_ENDPOINT = `${BACKEND_BASE_URL}/webhook/bestia-result`;
+export const BESTIA_CANCEL_ENDPOINT = `${BACKEND_BASE_URL}/webhook/bestia-cancel`;
+
+export const TIMEOUT_MS = 3 * 60 * 1000;
+
+import { municipiosCordoba } from '@/data/municipios-cordoba';
+export const MUNICIPALITIES = municipiosCordoba.map((m) => ({
+  label: m.name,
+  value: m.name,
+  population: m.population,
+}));
+
+export interface Finding {
+  title: string;
+  description: string;
+  risk_level: 'alto' | 'medio' | 'bajo';
+  recommendations: string[];
+}
+
+export interface Procedure {
+  id?: string;
+  title: string;
+  supplier?: string;
+  amount?: number;
+  date?: string;
+  type?: string;
+  evidence_quote?: string;
+  url?: string;
+}
+
+export interface ProcedureRow {
+  id: string;
+  date: string;
+  type: string;
+  object: string;
+  supplier: string;
+  amount_ars: number | null;
+  source_url: string;
+}
+
+export interface BestiaReport {
+  executive_summary: string;
+  risk_score: number;
+  findings: Finding[];
+  procedures?: ProcedureRow[];
+  coverage: {
+    sources_analyzed: number;
+    documents_found: number;
+  };
+  limitations: string;
+}

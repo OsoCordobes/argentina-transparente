@@ -1,6 +1,6 @@
 import { Card } from '@/components/ui/card';
 import { ExternalLink } from 'lucide-react';
-import type { ProcedureRow } from '@/lib/n8n-config';
+import type { ProcedureRow } from '@/lib/api';
 
 function formatARS(amount: number): string {
   return '$' + new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(amount);

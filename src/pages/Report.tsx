@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { BESTIA_RESULT_ENDPOINT, type BestiaReport, type Finding } from '@/lib/n8n-config';
+import { BESTIA_RESULT_ENDPOINT, type BestiaReport, type Finding } from '@/lib/api';
 import { ProcedureTable } from '@/components/ProcedureTable';
 import { toast } from 'sonner';
 import {

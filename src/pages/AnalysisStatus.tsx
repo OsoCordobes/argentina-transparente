@@ -11,7 +11,7 @@ import {
   BESTIA_CANCEL_ENDPOINT,
   TIMEOUT_MS,
   type BestiaReport,
-} from '@/lib/n8n-config';
+} from '@/lib/api';
 import {
   Loader2,
   Home,
