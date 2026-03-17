@@ -1,4 +1,6 @@
 import express from 'express'
+import analizarRouter from './routes/analizar'
+import { cordobaCapitalConnector } from './connectors/cordoba-capital'
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -23,17 +25,15 @@ app.get('/health', (_req, res) => {
 app.get('/municipios', (_req, res) => {
   res.json([
     {
-      id: 'cordoba-capital',
-      nombre: 'Córdoba Capital',
-      aniosDisponibles: [2019, 2020, 2021, 2022, 2023],
+      id: cordobaCapitalConnector.id,
+      nombre: cordobaCapitalConnector.nombre,
+      aniosDisponibles: cordobaCapitalConnector.aniosDisponibles,
     },
   ])
 })
 
 // POST /analizar
-app.post('/analizar', (_req, res) => {
-  res.json({ ok: true, mensaje: 'en construcción' })
-})
+app.use('/analizar', analizarRouter)
 
 app.listen(PORT, () => {
   console.log(`La Bestia v2 corriendo en http://localhost:${PORT}`)
