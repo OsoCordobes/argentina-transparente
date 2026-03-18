@@ -1,57 +1,58 @@
-// placeholder — backend en construcción
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 
-const BACKEND_BASE_URL = (import.meta.env.VITE_BACKEND_URL as string | undefined) || '';
-
-export const BESTIA_RUN_ENDPOINT    = `${BACKEND_BASE_URL}/webhook/bestia-run`;
-export const BESTIA_STATUS_ENDPOINT = `${BACKEND_BASE_URL}/webhook/bestia-status`;
-export const BESTIA_RESULT_ENDPOINT = `${BACKEND_BASE_URL}/webhook/bestia-result`;
-export const BESTIA_CANCEL_ENDPOINT = `${BACKEND_BASE_URL}/webhook/bestia-cancel`;
-
-export const TIMEOUT_MS = 3 * 60 * 1000;
-
-import { municipiosCordoba } from '@/data/municipios-cordoba';
-export const MUNICIPALITIES = municipiosCordoba.map((m) => ({
-  label: m.name,
-  value: m.name,
-  population: m.population,
-}));
-
-export interface Finding {
-  title: string;
-  description: string;
-  risk_level: 'alto' | 'medio' | 'bajo';
-  recommendations: string[];
+export interface Señal {
+  tipologia: string
+  score: number
+  titulo: string
+  resumen: string
+  evidencia: { descripcion: string; fuenteUrl: string }[]
+  legal: {
+    articulos: string[]
+    severidad: 'grave' | 'moderada' | 'leve'
+    denunciarAnte: string[]
+  }
 }
 
-export interface Procedure {
-  id?: string;
-  title: string;
-  supplier?: string;
-  amount?: number;
-  date?: string;
-  type?: string;
-  evidence_quote?: string;
-  url?: string;
+export interface Expediente {
+  municipio: string
+  periodo: string
+  generadoEn: string
+  resumenEjecutivo: string
+  señales: Señal[]
+  datosBase: {
+    totalContratos: number
+    montoTotal: number
+    topProveedores: { nombre: string; monto: number; porcentaje: number }[]
+    tiposProceso: { tipo: string; cantidad: number; monto: number }[]
+  }
+  fuentes: { url: string; descripcion: string; fechaAcceso: string }[]
+  guiaDenuncia?: {
+    organismos: string[]
+    marcoLegal: string[]
+    pasos: string[]
+  }
 }
 
-export interface ProcedureRow {
-  id: string;
-  date: string;
-  type: string;
-  object: string;
-  supplier: string;
-  amount_ars: number | null;
-  source_url: string;
+export async function analizarMunicipio(
+  municipioId: string,
+  anioDesde: number,
+  anioHasta: number
+): Promise<Expediente> {
+  const res = await fetch(`${API_URL}/analizar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ municipioId, anioDesde, anioHasta }),
+  })
+  const data = await res.json()
+  if (!data.ok) throw new Error(data.error ?? 'Error desconocido')
+  return data.expediente as Expediente
 }
 
-export interface BestiaReport {
-  executive_summary: string;
-  risk_score: number;
-  findings: Finding[];
-  procedures?: ProcedureRow[];
-  coverage: {
-    sources_analyzed: number;
-    documents_found: number;
-  };
-  limitations: string;
+export async function getMunicipios(): Promise<{
+  id: string
+  nombre: string
+  aniosDisponibles: number[]
+}[]> {
+  const res = await fetch(`${API_URL}/municipios`)
+  return res.json()
 }
