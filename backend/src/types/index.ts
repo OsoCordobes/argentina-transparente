@@ -30,7 +30,17 @@ export interface Expediente {
   datosBase: {
     totalContratos: number
     montoTotal: number
-    topProveedores: { nombre: string; cuit?: string; monto: number; porcentaje: number }[]
+    topProveedores: {
+      nombre: string
+      monto: number
+      porcentaje: number
+      afip?: {
+        cuit: string
+        esEmpleador: boolean
+        encontrado: boolean
+        fuenteUrl: string
+      }
+    }[]
     tiposProceso: { tipo: string; cantidad: number; monto: number }[]
   }
   fuentes: { url: string; descripcion: string; fechaAcceso: string }[]

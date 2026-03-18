@@ -36,3 +36,5 @@ async function main() {
   exp.fuentes.forEach((f: any) => console.log(' ', f.url))
 }
 main().catch(console.error)
+
+export {}

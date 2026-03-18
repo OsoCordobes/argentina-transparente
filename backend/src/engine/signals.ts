@@ -145,8 +145,223 @@ export function detectarMonopolioRubro(contratos: Contrato[]): Señal | null {
   }
 }
 
+export function detectarServiciosSinHistorial(contratos: Contrato[]): Señal | null {
+  const PALABRAS_SERVICIO = ['LIMPIEZA', 'SEGURIDAD', 'MANTENIMIENTO', 'VIGILANCIA', 'CONSTRUCCION', 'OBRA', 'PINTURA']
+  const UMBRAL_MONTO = 50_000_000
+
+  const sospechosos: { proveedor: string; monto: number; descripcion: string }[] = []
+
+  const porProv = new Map<string, Contrato[]>()
+  for (const c of contratos) {
+    const k = c.proveedor.trim().toUpperCase()
+    if (!porProv.has(k)) porProv.set(k, [])
+    porProv.get(k)!.push(c)
+  }
+
+  for (const [proveedor, cs] of porProv.entries()) {
+    const esServicio = cs.some(c =>
+      PALABRAS_SERVICIO.some(p => c.descripcion.toUpperCase().includes(p))
+    )
+    if (!esServicio) continue
+
+    const monto = cs.reduce((s, c) => s + c.monto, 0)
+    if (monto < UMBRAL_MONTO) continue
+
+    const años = new Set(cs.map(c => c.anio))
+    if (años.size > 2) continue
+
+    const contratoPrincipal = cs.sort((a, b) => b.monto - a.monto)[0]
+    sospechosos.push({ proveedor, monto, descripcion: contratoPrincipal.descripcion })
+  }
+
+  if (sospechosos.length === 0) return null
+
+  sospechosos.sort((a, b) => b.monto - a.monto)
+  const total = sospechosos.reduce((s, x) => s + x.monto, 0)
+
+  return {
+    tipologia: 'servicio_sin_historial',
+    score: Math.min(75, 60 + sospechosos.length * 3),
+    titulo: `${sospechosos.length} proveedor/es de servicios sin historial previo detectado/s: ${ars(total)} total`,
+    resumen: `Se identificaron ${sospechosos.length} proveedor/es que prestan servicios intensivos en mano de obra (limpieza, construcción, mantenimiento) por montos superiores a ${ars(UMBRAL_MONTO)}, pero solo aparecen en el dataset por un período acotado, sin historial de contrataciones previas verificable. El caso más significativo: "${sospechosos[0].proveedor}" por ${ars(sospechosos[0].monto)}.`,
+    evidencia: sospechosos.slice(0, 4).map(s => ({
+      descripcion: `${s.proveedor}: ${ars(s.monto)} — ${s.descripcion.slice(0, 70)}`,
+      fuenteUrl: contratos[0].fuenteUrl,
+    })),
+    legal: {
+      articulos: ['Ley Provincial 8614 art. 18 (habilitación de proveedores)', 'RG AFIP 4871 (registro empleadores)'],
+      severidad: 'grave',
+      denunciarAnte: [
+        'Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)',
+        'AFIP/ARCA — División Fiscalización',
+      ],
+    },
+  }
+}
+
+export function detectarFraccionamientoAvanzado(contratos: Contrato[]): Señal | null {
+  const porProv = new Map<string, Contrato[]>()
+  for (const c of contratos) {
+    const k = c.proveedor.trim().toUpperCase()
+    if (!porProv.has(k)) porProv.set(k, [])
+    porProv.get(k)!.push(c)
+  }
+
+  const casos: { proveedor: string; contratos: Contrato[]; montoTotal: number; montoMax: number }[] = []
+
+  for (const [proveedor, cs] of porProv.entries()) {
+    if (cs.length < 3) continue
+
+    const concursos = cs.filter(c =>
+      c.tipo.toUpperCase().includes('CONCURSO') ||
+      c.tipo.toUpperCase().includes('DIRECTA')
+    )
+    if (concursos.length < 3) continue
+
+    const total = concursos.reduce((s, c) => s + c.monto, 0)
+    const montoMax = Math.max(...concursos.map(c => c.monto))
+
+    if (total > 20_000_000 && montoMax < total * 0.4 && concursos.length >= 3) {
+      casos.push({ proveedor, contratos: concursos, montoTotal: total, montoMax })
+    }
+  }
+
+  if (casos.length === 0) return null
+  casos.sort((a, b) => b.montoTotal - a.montoTotal)
+
+  return {
+    tipologia: 'fraccionamiento_avanzado',
+    score: Math.min(80, 55 + casos.length * 5),
+    titulo: `Posible fraccionamiento en ${casos.length} proveedor/es: contratos múltiples de montos similares`,
+    resumen: `Se detectaron ${casos.length} proveedor/es con patrón consistente con fraccionamiento contractual: múltiples contratos de montos similares que individualmente no superan los umbrales de licitación, pero que acumulados representan montos significativos. El caso principal: "${casos[0].proveedor}" con ${casos[0].contratos.length} contratos por ${ars(casos[0].montoTotal)} total (máximo individual: ${ars(casos[0].montoMax)}).`,
+    evidencia: casos.slice(0, 3).map(c => ({
+      descripcion: `${c.proveedor}: ${c.contratos.length} contratos × ${ars(c.montoTotal / c.contratos.length)} promedio = ${ars(c.montoTotal)} total`,
+      fuenteUrl: contratos[0].fuenteUrl,
+    })),
+    legal: {
+      articulos: [
+        'Ley Provincial 8614 art. 14 (prohibición de fraccionamiento)',
+        'Ordenanza Municipal de Contrataciones — art. correspondiente a umbrales',
+      ],
+      severidad: 'moderada',
+      denunciarAnte: ['Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)'],
+    },
+  }
+}
+
+export function detectarConcentracionTemporal(contratos: Contrato[]): Señal | null {
+  const años = new Set(contratos.map(c => c.anio))
+  if (años.size !== 1) return null
+
+  const TIPOS_FIN_ANIO = ['PRÓRROGA', 'PRORROGA', 'COMPLEMENTARIOS', 'AMPLIACIÓN']
+  const contratosFinAnio = contratos.filter(c =>
+    TIPOS_FIN_ANIO.some(t => c.tipo.toUpperCase().includes(t))
+  )
+
+  const total = contratos.reduce((s, c) => s + c.monto, 0)
+  const montoFinAnio = contratosFinAnio.reduce((s, c) => s + c.monto, 0)
+  const pct = (montoFinAnio / total) * 100
+
+  const ampliaciones = contratos.filter(c =>
+    c.tipo.toUpperCase().includes('AMPLIACI') ||
+    c.tipo.toUpperCase().includes('COMPLEMENT')
+  )
+
+  if (pct < 30 && ampliaciones.length < 3) return null
+
+  return {
+    tipologia: 'gasto_fin_ejercicio',
+    score: Math.min(70, Math.round(45 + pct * 0.4)),
+    titulo: `${pct.toFixed(1)}% del gasto vía prórrogas y ampliaciones — patrón de cierre de ejercicio`,
+    resumen: `El ${pct.toFixed(1)}% del gasto analizado (${ars(montoFinAnio)}) se realizó a través de prórrogas y ampliaciones de contratos existentes. Este patrón es consistente con el "gasto de fin de ejercicio", práctica donde los fondos presupuestarios no ejecutados se comprometen en contratos de urgencia o ampliaciones antes del cierre del año fiscal, eludiendo procesos competitivos.`,
+    evidencia: [{
+      descripcion: `${contratosFinAnio.length} contratos vía prórroga/ampliación: ${ars(montoFinAnio)} de ${ars(total)} total`,
+      fuenteUrl: contratos[0].fuenteUrl,
+    }],
+    legal: {
+      articulos: [
+        'Ley Provincial 8614 art. 14 (principio de licitación)',
+        'Ley de Administración Financiera — cierre de ejercicio',
+      ],
+      severidad: pct >= 40 ? 'grave' : 'moderada',
+      denunciarAnte: ['Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)'],
+    },
+  }
+}
+
+export function detectarProveedorCronico(contratos: Contrato[]): Señal | null {
+  const años = [...new Set(contratos.map(c => c.anio))].sort()
+  if (años.length < 2) return null
+
+  const porProv = new Map<string, Map<number, number>>()
+
+  for (const c of contratos) {
+    const k = c.proveedor.trim().toUpperCase()
+    if (!porProv.has(k)) porProv.set(k, new Map())
+    const añoMap = porProv.get(k)!
+    añoMap.set(c.anio, (añoMap.get(c.anio) ?? 0) + c.monto)
+  }
+
+  const cronicos: { proveedor: string; años: number; montoTotal: number; evolucion: string }[] = []
+
+  for (const [proveedor, añoMap] of porProv.entries()) {
+    if (añoMap.size < Math.max(2, años.length * 0.6)) continue
+
+    const total = Array.from(añoMap.values()).reduce((s, m) => s + m, 0)
+    if (total < 50_000_000) continue
+
+    const montosOrdenados = años.map(a => añoMap.get(a) ?? 0)
+    const primero = montosOrdenados.find(m => m > 0) ?? 0
+    const ultimo = [...montosOrdenados].reverse().find(m => m > 0) ?? 0
+    const crecimiento = primero > 0 ? ((ultimo - primero) / primero) * 100 : 0
+
+    cronicos.push({
+      proveedor,
+      años: añoMap.size,
+      montoTotal: total,
+      evolucion: crecimiento >= 0
+        ? `creció ${crecimiento.toFixed(0)}% en el período`
+        : `disminuyó ${Math.abs(crecimiento).toFixed(0)}% en el período`,
+    })
+  }
+
+  if (cronicos.length === 0) return null
+  cronicos.sort((a, b) => b.montoTotal - a.montoTotal)
+
+  return {
+    tipologia: 'proveedor_cronico',
+    score: Math.min(70, 50 + cronicos.length * 4),
+    titulo: `${cronicos.length} proveedor/es con presencia continua en múltiples años por ${ars(cronicos.reduce((s, c) => s + c.montoTotal, 0))} total`,
+    resumen: `Se identificaron ${cronicos.length} proveedor/es que mantienen una presencia continua en las contrataciones municipales a lo largo de ${años.length} años analizados (${años[0]}–${años[años.length - 1]}). La permanencia prolongada sin procesos competitivos renovados puede indicar ausencia de mecanismos efectivos de competencia. El caso más significativo: "${cronicos[0].proveedor}" con presencia en ${cronicos[0].años} años, ${cronicos[0].evolucion}, acumulando ${ars(cronicos[0].montoTotal)} en el período.`,
+    evidencia: cronicos.slice(0, 4).map(c => ({
+      descripcion: `${c.proveedor}: ${c.años} años de presencia continua — ${ars(c.montoTotal)} acumulado — ${c.evolucion}`,
+      fuenteUrl: contratos[0].fuenteUrl,
+    })),
+    legal: {
+      articulos: [
+        'Ley Provincial 8614 art. 22 (principio de concurrencia)',
+        'Principio de eficiencia en el gasto público',
+      ],
+      severidad: 'moderada',
+      denunciarAnte: [
+        'Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)',
+        'Concejo Deliberante de Córdoba — Comisión de Control',
+      ],
+    },
+  }
+}
+
 export function calcularSeñales(contratos: Contrato[]): Señal[] {
-  const detectores = [detectarProrrogas, detectarConcentracion, detectarContratacionesDirectas, detectarMonopolioRubro]
+  const detectores = [
+    detectarProrrogas,
+    detectarConcentracion,
+    detectarContratacionesDirectas,
+    detectarMonopolioRubro,
+    detectarServiciosSinHistorial,
+    detectarFraccionamientoAvanzado,
+    detectarConcentracionTemporal,
+    detectarProveedorCronico,
+  ]
   const señales: Señal[] = []
   for (const d of detectores) {
     try { const s = d(contratos); if (s) señales.push(s) }

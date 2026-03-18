@@ -45,35 +45,66 @@ export async function generarExpediente(
     .map(([tipo, v]) => ({ tipo, ...v }))
     .sort((a, b) => b.monto - a.monto)
 
+  // Enriquecer top proveedores con datos AFIP (best-effort, no bloquea)
+  let topProveedoresEnriquecidos: typeof topProveedores = topProveedores
+  try {
+    const { enriquecerProveedores } = await import('./afip')
+    topProveedoresEnriquecidos = await enriquecerProveedores(topProveedores) as typeof topProveedores
+    console.log('[afip] Enriquecimiento completado')
+  } catch (err) {
+    console.warn('[afip] Enriquecimiento falló, continuando sin datos AFIP:', err)
+  }
+
+  // Prompt mejorado — más periodístico y específico
+  const proveedoresTexto = topProveedoresEnriquecidos.slice(0, 5).map((p: any) => {
+    const afipInfo = p.afip?.encontrado
+      ? `CUIT: ${p.afip.cuit} | Empleador: ${p.afip.esEmpleador ? 'SÍ' : 'NO'}`
+      : 'Sin datos AFIP verificados'
+    return `  • ${p.nombre}: ${ars(p.monto)} (${p.porcentaje}%) — ${afipInfo}`
+  }).join('\n')
+
   const señalesTexto = señales.map(s =>
-    `- [${s.tipologia} | score:${s.score} | ${s.legal.severidad}]\n  ${s.titulo}\n  ${s.resumen}`
+    `[${s.tipologia.toUpperCase()} | score:${s.score}/100 | ${s.legal.severidad.toUpperCase()}]\n` +
+    `  ${s.titulo}\n` +
+    `  ${s.resumen}\n` +
+    `  Marco legal: ${s.legal.articulos.join('; ')}`
   ).join('\n\n')
 
-  const topProvTexto = topProveedores.slice(0, 5)
-    .map(p => `  • ${p.nombre}: ${ars(p.monto)} (${p.porcentaje}%)`)
-    .join('\n')
+  const prompt = `Sos un analista de transparencia pública especializado en contrataciones municipales argentinas. Tu tarea es redactar el resumen ejecutivo de un expediente ciudadano sobre el gasto municipal de ${municipio} en el período ${periodo}.
 
-  const prompt = `Eres un analista de transparencia pública argentina. Redactá el resumen ejecutivo de un expediente ciudadano sobre el gasto municipal de ${municipio} en el período ${periodo}.
-
-DATOS BASE (fuente oficial: Portal de Datos Abiertos de la Municipalidad de Córdoba):
+DATOS VERIFICADOS (fuente oficial: Portal de Datos Abiertos — Municipalidad de Córdoba):
 - Total contratos analizados: ${contratos.length}
-- Monto total: ${ars(montoTotal)}
+- Monto total del período: ${ars(montoTotal)}
+- Período analizado: ${periodo}
+- Fecha de análisis: ${new Date().toLocaleDateString('es-AR')}
 
-TOP 5 PROVEEDORES POR MONTO:
-${topProvTexto}
+TOP 5 PROVEEDORES POR MONTO RECIBIDO:
+${proveedoresTexto}
 
-SEÑALES DE RIESGO DETECTADAS (${señales.length}):
+DISTRIBUCIÓN POR TIPO DE PROCEDIMIENTO:
+${tiposProceso.slice(0, 5).map(t => `  • ${t.tipo}: ${t.cantidad} contratos → ${ars(t.monto)}`).join('\n')}
+
+SEÑALES DE RIESGO DETECTADAS AUTOMÁTICAMENTE (${señales.length} señales):
 ${señalesTexto}
 
-INSTRUCCIONES:
-- Redactá exactamente 3 párrafos en español rioplatense formal
-- Párrafo 1: contexto (qué se analizó, período, fuente de datos)
-- Párrafo 2: principales hallazgos con números exactos de los datos
-- Párrafo 3: recomendaciones de acción ciudadana e institucional
-- NO uses lenguaje alarmista ni afirmes corrupción como hecho probado
-- SÍ usá frases como "se detectaron patrones que merecen investigación"
-- Todos los números deben venir de los datos provistos arriba
-- Máximo 250 palabras en total`
+INSTRUCCIONES DE REDACCIÓN:
+Redactá exactamente 3 párrafos claros, en español rioplatense formal, con el siguiente contenido:
+
+PÁRRAFO 1 — CONTEXTO (40-60 palabras):
+Describí qué se analizó, cuándo, y la fuente oficial de los datos. Mencioná el monto total y la cantidad de contratos. No uses tecnicismos innecesarios.
+
+PÁRRAFO 2 — HALLAZGOS PRINCIPALES (80-100 palabras):
+Presentá los 2-3 hallazgos más significativos con sus números exactos. Usá frases como "se detectaron patrones que merecen investigación", "los datos muestran una concentración significativa", "se identificaron contratos que podrían requerir mayor escrutinio". NUNCA afirmes corrupción como hecho probado. Mencioná proveedores específicos con sus montos reales.
+
+PÁRRAFO 3 — RECOMENDACIONES (60-80 palabras):
+Indicá qué pasos concretos debería tomar la ciudadanía o el Concejo Deliberante. Mencioná al Tribunal de Cuentas de Córdoba y/o la Defensoría del Pueblo. Incluí una acción específica (ej: solicitar expedientes, presentar nota formal, pedir auditoría).
+
+RESTRICCIONES ABSOLUTAS:
+- Todos los números deben provenir exactamente de los datos arriba provistos
+- No inventes porcentajes, montos ni nombres de proveedores
+- No uses frases como "es claramente corrupto", "hay malversación" o similares
+- Máximo 250 palabras en total para los 3 párrafos
+- No incluyas títulos ni encabezados, solo los 3 párrafos corridos`
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
@@ -98,7 +129,7 @@ INSTRUCCIONES:
     datosBase: {
       totalContratos: contratos.length,
       montoTotal,
-      topProveedores,
+      topProveedores: topProveedoresEnriquecidos,
       tiposProceso,
     },
     fuentes: [{

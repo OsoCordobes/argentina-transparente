@@ -18,12 +18,23 @@ interface RecursoAPI {
   icono: string
 }
 
+async function fetchWithTimeout(url: string, timeoutMs = 30000): Promise<Response> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, { signal: controller.signal })
+    return res
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 export async function fetchXLSXUrl(anio: number): Promise<string> {
   const versionId = DATASET_VERSION_IDS[anio]
 
   if (versionId) {
     const url = `${API_BASE}/dato/2/version-dato/${versionId}/recurso`
-    const res = await fetch(url)
+    const res = await fetchWithTimeout(url)
     if (!res.ok) throw new Error(`API Córdoba error ${res.status}: ${url}`)
 
     const data = await res.json() as { results: RecursoAPI[] }
@@ -35,13 +46,12 @@ export async function fetchXLSXUrl(anio: number): Promise<string> {
 
   // Si el año no está en el mapa estático, buscar en la API
   const searchUrl = `${API_BASE}/dato/2/version-dato`
-  const res = await fetch(searchUrl)
+  const res = await fetchWithTimeout(searchUrl)
   const data = await res.json() as { results: { id: string; titulo: string }[] }
   const match = data.results?.find(r => r.titulo.includes(String(anio)))
   if (match) {
-    // usar match.id como versionId dinámico
     const recursoUrl = `${API_BASE}/dato/2/version-dato/${match.id}/recurso`
-    const rRes = await fetch(recursoUrl)
+    const rRes = await fetchWithTimeout(recursoUrl)
     const rData = await rRes.json() as { results: RecursoAPI[] }
     const recurso = rData.results?.[0]
     if (recurso?.url) return recurso.url
@@ -50,7 +60,7 @@ export async function fetchXLSXUrl(anio: number): Promise<string> {
 }
 
 export async function downloadXLSX(url: string): Promise<Buffer> {
-  const res = await fetch(url)
+  const res = await fetchWithTimeout(url, 60000) // 60s para archivos grandes
   if (!res.ok) throw new Error(`Error descargando XLSX: ${res.status}`)
   const arrayBuffer = await res.arrayBuffer()
   return Buffer.from(arrayBuffer)

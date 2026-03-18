@@ -2,6 +2,31 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Expediente, Señal } from '../lib/api'
 
+function ShareButton({ expediente }: { expediente: Expediente }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleShare = async () => {
+    const texto = `🔍 La Bestia detectó señales en el gasto de ${expediente.municipio} (${expediente.periodo}):\n\n` +
+      expediente.señales.slice(0, 2).map(s => `⚠️ ${s.titulo}`).join('\n') +
+      `\n\nGasto total analizado: ${new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(expediente.datosBase.montoTotal)}` +
+      `\n\nFuente: Portal de Datos Abiertos — Municipalidad de Córdoba` +
+      `\nhttps://victorious-luck-production-8d3a.up.railway.app`
+
+    await navigator.clipboard.writeText(texto)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 3000)
+  }
+
+  return (
+    <button
+      onClick={handleShare}
+      className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg px-4 py-3 text-sm font-medium text-gray-200 transition-colors"
+    >
+      {copied ? '✓ Copiado al portapapeles' : '📋 Copiar para compartir'}
+    </button>
+  )
+}
+
 function ScoreBadge({ score, severidad }: { score: number; severidad: string }) {
   const color = severidad === 'grave'
     ? 'bg-red-900/50 border-red-700 text-red-300'
@@ -113,6 +138,9 @@ export default function Report() {
             {expediente.resumenEjecutivo}
           </p>
         </div>
+
+        {/* Compartir */}
+        <ShareButton expediente={expediente} />
 
         {/* Señales */}
         <div className="space-y-4">

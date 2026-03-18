@@ -2,6 +2,15 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getMunicipios, analizarMunicipio } from '../lib/api'
 
+const LOADING_STEPS = [
+  'Conectando con el Portal de Datos Abiertos...',
+  'Descargando contratos oficiales...',
+  'Analizando patrones de gasto...',
+  'Calculando señales de riesgo...',
+  'Generando expediente con IA...',
+  'Finalizando reporte...',
+]
+
 export default function Landing() {
   const navigate = useNavigate()
   const [municipios, setMunicipios] = useState<{ id: string; nombre: string; aniosDisponibles: number[] }[]>([])
@@ -9,11 +18,20 @@ export default function Landing() {
   const [anioDesde, setAnioDesde] = useState(2023)
   const [anioHasta, setAnioHasta] = useState(2023)
   const [loading, setLoading] = useState(false)
+  const [loadingStep, setLoadingStep] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     getMunicipios().then(setMunicipios).catch(console.error)
   }, [])
+
+  useEffect(() => {
+    if (!loading) { setLoadingStep(0); return }
+    const interval = setInterval(() => {
+      setLoadingStep(prev => Math.min(prev + 1, LOADING_STEPS.length - 1))
+    }, 18000)
+    return () => clearInterval(interval)
+  }, [loading])
 
   const anioActual = new Date().getFullYear()
   const años = Array.from({ length: anioActual - 2005 + 1 }, (_, i) => 2005 + i).reverse()
@@ -48,7 +66,8 @@ export default function Landing() {
             <select
               value={municipioId}
               onChange={e => setMunicipioId(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={loading}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
             >
               {municipios.map(m => (
                 <option key={m.id} value={m.id}>{m.nombre}</option>
@@ -62,7 +81,8 @@ export default function Landing() {
               <select
                 value={anioDesde}
                 onChange={e => setAnioDesde(Number(e.target.value))}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={loading}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
               >
                 {años.map(a => <option key={a} value={a}>{a}</option>)}
               </select>
@@ -72,7 +92,8 @@ export default function Landing() {
               <select
                 value={anioHasta}
                 onChange={e => setAnioHasta(Number(e.target.value))}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={loading}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
               >
                 {años.filter(a => a >= anioDesde).map(a => <option key={a} value={a}>{a}</option>)}
               </select>
@@ -85,13 +106,30 @@ export default function Landing() {
             </div>
           )}
 
-          <button
-            onClick={handleAnalizar}
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:cursor-not-allowed rounded-lg px-4 py-3 font-semibold text-white transition-colors"
-          >
-            {loading ? 'Analizando... (puede tardar 1-2 minutos)' : 'Analizar gasto público'}
-          </button>
+          {loading ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full shrink-0" />
+                <span className="text-sm text-gray-300">{LOADING_STEPS[loadingStep]}</span>
+              </div>
+              <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 rounded-full transition-all duration-[18000ms] ease-linear"
+                  style={{ width: `${((loadingStep + 1) / LOADING_STEPS.length) * 100}%` }}
+                />
+              </div>
+              <p className="text-xs text-gray-600 text-center">
+                El análisis puede tardar hasta 2 minutos según el período seleccionado
+              </p>
+            </div>
+          ) : (
+            <button
+              onClick={handleAnalizar}
+              className="w-full bg-blue-600 hover:bg-blue-500 rounded-lg px-4 py-3 font-semibold text-white transition-colors"
+            >
+              Analizar gasto público →
+            </button>
+          )}
         </div>
 
         <p className="text-center text-xs text-gray-600">
