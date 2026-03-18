@@ -8,30 +8,23 @@ const router = Router()
 router.post('/', async (req: Request, res: Response) => {
   const { municipioId, anioDesde, anioHasta } = req.body
 
-  // Validaciones
-  if (!municipioId || typeof municipioId !== 'string') {
+  if (!municipioId || typeof municipioId !== 'string')
     return res.status(400).json({ ok: false, error: 'municipioId requerido' })
-  }
-  if (!anioDesde || !anioHasta) {
+  if (!anioDesde || !anioHasta)
     return res.status(400).json({ ok: false, error: 'anioDesde y anioHasta requeridos' })
-  }
 
   const desde = parseInt(String(anioDesde))
   const hasta = parseInt(String(anioHasta))
   const anioActual = new Date().getFullYear()
 
-  if (isNaN(desde) || isNaN(hasta)) {
+  if (isNaN(desde) || isNaN(hasta))
     return res.status(400).json({ ok: false, error: 'anioDesde y anioHasta deben ser números' })
-  }
-  if (desde < 2005 || hasta > anioActual) {
+  if (desde < 2005 || hasta > anioActual)
     return res.status(400).json({ ok: false, error: `Rango válido: 2005–${anioActual}` })
-  }
-  if (hasta < desde) {
+  if (hasta < desde)
     return res.status(400).json({ ok: false, error: 'anioHasta debe ser >= anioDesde' })
-  }
-  if (hasta - desde > 5) {
+  if (hasta - desde > 5)
     return res.status(400).json({ ok: false, error: 'Rango máximo: 5 años por análisis' })
-  }
 
   let connector
   try {
@@ -42,14 +35,13 @@ router.post('/', async (req: Request, res: Response) => {
 
   try {
     console.log(`[analizar] ${municipioId} ${desde}–${hasta}`)
-
     const contratos = await connector.getContratos(desde, hasta)
-    if (contratos.length === 0) {
+
+    if (contratos.length === 0)
       return res.status(404).json({
         ok: false,
-        error: `Sin datos disponibles para ${municipioId} en el período ${desde}–${hasta}`,
+        error: `Sin datos disponibles para ${municipioId} en ${desde}–${hasta}. El portal publica con aproximadamente 1 año de retraso.`,
       })
-    }
 
     const señales = calcularSeñales(contratos)
     const expediente = await generarExpediente(

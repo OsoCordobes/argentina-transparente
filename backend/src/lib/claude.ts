@@ -17,9 +17,10 @@ export async function generarExpediente(
   señales: Señal[]
 ): Promise<Expediente> {
   const montoTotal = contratos.reduce((s, c) => s + c.monto, 0)
-  const periodo = anioDesde === anioHasta ? String(anioDesde) : `${anioDesde}–${anioHasta}`
+  const periodo = anioDesde === anioHasta
+    ? String(anioDesde)
+    : `${anioDesde}–${anioHasta}`
 
-  // Top 10 proveedores
   const porProv = new Map<string, number>()
   for (const c of contratos) {
     const k = c.proveedor.trim().toUpperCase()
@@ -34,7 +35,6 @@ export async function generarExpediente(
       porcentaje: parseFloat(((monto / montoTotal) * 100).toFixed(1)),
     }))
 
-  // Tipos de proceso
   const porTipo = new Map<string, { cantidad: number; monto: number }>()
   for (const c of contratos) {
     const k = c.tipo.trim().toUpperCase()
@@ -45,36 +45,34 @@ export async function generarExpediente(
     .map(([tipo, v]) => ({ tipo, ...v }))
     .sort((a, b) => b.monto - a.monto)
 
-  // Prompt para Sonnet
   const señalesTexto = señales.map(s =>
-    `- [${s.tipologia.toUpperCase()} | score:${s.score} | ${s.legal.severidad}] ${s.titulo}\n  ${s.resumen}`
+    `- [${s.tipologia} | score:${s.score} | ${s.legal.severidad}]\n  ${s.titulo}\n  ${s.resumen}`
   ).join('\n\n')
 
   const topProvTexto = topProveedores.slice(0, 5)
     .map(p => `  • ${p.nombre}: ${ars(p.monto)} (${p.porcentaje}%)`)
     .join('\n')
 
-  const prompt = `Eres un analista de transparencia pública. Redactá el resumen ejecutivo de un expediente ciudadano sobre el gasto municipal de ${municipio} en el período ${periodo}.
+  const prompt = `Eres un analista de transparencia pública argentina. Redactá el resumen ejecutivo de un expediente ciudadano sobre el gasto municipal de ${municipio} en el período ${periodo}.
 
-DATOS BASE:
+DATOS BASE (fuente oficial: Portal de Datos Abiertos de la Municipalidad de Córdoba):
 - Total contratos analizados: ${contratos.length}
 - Monto total: ${ars(montoTotal)}
-- Fuente: Portal de Datos Abiertos de la Municipalidad de Córdoba (datos oficiales)
 
-TOP 5 PROVEEDORES:
+TOP 5 PROVEEDORES POR MONTO:
 ${topProvTexto}
 
 SEÑALES DE RIESGO DETECTADAS (${señales.length}):
 ${señalesTexto}
 
 INSTRUCCIONES:
-- Redactá 3 párrafos concisos en español rioplatense formal
-- Párrafo 1: contexto del análisis (qué se analizó, período, fuente)
-- Párrafo 2: principales hallazgos con números concretos
+- Redactá exactamente 3 párrafos en español rioplatense formal
+- Párrafo 1: contexto (qué se analizó, período, fuente de datos)
+- Párrafo 2: principales hallazgos con números exactos de los datos
 - Párrafo 3: recomendaciones de acción ciudadana e institucional
-- NO uses lenguaje alarmista ni conclusiones definitivas sobre corrupción
+- NO uses lenguaje alarmista ni afirmes corrupción como hecho probado
 - SÍ usá frases como "se detectaron patrones que merecen investigación"
-- Cada número debe estar respaldado por los datos provistos
+- Todos los números deben venir de los datos provistos arriba
 - Máximo 250 palabras en total`
 
   const response = await client.messages.create({
@@ -85,9 +83,11 @@ INSTRUCCIONES:
 
   const resumenEjecutivo = response.content
     .filter(b => b.type === 'text')
-    .map(b => b.text)
+    .map(b => (b as { type: 'text'; text: string }).text)
     .join('')
     .trim()
+
+  const hayGrave = señales.some(s => s.legal.severidad === 'grave')
 
   const expediente: Expediente = {
     municipio,
@@ -106,7 +106,7 @@ INSTRUCCIONES:
       descripcion: `Portal de Datos Abiertos — Municipalidad de Córdoba — Compras y Contrataciones ${periodo}`,
       fechaAcceso: new Date().toISOString().split('T')[0],
     }],
-    guiaDenuncia: señales.some(s => s.legal.severidad === 'grave') ? {
+    guiaDenuncia: hayGrave ? {
       organismos: [
         'Tribunal de Cuentas de Córdoba — tribunaldecuentas.cba.gov.ar — mesa@tribunaldecuentas.cba.gov.ar',
         'Defensoría del Pueblo de Córdoba — defensoria.cba.gov.ar — 0800-555-3376',
@@ -118,9 +118,9 @@ INSTRUCCIONES:
         'Código Penal art. 265/266 — peculado y exacciones ilegales',
       ],
       pasos: [
-        '1. Descargar este expediente como respaldo',
-        '2. Presentar nota ante el Tribunal de Cuentas citando número de contrato y monto',
-        '3. Solicitar acceso al expediente original vía Ley de Acceso a la Información (Ord. 12.750)',
+        '1. Descargar este expediente como respaldo documental',
+        '2. Presentar nota ante el Tribunal de Cuentas citando proveedor, monto y tipo de contrato',
+        '3. Solicitar el expediente original vía Ley de Acceso a la Información (Ord. 12.750)',
         '4. Contactar a la Defensoría del Pueblo para seguimiento ciudadano',
       ],
     } : undefined,
