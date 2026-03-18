@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import express from 'express'
 import analizarRouter from './routes/analizar'
 import { cordobaCapitalConnector } from './connectors/cordoba-capital'
