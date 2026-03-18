@@ -5,7 +5,7 @@
     "buildCommand": "npm run build"
   },
   "deploy": {
-    "startCommand": "npx serve dist -s -l $PORT",
+    "startCommand": "npx serve dist -s -p ${PORT:-3000}",
     "restartPolicyType": "ON_FAILURE"
   }
 }
