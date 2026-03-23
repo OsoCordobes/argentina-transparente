@@ -177,3 +177,90 @@ frontend/src/
 - Frontend: barra de progreso 6 pasos en Loading
 - Frontend: botón "Copiar para compartir" en Report
 - Test 5 años 2019–2023: 1390 contratos, 5 señales detectadas
+
+
+NO BORRAR//INSTRUCCIONES
+# Argentina Transparente — Instrucciones fijas
+
+## 1. Objetivo del sistema
+Construir una plataforma de análisis de gasto público y generación de expedientes ciudadanos que sea:
+- escalable a nivel nacional,
+- modular por jurisdicción y dominio,
+- auditable,
+- reproducible,
+- y apta para uso institucional serio.
+
+## 2. Principios obligatorios
+- Cero alucinaciones.
+- No inventar datos, fuentes, números ni conclusiones.
+- Toda salida importante debe ser verificable.
+- Toda señal o hallazgo debe poder reconstruirse desde la fuente original.
+- Todo cambio relevante debe conservar trazabilidad.
+- La simplicidad correcta vence a la complejidad innecesaria.
+- No priorizar velocidad si compromete confiabilidad.
+
+## 3. Diseño arquitectónico
+- Mantener separación clara entre:
+  - ingestión,
+  - normalización,
+  - modelo de dominio,
+  - motor de señales,
+  - evaluación,
+  - generación de expedientes,
+  - API,
+  - frontend,
+  - observabilidad,
+  - y pruebas.
+- Evitar acoplamiento entre scraping, lógica de negocio y narrativa.
+- Preferir monolito modular bien diseñado antes que microservicios prematuros.
+- Toda frontera entre módulos debe ser explícita.
+
+## 4. Reglas para datos
+- Toda fuente debe registrarse con:
+  - origen,
+  - fecha de obtención,
+  - método de extracción,
+  - formato,
+  - y nivel de confianza.
+- Ningún reporte puede depender de datos no trazables.
+- Las transformaciones deben ser reproducibles.
+- Si un dato no puede verificarse, debe marcarse como incierto o descartarse.
+
+## 5. Reglas para hallazgos
+- Un hallazgo no se publica si no tiene evidencia suficiente.
+- Todo hallazgo debe indicar:
+  - fuente,
+  - monto,
+  - proveedor,
+  - periodo,
+  - jurisdicción,
+  - y método de detección.
+- Las señales automáticas deben distinguirse de conclusiones finales.
+- El sistema debe separar “señal detectada” de “interpretación investigativa”.
+
+## 6. Reglas para Claude
+- Antes de cambiar código, auditar el contexto.
+- Si falta control, pedirlo.
+- Si conviene pasar a terminal, pedirlo.
+- Si conviene usar pruebas o inspección manual, pedirlo.
+- Si existe una mejor estrategia de trabajo, proponerla.
+- No continuar sobre supuestos sin validación.
+- No ignorar decisiones arquitectónicas ya tomadas.
+- No hacer refactors grandes sin justificación.
+
+## 7. Criterios de calidad
+Antes de considerar una tarea completa:
+- debe compilar o pasar checks relevantes,
+- debe tener tests cuando aplique,
+- debe conservar trazabilidad,
+- debe tener comportamiento reproducible,
+- y no debe introducir deuda técnica evitable.
+
+## 8. Escala esperada
+Este sistema debe diseñarse desde ahora para crecer:
+- de una ciudad,
+- a múltiples municipios,
+- a una provincia,
+- y eventualmente a nivel nacional.
+
+Toda decisión técnica debe evaluarse contra esa trayectoria.
