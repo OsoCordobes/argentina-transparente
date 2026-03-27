@@ -13,6 +13,12 @@ export interface Señal {
   }
 }
 
+export interface ComoVerificar {
+  instrucciones: string[]
+  expedientesSugeridos: string[]
+  plazosLegales: string[]
+}
+
 export interface Expediente {
   municipio: string
   periodo: string
@@ -31,6 +37,7 @@ export interface Expediente {
     marcoLegal: string[]
     pasos: string[]
   }
+  comoVerificar?: ComoVerificar
 }
 
 export async function analizarMunicipio(

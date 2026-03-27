@@ -2,27 +2,84 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Expediente, Señal } from '../lib/api'
 
-function ShareButton({ expediente }: { expediente: Expediente }) {
-  const [copied, setCopied] = useState(false)
+function ExportDenunciaButton({ expediente }: { expediente: Expediente }) {
+  const arsLocal = (n: number) => new Intl.NumberFormat('es-AR', {
+    style: 'currency', currency: 'ARS', maximumFractionDigits: 0
+  }).format(n)
+  const sep = '─'.repeat(60)
 
-  const handleShare = async () => {
-    const texto = `🔍 La Bestia detectó señales en el gasto de ${expediente.municipio} (${expediente.periodo}):\n\n` +
-      expediente.señales.slice(0, 2).map(s => `⚠️ ${s.titulo}`).join('\n') +
-      `\n\nGasto total analizado: ${new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(expediente.datosBase.montoTotal)}` +
-      `\n\nFuente: Portal de Datos Abiertos — Municipalidad de Córdoba` +
-      `\nhttps://victorious-luck-production-8d3a.up.railway.app`
+  const handleExport = () => {
+    const lines: string[] = [
+      'EXPEDIENTE CIUDADANO — SISTEMA ARGOS',
+      'Análisis automatizado de contrataciones públicas',
+      sep,
+      `MUNICIPIO: ${expediente.municipio}`,
+      `PERÍODO: ${expediente.periodo}`,
+      `FECHA: ${new Date(expediente.generadoEn).toLocaleDateString('es-AR')}`,
+      `CONTRATOS ANALIZADOS: ${expediente.datosBase.totalContratos.toLocaleString('es-AR')}`,
+      `GASTO TOTAL: ${arsLocal(expediente.datosBase.montoTotal)}`,
+      sep,
+      'RESUMEN EJECUTIVO',
+      expediente.resumenEjecutivo,
+      sep,
+      `SEÑALES DE RIESGO (${expediente.señales.length})`,
+      ...expediente.señales.flatMap(s => [
+        '',
+        `[${s.tipologia.toUpperCase()} | SCORE: ${s.score}/100 | ${s.legal.severidad.toUpperCase()}]`,
+        s.titulo,
+        s.resumen,
+        'Evidencia:',
+        ...s.evidencia.map(e => `  • ${e.descripcion}`),
+        'Marco legal:',
+        ...s.legal.articulos.map(a => `  • ${a}`),
+        'Denunciar ante:',
+        ...s.legal.denunciarAnte.map(d => `  • ${d}`),
+      ]),
+      sep,
+      'TOP PROVEEDORES',
+      ...expediente.datosBase.topProveedores.slice(0, 10).map(
+        p => `  • ${p.nombre}: ${arsLocal(p.monto)} (${p.porcentaje}%)`
+      ),
+      sep,
+      'FUENTES DE DATOS',
+      ...expediente.fuentes.flatMap(f => [
+        `  • ${f.descripcion}`,
+        `    URL: ${f.url}`,
+        `    Accedido: ${f.fechaAcceso}`,
+      ]),
+      ...(expediente.comoVerificar ? [
+        sep,
+        'CÓMO VERIFICAR Y DENUNCIAR',
+        ...expediente.comoVerificar.instrucciones.map((inst, i) => `${i + 1}. ${inst}`),
+        '',
+        'Expedientes a solicitar:',
+        ...expediente.comoVerificar.expedientesSugeridos.map(e => `  • ${e}`),
+        '',
+        'Plazos legales:',
+        ...expediente.comoVerificar.plazosLegales.map(p => `  • ${p}`),
+      ] : []),
+      sep,
+      'Generado por ARGOS — Sistema de Análisis de Transparencia Pública',
+      'Los datos provienen de fuentes oficiales. Documento de carácter informativo.',
+    ]
 
-    await navigator.clipboard.writeText(texto)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 3000)
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `ARGOS-${expediente.municipio.replace(/\s+/g, '-')}-${expediente.periodo}.txt`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
   }
 
   return (
     <button
-      onClick={handleShare}
-      className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg px-4 py-3 text-sm font-medium text-gray-200 transition-colors"
+      onClick={handleExport}
+      className="w-full bg-blue-900/40 hover:bg-blue-800/50 border border-blue-700 rounded-lg px-4 py-3 text-sm font-medium text-blue-200 transition-colors"
     >
-      {copied ? '✓ Copiado al portapapeles' : '📋 Copiar para compartir'}
+      Exportar expediente para denuncia formal (.txt)
     </button>
   )
 }
@@ -80,6 +137,7 @@ function SignalCard({ señal }: { señal: Señal }) {
   )
 }
 
+
 export default function Report() {
   const navigate = useNavigate()
   const [expediente, setExpediente] = useState<Expediente | null>(null)
@@ -100,6 +158,24 @@ export default function Report() {
     style: 'currency', currency: 'ARS', maximumFractionDigits: 0
   }).format(n)
 
+  const scoreGeneral = expediente.señales.length === 0 ? 0 : Math.round(
+    expediente.señales.reduce((sum, s) => {
+      const peso = s.legal.severidad === 'grave' ? 1.5 : s.legal.severidad === 'moderada' ? 1 : 0.5
+      return sum + s.score * peso
+    }, 0) / expediente.señales.reduce((sum, s) =>
+      sum + (s.legal.severidad === 'grave' ? 1.5 : s.legal.severidad === 'moderada' ? 1 : 0.5), 0)
+  )
+
+  const nivelColor = scoreGeneral >= 80
+    ? 'text-red-400 border-red-700 bg-red-950/50'
+    : scoreGeneral >= 60
+    ? 'text-orange-400 border-orange-700 bg-orange-950/50'
+    : scoreGeneral >= 35
+    ? 'text-yellow-400 border-yellow-700 bg-yellow-950/50'
+    : 'text-green-400 border-green-700 bg-green-950/50'
+
+  const nivelLabel = scoreGeneral >= 80 ? 'CRÍTICO' : scoreGeneral >= 60 ? 'ALTO' : scoreGeneral >= 35 ? 'MEDIO' : 'BAJO'
+
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       <div className="max-w-3xl mx-auto px-4 py-12 space-y-10">
@@ -109,6 +185,13 @@ export default function Report() {
           <button onClick={() => navigate('/')} className="text-sm text-gray-500 hover:text-gray-300 transition-colors">
             ← Nuevo análisis
           </button>
+          <div className={`inline-flex items-center gap-3 px-4 py-2 rounded-lg border ${nivelColor}`}>
+            <span className="text-2xl font-bold">{scoreGeneral}</span>
+            <div className="text-left">
+              <p className="text-xs font-semibold tracking-wider">{nivelLabel}</p>
+              <p className="text-xs opacity-70">score de riesgo</p>
+            </div>
+          </div>
           <h1 className="text-3xl font-bold">Expediente Ciudadano</h1>
           <p className="text-gray-400">
             {expediente.municipio} · Período {expediente.periodo}
@@ -139,8 +222,8 @@ export default function Report() {
           </p>
         </div>
 
-        {/* Compartir */}
-        <ShareButton expediente={expediente} />
+        {/* Exportar */}
+        <ExportDenunciaButton expediente={expediente} />
 
         {/* Señales */}
         <div className="space-y-4">
@@ -157,7 +240,11 @@ export default function Report() {
           <h2 className="font-semibold text-gray-200">Top 5 proveedores por monto</h2>
           <div className="space-y-3">
             {expediente.datosBase.topProveedores.slice(0, 5).map((p, i) => (
-              <div key={i} className="space-y-1">
+              <div
+                key={i}
+                className="space-y-1 cursor-pointer hover:bg-gray-800/40 transition-colors rounded-lg px-2 -mx-2"
+                onClick={() => navigate('/provider/' + encodeURIComponent(p.nombre))}
+              >
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-300 truncate flex-1 pr-4">{p.nombre}</span>
                   <span className="text-gray-400 shrink-0">{p.porcentaje}%</span>
@@ -197,6 +284,26 @@ export default function Report() {
                 <p key={i} className="text-xs text-red-300">· {l}</p>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Cómo verificar */}
+        {expediente.comoVerificar && (
+          <div className="bg-blue-950/30 border border-blue-800 rounded-xl p-6 space-y-4">
+            <h2 className="font-semibold text-blue-300">Cómo verificar y denunciar</h2>
+            <ol className="space-y-2">
+              {expediente.comoVerificar.instrucciones.map((inst, i) => (
+                <li key={i} className="text-sm text-blue-200">{i + 1}. {inst}</li>
+              ))}
+            </ol>
+            {expediente.comoVerificar.expedientesSugeridos.length > 0 && (
+              <div className="pt-2 border-t border-blue-900 space-y-1">
+                <p className="text-xs font-semibold text-blue-500 uppercase tracking-wider">Expedientes a solicitar</p>
+                {expediente.comoVerificar.expedientesSugeridos.map((e, i) => (
+                  <p key={i} className="text-xs text-blue-300">• {e}</p>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
