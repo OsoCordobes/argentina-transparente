@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getMunicipios, analizarMunicipio } from '../lib/api'
+import { getMunicipios, analizarMunicipio, getHistorial, HistorialItem } from '../lib/api'
 
 const LOADING_STEPS = [
   'Conectando con el Portal de Datos Abiertos...',
@@ -14,6 +14,7 @@ const LOADING_STEPS = [
 export default function Landing() {
   const navigate = useNavigate()
   const [municipios, setMunicipios] = useState<{ id: string; nombre: string; aniosDisponibles: number[] }[]>([])
+  const [historial, setHistorial] = useState<HistorialItem[]>([])
   const [municipioId, setMunicipioId] = useState('cordoba-capital')
   const [anioDesde, setAnioDesde] = useState(2023)
   const [anioHasta, setAnioHasta] = useState(2023)
@@ -23,6 +24,7 @@ export default function Landing() {
 
   useEffect(() => {
     getMunicipios().then(setMunicipios).catch(console.error)
+    getHistorial().then(setHistorial).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -135,6 +137,27 @@ export default function Landing() {
         <p className="text-center text-xs text-gray-600">
           Datos oficiales del Portal de Datos Abiertos de la Municipalidad de Córdoba
         </p>
+
+        {historial.length > 0 && (
+          <div className="mt-12 space-y-3">
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Últimos análisis</p>
+            <div className="space-y-2">
+              {historial.map(h => (
+                <div key={h.id} className="bg-gray-900 border border-gray-800 rounded-lg p-3 space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium text-gray-300">Período {h.period}</span>
+                    <span className="text-xs text-gray-600">{new Date(h.created_at).toLocaleDateString('es-AR')}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 line-clamp-2">{h.executive_summary}</p>
+                  <div className="flex gap-3 text-xs text-gray-600">
+                    <span>{h.total_contracts.toLocaleString('es-AR')} contratos</span>
+                    {h.signals_found != null && <span>{h.signals_found} señales</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

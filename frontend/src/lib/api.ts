@@ -63,3 +63,23 @@ export async function getMunicipios(): Promise<{
   const res = await fetch(`${API_URL}/municipios`)
   return res.json()
 }
+
+export interface HistorialItem {
+  id: string
+  period: string
+  executive_summary: string
+  total_contracts: number
+  total_amount: number
+  signals_found: number | null
+  created_at: string
+}
+
+export async function getHistorial(): Promise<HistorialItem[]> {
+  try {
+    const res = await fetch(`${API_URL}/historial`)
+    if (!res.ok) return []
+    return res.json()
+  } catch {
+    return []
+  }
+}

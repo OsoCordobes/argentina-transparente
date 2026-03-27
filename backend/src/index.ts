@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
 import analizarRouter from './routes/analizar'
+import historialRouter from './routes/historial'
 import { cordobaCapitalConnector } from './connectors/cordoba-capital'
 
 const app = express()
@@ -35,6 +36,9 @@ app.get('/municipios', (_req, res) => {
 
 // POST /analizar
 app.use('/analizar', analizarRouter)
+
+// GET /historial
+app.use('/historial', historialRouter)
 
 app.listen(PORT, () => {
   console.log(`La Bestia v2 corriendo en http://localhost:${PORT}`)
