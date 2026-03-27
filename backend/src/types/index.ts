@@ -6,6 +6,9 @@ export interface Contrato {
   monto: number
   anio: number
   fuenteUrl: string
+  numeroExpediente?: string   // "EXP-2022-001234" si el dataset lo tiene
+  numeroContrato?: string     // número de resolución/decreto
+  fechaContrato?: string      // "2022-03-15"
 }
 
 export interface Señal {
@@ -19,6 +22,12 @@ export interface Señal {
     severidad: 'grave' | 'moderada' | 'leve'
     denunciarAnte: string[]
   }
+}
+
+export interface ComoVerificar {
+  instrucciones: string[]
+  expedientesSugeridos: string[]
+  plazosLegales: string[]
 }
 
 export interface Expediente {
@@ -49,6 +58,7 @@ export interface Expediente {
     marcoLegal: string[]
     pasos: string[]
   }
+  comoVerificar?: ComoVerificar
 }
 
 export interface MunicipioConnector {
