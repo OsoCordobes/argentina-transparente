@@ -157,5 +157,28 @@ RESTRICCIONES ABSOLUTAS:
     } : undefined,
   }
 
+  const expedientesACitar = señales
+    .filter(s => s.score >= 60)
+    .flatMap(s => s.evidencia.map(e => `Expediente de contratación: ${e.descripcion.slice(0, 80)}`))
+    .slice(0, 5)
+
+  expediente.comoVerificar = {
+    instrucciones: [
+      'Presentar nota ante Mesa de Entradas Municipal (Av. Vélez Sarsfield 1198, Córdoba)',
+      'Citar Ordenanza Municipal 12.750/2015 de Acceso a la Información Pública',
+      'Solicitar: expediente de contratación + acto de adjudicación + informe técnico de evaluación',
+      'Plazo máximo de respuesta del municipio: 30 días hábiles',
+      'Sin respuesta en plazo: queja ante Defensoría del Pueblo (Av. Colón 4, 0800-555-3376)',
+    ],
+    expedientesSugeridos: expedientesACitar.length > 0
+      ? expedientesACitar
+      : señales.slice(0, 3).map(s => `Expediente relacionado: ${s.titulo.slice(0, 60)}`),
+    plazosLegales: [
+      'Respuesta inicial: 30 días hábiles (art. 4 Ordenanza 12.750)',
+      'Prórroga: hasta 15 días adicionales con notificación previa',
+      'Silencio = denegación tácita → habilita recurso jerárquico',
+    ],
+  }
+
   return expediente
 }
