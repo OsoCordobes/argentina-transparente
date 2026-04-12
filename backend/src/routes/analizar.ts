@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import { getConnector } from '../connectors/interface'
 import { calcularSeñales } from '../engine/signals'
 import { generarExpediente } from '../lib/claude'
+import { insertReporte } from '../lib/db'
 
 const router = Router()
 
@@ -48,7 +49,9 @@ router.post('/', async (req: Request, res: Response) => {
       connector.nombre, desde, hasta, contratos, señales
     )
 
-    return res.json({ ok: true, expediente })
+    const reporteId = await insertReporte(expediente, municipioId, desde, hasta)
+
+    return res.json({ ok: true, id: reporteId, expediente })
   } catch (err) {
     console.error('[analizar] Error:', err)
     return res.status(500).json({ ok: false, error: String(err) })

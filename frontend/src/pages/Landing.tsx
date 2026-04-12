@@ -42,9 +42,8 @@ export default function Landing() {
     setError(null)
     setLoading(true)
     try {
-      const expediente = await analizarMunicipio(municipioId, anioDesde, anioHasta)
-      sessionStorage.setItem('expediente', JSON.stringify(expediente))
-      navigate('/report')
+      const { id } = await analizarMunicipio(municipioId, anioDesde, anioHasta)
+      navigate(`/report?id=${id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido')
     } finally {
@@ -143,17 +142,27 @@ export default function Landing() {
             <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Últimos análisis</p>
             <div className="space-y-2">
               {historial.map(h => (
-                <div key={h.id} className="bg-gray-900 border border-gray-800 rounded-lg p-3 space-y-1">
+                <button
+                  key={h.id}
+                  onClick={() => navigate(`/report?id=${h.id}`)}
+                  className="w-full text-left bg-gray-900 border border-gray-800 hover:border-gray-700 rounded-lg p-3 space-y-1 transition-colors"
+                >
                   <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium text-gray-300">Período {h.period}</span>
-                    <span className="text-xs text-gray-600">{new Date(h.created_at).toLocaleDateString('es-AR')}</span>
+                    <span className="text-sm font-medium text-gray-300">
+                      {h.municipio} · {h.anio_desde === h.anio_hasta ? h.anio_desde : `${h.anio_desde}–${h.anio_hasta}`}
+                    </span>
+                    <span className="text-xs text-gray-600">
+                      {new Date(h.generado_en).toLocaleDateString('es-AR')}
+                    </span>
                   </div>
-                  <p className="text-xs text-gray-500 line-clamp-2">{h.executive_summary}</p>
+                  {h.resumen_ejecutivo && (
+                    <p className="text-xs text-gray-500 line-clamp-2">{h.resumen_ejecutivo}</p>
+                  )}
                   <div className="flex gap-3 text-xs text-gray-600">
-                    <span>{h.total_contracts.toLocaleString('es-AR')} contratos</span>
-                    {h.signals_found != null && <span>{h.signals_found} señales</span>}
+                    <span>{h.total_contratos.toLocaleString('es-AR')} contratos</span>
+                    <span>{h.total_señales} señales</span>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           </div>

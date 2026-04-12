@@ -3,6 +3,7 @@ import express from 'express'
 import analizarRouter from './routes/analizar'
 import historialRouter from './routes/historial'
 import { cordobaCapitalConnector } from './connectors/cordoba-capital'
+import { initDb, getReporte } from './lib/db'
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -40,6 +41,26 @@ app.use('/analizar', analizarRouter)
 // GET /historial
 app.use('/historial', historialRouter)
 
-app.listen(PORT, () => {
-  console.log(`La Bestia v2 corriendo en http://localhost:${PORT}`)
+// GET /reporte/:id
+app.get('/reporte/:id', async (req, res) => {
+  try {
+    const reporte = await getReporte(req.params.id)
+    if (!reporte) return res.status(404).json({ error: 'Reporte no encontrado' })
+    res.json(reporte)
+  } catch (err) {
+    console.error('[reporte] Error:', err)
+    res.status(500).json({ error: String(err) })
+  }
 })
+
+// Inicializar DB y arrancar servidor
+initDb()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`ARGOS v2 corriendo en http://localhost:${PORT}`)
+    })
+  })
+  .catch(err => {
+    console.error('Error inicializando base de datos:', err)
+    process.exit(1)
+  })

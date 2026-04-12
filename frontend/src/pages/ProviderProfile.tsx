@@ -1,19 +1,27 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { getReporte } from '../lib/api'
 import type { Expediente, Señal } from '../lib/api'
 
 export default function ProviderProfile() {
   const navigate = useNavigate()
   const { nombre } = useParams<{ nombre: string }>()
+  const [searchParams] = useSearchParams()
   const decodedNombre = nombre ? decodeURIComponent(nombre) : ''
 
   const [expediente, setExpediente] = useState<Expediente | null>(null)
 
   useEffect(() => {
-    const raw = sessionStorage.getItem('expediente')
-    if (!raw) { navigate('/'); return }
-    setExpediente(JSON.parse(raw))
-  }, [navigate])
+    const id = searchParams.get('id')
+    if (id) {
+      getReporte(id).then(exp => {
+        if (!exp) { navigate('/'); return }
+        setExpediente(exp)
+      })
+    } else {
+      navigate('/')
+    }
+  }, [searchParams, navigate])
 
   if (!expediente) return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center">
@@ -160,14 +168,6 @@ export default function ProviderProfile() {
               )}
             </div>
           )}
-        </div>
-
-        {/* Yearly distribution placeholder */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-3">
-          <h2 className="font-semibold text-gray-200">Distribución temporal</h2>
-          <p className="text-sm text-gray-500 italic">
-            Para ver distribución anual, usar el rango de años completo en el análisis.
-          </p>
         </div>
 
         {/* Matching señales */}
