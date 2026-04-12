@@ -4,6 +4,7 @@ import analizarRouter from './routes/analizar'
 import historialRouter from './routes/historial'
 import { cordobaCapitalConnector } from './connectors/cordoba-capital'
 import { initDb, getReporte } from './lib/db'
+import { initGraph } from './lib/graph'
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -53,14 +54,14 @@ app.get('/reporte/:id', async (req, res) => {
   }
 })
 
-// Inicializar DB y arrancar servidor
-initDb()
+// Inicializar DB + grafo y arrancar servidor
+Promise.all([initDb(), initGraph()])
   .then(() => {
     app.listen(PORT, () => {
       console.log(`ARGOS v2 corriendo en http://localhost:${PORT}`)
     })
   })
   .catch(err => {
-    console.error('Error inicializando base de datos:', err)
+    console.error('Error inicializando servicios:', err)
     process.exit(1)
   })

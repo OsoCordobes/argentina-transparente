@@ -1,4 +1,5 @@
-import { Contrato, Señal } from '../types'
+import { Contrato, Señal, EmpresaEnriquecida } from '../types'
+import { getDirectoresCompartidos, isGraphAvailable } from '../lib/graph'
 
 const ORGANISMOS = [
   'Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)',
@@ -351,8 +352,149 @@ export function detectarProveedorCronico(contratos: Contrato[]): Señal | null {
   }
 }
 
-export function calcularSeñales(contratos: Contrato[]): Señal[] {
-  const detectores = [
+// ─── Señales de entidades (Sprint 3) ─────────────────────────────────────────
+
+export function detectarEmpresaNueva(
+  contratos: Contrato[],
+  empresas: Map<string, EmpresaEnriquecida>
+): Señal | null {
+  const UMBRAL_MONTO = 5_000_000
+  const sospechosos: { nombre: string; inicioActividades: string; primerAnio: number; monto: number }[] = []
+
+  for (const [nombre, data] of empresas) {
+    if (!data.inicioActividades || !data.encontrado) continue
+
+    const partes = data.inicioActividades.split('/')
+    if (partes.length !== 3) continue
+    const anioInicio = parseInt(partes[2])
+    if (isNaN(anioInicio)) continue
+
+    const contratosProveedor = contratos.filter(
+      c => c.proveedor.trim().toUpperCase() === nombre
+    )
+    if (contratosProveedor.length === 0) continue
+
+    const primerAnio = Math.min(...contratosProveedor.map(c => c.anio))
+    const monto = contratosProveedor.reduce((s, c) => s + c.monto, 0)
+
+    // Empresa que arranca actividades y al año siguiente ya tiene contratos significativos
+    if (primerAnio - anioInicio <= 1 && monto >= UMBRAL_MONTO) {
+      sospechosos.push({ nombre, inicioActividades: data.inicioActividades, primerAnio, monto })
+    }
+  }
+
+  if (sospechosos.length === 0) return null
+
+  return {
+    tipologia: 'empresa_nueva',
+    score: 65,
+    titulo: `${sospechosos.length} proveedor${sospechosos.length > 1 ? 'es' : ''} con actividad reciente al momento del primer contrato`,
+    resumen: `Proveedores cuyo inicio de actividades en AFIP es igual o anterior en 1 año a su primer contrato con el municipio, y recibieron montos significativos. Posible habilitación ad hoc para capturar contratos.`,
+    evidencia: sospechosos.slice(0, 5).map(s => ({
+      descripcion: `${s.nombre}: inicio actividades ${s.inicioActividades}, primer contrato ${s.primerAnio}, total recibido ${ars(s.monto)}`,
+      fuenteUrl: empresas.get(s.nombre)?.fuenteUrl ?? '',
+    })),
+    legal: {
+      articulos: [
+        'Art. 11 Decreto 1023/2001 — capacidad para contratar con el Estado',
+        'Res. 1169/2016 — Registro de Proveedores del Estado',
+        'Art. 72 LCT — acreditación de capacidad operativa',
+      ],
+      severidad: 'moderada',
+      denunciarAnte: ORGANISMOS,
+    },
+  }
+}
+
+export function detectarEmpresaSinEmpleados(
+  contratos: Contrato[],
+  empresas: Map<string, EmpresaEnriquecida>
+): Señal | null {
+  const UMBRAL_MONTO = 10_000_000
+  const sospechosos: { nombre: string; monto: number; fuenteUrl: string }[] = []
+
+  for (const [nombre, data] of empresas) {
+    if (!data.encontrado) continue
+    if (data.esEmpleador) continue  // tiene empleados registrados — no aplica
+
+    const monto = contratos
+      .filter(c => c.proveedor.trim().toUpperCase() === nombre)
+      .reduce((s, c) => s + c.monto, 0)
+
+    if (monto >= UMBRAL_MONTO) {
+      sospechosos.push({ nombre, monto, fuenteUrl: data.fuenteUrl })
+    }
+  }
+
+  if (sospechosos.length === 0) return null
+
+  return {
+    tipologia: 'empresa_sin_empleados',
+    score: 72,
+    titulo: `${sospechosos.length} proveedor${sospechosos.length > 1 ? 'es' : ''} sin empleados registrados recibió contratos significativos`,
+    resumen: `Empresas que no figuran como empleadoras en AFIP pero recibieron contratos de alto valor. Sin empleados registrados, la capacidad operativa real es cuestionable. Posible empresa pantalla o intermediaria.`,
+    evidencia: sospechosos.slice(0, 5).map(s => ({
+      descripcion: `${s.nombre}: no figura como empleadora en AFIP — recibió ${ars(s.monto)} en contratos`,
+      fuenteUrl: s.fuenteUrl,
+    })),
+    legal: {
+      articulos: [
+        'Art. 29 LCT — intermediación laboral ilícita',
+        'Ley 24.769 art. 1 — evasión tributaria',
+        'Art. 55 Ley 11.683 — responsabilidad solidaria del Estado contratante',
+      ],
+      severidad: 'grave',
+      denunciarAnte: [
+        ...ORGANISMOS,
+        'AFIP/ARCA — División Fiscalización (afip.gob.ar)',
+        'Ministerio de Trabajo — Inspección del Trabajo',
+      ],
+    },
+  }
+}
+
+export function detectarDirectoresCompartidos(
+  pares: { empresa1: string; empresa2: string; cuit1: string; cuit2: string; directores: string[] }[]
+): Señal | null {
+  if (pares.length === 0) return null
+
+  return {
+    tipologia: 'directores_compartidos',
+    score: 85,
+    titulo: `${pares.length} par${pares.length > 1 ? 'es' : ''} de proveedores comparte${pares.length === 1 ? 'n' : ''} directores`,
+    resumen: `Proveedores que aparecen como competidores en licitaciones comparten directores o socios en común. Indica posible cartel o empresas vinculadas presentadas como independientes para cubrir requisitos de competencia.`,
+    evidencia: pares.slice(0, 5).map(p => ({
+      descripcion: `${p.empresa1} y ${p.empresa2} comparten: ${p.directores.join(', ')}`,
+      fuenteUrl: `https://www.cuitonline.com/search.php?q=${encodeURIComponent(p.empresa1)}`,
+    })),
+    legal: {
+      articulos: [
+        'Art. 1 Ley 27.442 — Defensa de la Competencia (colusión en licitaciones)',
+        'Art. 210 Código Penal — asociación ilícita',
+        'Art. 265 Código Penal — negociaciones incompatibles con la función pública',
+        'Convenio OCDE — Directrices sobre colusión en compras públicas',
+      ],
+      severidad: 'grave',
+      denunciarAnte: [
+        ...ORGANISMOS,
+        'CNDC — Comisión Nacional de Defensa de la Competencia (cndc.gob.ar)',
+        'Fiscalía Federal de Córdoba',
+      ],
+    },
+  }
+}
+
+// ─── Orquestador ──────────────────────────────────────────────────────────────
+
+export async function calcularSeñales(
+  contratos: Contrato[],
+  empresas?: Map<string, EmpresaEnriquecida>,
+  municipioId?: string
+): Promise<Señal[]> {
+  const señales: Señal[] = []
+
+  // Señales determinísticas (síncronas)
+  const detectoresSinc = [
     detectarProrrogas,
     detectarConcentracion,
     detectarContratacionesDirectas,
@@ -362,10 +504,28 @@ export function calcularSeñales(contratos: Contrato[]): Señal[] {
     detectarConcentracionTemporal,
     detectarProveedorCronico,
   ]
-  const señales: Señal[] = []
-  for (const d of detectores) {
+  for (const d of detectoresSinc) {
     try { const s = d(contratos); if (s) señales.push(s) }
     catch (err) { console.error('[signals] Error en detector:', err) }
   }
+
+  // Señales de entidades (requieren datos de AFIP)
+  if (empresas && empresas.size > 0) {
+    try { const s = detectarEmpresaNueva(contratos, empresas); if (s) señales.push(s) }
+    catch (err) { console.error('[signals] Error en empresa_nueva:', err) }
+
+    try { const s = detectarEmpresaSinEmpleados(contratos, empresas); if (s) señales.push(s) }
+    catch (err) { console.error('[signals] Error en empresa_sin_empleados:', err) }
+  }
+
+  // Señales de red (requieren Neo4j con directores cargados)
+  if (isGraphAvailable() && municipioId) {
+    try {
+      const pares = await getDirectoresCompartidos(municipioId)
+      const s = detectarDirectoresCompartidos(pares)
+      if (s) señales.push(s)
+    } catch (err) { console.error('[signals] Error en directores_compartidos:', err) }
+  }
+
   return señales.sort((a, b) => b.score - a.score)
 }

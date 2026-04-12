@@ -9,8 +9,11 @@ import {
   detectarFraccionamientoAvanzado,
   detectarConcentracionTemporal,
   detectarProveedorCronico,
+  detectarEmpresaNueva,
+  detectarEmpresaSinEmpleados,
+  detectarDirectoresCompartidos,
 } from './signals'
-import type { Contrato } from '../types'
+import type { Contrato, EmpresaEnriquecida } from '../types'
 
 // ─── Fixture helpers ────────────────────────────────────────────────────────
 
@@ -30,40 +33,37 @@ function c(overrides: Partial<Contrato> & { proveedor: string; monto: number }):
 // ─── calcularSeñales — orchestration ────────────────────────────────────────
 
 describe('calcularSeñales', () => {
-  it('returns empty array for empty input', () => {
-    expect(calcularSeñales([])).toEqual([])
+  it('returns empty array for empty input', async () => {
+    expect(await calcularSeñales([])).toEqual([])
   })
 
-  it('does not throw on empty array', () => {
-    expect(() => calcularSeñales([])).not.toThrow()
+  it('does not throw on empty array', async () => {
+    await expect(calcularSeñales([])).resolves.not.toThrow()
   })
 
-  it('does not throw on single contract', () => {
-    expect(() => calcularSeñales([c({ proveedor: 'EMPRESA SA', monto: 1_000_000 })])).not.toThrow()
+  it('does not throw on single contract', async () => {
+    await expect(calcularSeñales([c({ proveedor: 'EMPRESA SA', monto: 1_000_000 })])).resolves.toBeDefined()
   })
 
-  it('returns array sorted by score descending', () => {
-    // Build contracts that trigger multiple detectors
+  it('returns array sorted by score descending', async () => {
     const contratos: Contrato[] = [
-      // 10 direct contracts → triggers contrataciones_directas
       ...Array.from({ length: 10 }, (_, i) =>
         c({ tipo: 'CONTRATACION DIRECTA', proveedor: `PROV_${i}`, monto: 5_000_000 })
       ),
-      // One dominant provider → triggers concentracion_proveedor
       c({ proveedor: 'MONOPOLIO SA', monto: 60_000_000 }),
     ]
-    const señales = calcularSeñales(contratos)
+    const señales = await calcularSeñales(contratos)
     for (let i = 0; i < señales.length - 1; i++) {
       expect(señales[i].score).toBeGreaterThanOrEqual(señales[i + 1].score)
     }
   })
 
-  it('each returned signal has required fields', () => {
+  it('each returned signal has required fields', async () => {
     const contratos = [
       c({ proveedor: 'GIGANTE SRL', monto: 80_000_000 }),
       c({ proveedor: 'PEQUENA SA', monto: 10_000_000 }),
     ]
-    const señales = calcularSeñales(contratos)
+    const señales = await calcularSeñales(contratos)
     for (const s of señales) {
       expect(typeof s.tipologia).toBe('string')
       expect(typeof s.score).toBe('number')
@@ -517,8 +517,159 @@ describe('detectarProveedorCronico', () => {
       c({ anio: 2022, proveedor: 'OTRO', monto: 10_000_000 }),
       c({ anio: 2023, proveedor: 'PARCIAL SA', monto: 30_000_000 }),
     ]
-    // PARCIAL SA: 2/3 years = 67% ≥ 60%, total 60M ≥ 50M → fires
     const señal = detectarProveedorCronico(contratos)
     expect(señal).not.toBeNull()
+  })
+})
+
+// ─── detectarEmpresaNueva ────────────────────────────────────────────────────
+
+function empresa(overrides: Partial<EmpresaEnriquecida> = {}): EmpresaEnriquecida {
+  return {
+    cuit: '30123456789',
+    razonSocial: null,
+    esEmpleador: true,
+    inicioActividades: null,
+    estado: 'ACTIVO',
+    actividadPrincipal: null,
+    directores: [],
+    encontrado: true,
+    fuenteUrl: 'https://www.cuitonline.com/search.php?q=test',
+    ...overrides,
+  }
+}
+
+describe('detectarEmpresaNueva', () => {
+  it('returns null when empresas map is empty', () => {
+    expect(detectarEmpresaNueva([c({ proveedor: 'EMPRESA SA', monto: 10_000_000 })], new Map())).toBeNull()
+  })
+
+  it('returns null when no empresa has inicioActividades', () => {
+    const emp = new Map([['EMPRESA SA', empresa({ inicioActividades: null })]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 20_000_000 })]
+    expect(detectarEmpresaNueva(contratos, emp)).toBeNull()
+  })
+
+  it('returns null when monto < 5M', () => {
+    const emp = new Map([['NUEVA SRL', empresa({ inicioActividades: '01/01/2023', encontrado: true })]])
+    const contratos = [c({ proveedor: 'NUEVA SRL', anio: 2023, monto: 2_000_000 })]
+    expect(detectarEmpresaNueva(contratos, emp)).toBeNull()
+  })
+
+  it('returns null when empresa started > 1 year before first contract', () => {
+    const emp = new Map([['VIEJA SA', empresa({ inicioActividades: '01/01/2020', encontrado: true })]])
+    const contratos = [c({ proveedor: 'VIEJA SA', anio: 2023, monto: 20_000_000 })]
+    expect(detectarEmpresaNueva(contratos, emp)).toBeNull()
+  })
+
+  it('fires when empresa started same year as first contract with significant monto', () => {
+    const emp = new Map([['NUEVA SRL', empresa({ inicioActividades: '15/06/2023', encontrado: true })]])
+    const contratos = [c({ proveedor: 'NUEVA SRL', anio: 2023, monto: 15_000_000 })]
+    const señal = detectarEmpresaNueva(contratos, emp)
+    expect(señal).not.toBeNull()
+    expect(señal!.tipologia).toBe('empresa_nueva')
+  })
+
+  it('fires when empresa started 1 year before first contract', () => {
+    const emp = new Map([['RECIENTE SA', empresa({ inicioActividades: '01/01/2022', encontrado: true })]])
+    const contratos = [c({ proveedor: 'RECIENTE SA', anio: 2023, monto: 10_000_000 })]
+    expect(detectarEmpresaNueva(contratos, emp)).not.toBeNull()
+  })
+
+  it('marks as moderada', () => {
+    const emp = new Map([['NUEVA SRL', empresa({ inicioActividades: '01/03/2023', encontrado: true })]])
+    const contratos = [c({ proveedor: 'NUEVA SRL', anio: 2023, monto: 20_000_000 })]
+    expect(detectarEmpresaNueva(contratos, emp)!.legal.severidad).toBe('moderada')
+  })
+})
+
+// ─── detectarEmpresaSinEmpleados ─────────────────────────────────────────────
+
+describe('detectarEmpresaSinEmpleados', () => {
+  it('returns null when empresas map is empty', () => {
+    expect(detectarEmpresaSinEmpleados([c({ proveedor: 'EMPRESA SA', monto: 20_000_000 })], new Map())).toBeNull()
+  })
+
+  it('returns null when empresa IS an employer', () => {
+    const emp = new Map([['EMPLEADORA SA', empresa({ esEmpleador: true, encontrado: true })]])
+    const contratos = [c({ proveedor: 'EMPLEADORA SA', monto: 50_000_000 })]
+    expect(detectarEmpresaSinEmpleados(contratos, emp)).toBeNull()
+  })
+
+  it('returns null when monto < 10M even without employees', () => {
+    const emp = new Map([['PEQUEÑA SRL', empresa({ esEmpleador: false, encontrado: true })]])
+    const contratos = [c({ proveedor: 'PEQUEÑA SRL', monto: 5_000_000 })]
+    expect(detectarEmpresaSinEmpleados(contratos, emp)).toBeNull()
+  })
+
+  it('returns null when empresa not found in AFIP', () => {
+    const emp = new Map([['DESCONOCIDA', empresa({ encontrado: false, esEmpleador: false })]])
+    const contratos = [c({ proveedor: 'DESCONOCIDA', monto: 50_000_000 })]
+    expect(detectarEmpresaSinEmpleados(contratos, emp)).toBeNull()
+  })
+
+  it('fires when empresa has no employees and received ≥ 10M', () => {
+    const emp = new Map([['FANTASMA SRL', empresa({ esEmpleador: false, encontrado: true })]])
+    const contratos = [c({ proveedor: 'FANTASMA SRL', monto: 25_000_000 })]
+    const señal = detectarEmpresaSinEmpleados(contratos, emp)
+    expect(señal).not.toBeNull()
+    expect(señal!.tipologia).toBe('empresa_sin_empleados')
+  })
+
+  it('marks as grave', () => {
+    const emp = new Map([['PANTALLA SA', empresa({ esEmpleador: false, encontrado: true })]])
+    const contratos = [c({ proveedor: 'PANTALLA SA', monto: 30_000_000 })]
+    expect(detectarEmpresaSinEmpleados(contratos, emp)!.legal.severidad).toBe('grave')
+  })
+
+  it('aggregates multiple contracts from same provider', () => {
+    const emp = new Map([['MULTI SRL', empresa({ esEmpleador: false, encontrado: true })]])
+    // 3 contracts × 4M = 12M total — above threshold
+    const contratos = [
+      c({ proveedor: 'MULTI SRL', monto: 4_000_000 }),
+      c({ proveedor: 'MULTI SRL', monto: 4_000_000 }),
+      c({ proveedor: 'MULTI SRL', monto: 4_000_000 }),
+    ]
+    expect(detectarEmpresaSinEmpleados(contratos, emp)).not.toBeNull()
+  })
+})
+
+// ─── detectarDirectoresCompartidos ───────────────────────────────────────────
+
+describe('detectarDirectoresCompartidos', () => {
+  it('returns null for empty pares array', () => {
+    expect(detectarDirectoresCompartidos([])).toBeNull()
+  })
+
+  it('fires when there are shared directors', () => {
+    const pares = [{
+      empresa1: 'CONSTRUCTORA NORTE SA',
+      empresa2: 'CONSTRUCTORA SUR SRL',
+      cuit1: '30111111111',
+      cuit2: '30222222222',
+      directores: ['GARCIA MARIO RUBEN'],
+    }]
+    const señal = detectarDirectoresCompartidos(pares)
+    expect(señal).not.toBeNull()
+    expect(señal!.tipologia).toBe('directores_compartidos')
+  })
+
+  it('marks as grave', () => {
+    const pares = [{
+      empresa1: 'A SA', empresa2: 'B SRL',
+      cuit1: '30111', cuit2: '30222',
+      directores: ['LOPEZ JUAN'],
+    }]
+    expect(detectarDirectoresCompartidos(pares)!.legal.severidad).toBe('grave')
+  })
+
+  it('includes director names in evidence', () => {
+    const pares = [{
+      empresa1: 'ALPHA SA', empresa2: 'BETA SRL',
+      cuit1: '30111', cuit2: '30222',
+      directores: ['PEREZ CARLOS', 'GOMEZ ANA'],
+    }]
+    const señal = detectarDirectoresCompartidos(pares)!
+    expect(señal.evidencia[0].descripcion).toContain('PEREZ CARLOS')
   })
 })

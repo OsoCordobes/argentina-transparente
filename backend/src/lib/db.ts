@@ -38,6 +38,29 @@ export async function initDb(): Promise<void> {
   _conn = db.connect()
 
   await dbRun(`
+    CREATE TABLE IF NOT EXISTS empresas (
+      cuit              TEXT PRIMARY KEY,
+      nombre            TEXT NOT NULL,
+      es_empleador      BOOLEAN,
+      inicio_actividades TEXT,
+      estado            TEXT,
+      actividad_principal TEXT,
+      fuente_url        TEXT,
+      actualizado_en    TEXT NOT NULL
+    )
+  `)
+
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS directores (
+      id               TEXT PRIMARY KEY,
+      cuit_empresa     TEXT NOT NULL,
+      nombre_director  TEXT NOT NULL,
+      fuente_url       TEXT,
+      actualizado_en   TEXT NOT NULL
+    )
+  `)
+
+  await dbRun(`
     CREATE TABLE IF NOT EXISTS reportes (
       id              TEXT    PRIMARY KEY,
       municipio       TEXT    NOT NULL,
@@ -75,6 +98,39 @@ export interface ReporteCompleto {
 }
 
 // ─── Operaciones ──────────────────────────────────────────────────────────────
+
+export async function upsertEmpresa(data: {
+  cuit: string
+  nombre: string
+  esEmpleador: boolean
+  inicioActividades: string | null
+  estado: string | null
+  actividadPrincipal: string | null
+  fuenteUrl: string
+}): Promise<void> {
+  await dbRun(
+    `INSERT OR REPLACE INTO empresas VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [data.cuit, data.nombre, data.esEmpleador, data.inicioActividades,
+     data.estado, data.actividadPrincipal, data.fuenteUrl, new Date().toISOString()]
+  )
+}
+
+export async function upsertDirectores(cuitEmpresa: string, directores: string[], fuenteUrl: string): Promise<void> {
+  for (const nombre of directores) {
+    const id = `${cuitEmpresa}_${nombre.trim().toUpperCase()}`
+    await dbRun(
+      `INSERT OR REPLACE INTO directores VALUES (?, ?, ?, ?, ?)`,
+      [id, cuitEmpresa, nombre.trim(), fuenteUrl, new Date().toISOString()]
+    )
+  }
+}
+
+export async function getDirectoresPorEmpresa(cuit: string): Promise<string[]> {
+  const rows = await dbAll<{ nombre_director: string }>(
+    `SELECT nombre_director FROM directores WHERE cuit_empresa = ?`, [cuit]
+  )
+  return rows.map(r => r.nombre_director)
+}
 
 export async function insertReporte(
   expediente: Expediente,
