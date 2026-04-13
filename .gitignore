@@ -33,3 +33,7 @@ tmp_*.cjs
 
 # DuckDB data files — local persistence, not committed
 backend/data/
+# Evidence.dev
+reports/.evidence/
+reports/build/
+reports/node_modules/
