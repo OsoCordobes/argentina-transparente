@@ -125,16 +125,17 @@ async function main() {
       console.log(`  ✓ Entidades cargadas: ${counts.entidades.toLocaleString()}`)
       console.log(`  ✓ Autoridades cargadas: ${counts.autoridades.toLocaleString()}`)
 
-      // Limpiar archivos temporales
-      fs.rmSync(zipPath, { force: true })
-      fs.rmSync(entPath, { force: true })
-      fs.rmSync(autPath, { force: true })
-
       success = true
+
+      // Limpiar archivos temporales (best-effort — Windows puede tener lock en CSV)
+      for (const p of [zipPath, entPath, autPath]) {
+        try { fs.rmSync(p, { force: true }) } catch { /* ignore EBUSY on Windows */ }
+      }
+
       break
     } catch (err) {
       console.warn(`  ✗ Falló ${source.label}: ${err}`)
-      if (fs.existsSync(zipPath)) fs.rmSync(zipPath, { force: true })
+      try { fs.rmSync(zipPath, { force: true }) } catch { /* ignore */ }
     }
   }
 
