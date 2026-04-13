@@ -12,10 +12,17 @@
     "test:coverage": "vitest run --coverage",
     "test:connector": "npx ts-node -e \"const {cordobaCapitalConnector} = require('./src/connectors/cordoba-capital'); cordobaCapitalConnector.getContratos(2023,2023).then(c => { console.log('Total contratos:', c.length); console.log('Muestra:', JSON.stringify(c.slice(0,3), null, 2)); }).catch(console.error)\"",
     "test:signals": "npx ts-node src/test-signals.ts",
-    "test:e2e": "npx ts-node src/test-e2e.ts"
+    "test:e2e": "npx ts-node src/test-e2e.ts",
+    "seed:cordoba": "npx ts-node src/scripts/seed-cordoba.ts",
+    "seed:igj": "npx ts-node src/scripts/seed-igj.ts",
+    "seed:afip": "npx ts-node src/scripts/seed-afip.ts",
+    "seed:all": "npm run seed:cordoba && npm run seed:igj && npm run seed:afip",
+    "analyze": "npx ts-node src/scripts/analyze.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.79.0",
+    "@types/adm-zip": "^0.5.8",
+    "adm-zip": "^0.5.17",
     "dotenv": "^17.3.1",
     "duckdb": "^1.4.4",
     "express": "^4.18.2",

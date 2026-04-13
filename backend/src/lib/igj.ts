@@ -1,20 +1,14 @@
-// IGJ — Inspección General de Justicia (directores y socios de sociedades)
+// IGJ — Inspección General de Justicia
 //
-// Estado: STUB — fuente de datos pendiente de identificación
+// Fuente: datos.jus.gob.ar — "Entidades constituidas en la IGJ"
+// Datos disponibles: directores, socios, fecha constitución (desde 2018+)
 //
-// Opciones a evaluar (requiere WebFetch para mapear estructura):
-//   1. igj.gob.ar — portal IGJ nacional (CABA + sociedades nacionales)
-//   2. Dirección de Personas Jurídicas Córdoba — para empresas provinciales
-//   3. datosabiertos.minjus.gob.ar — Ministerio de Justicia
-//   4. APIs de terceros (OpenCorporates, etc.) — costo, requiere evaluación
+// Para poblar la base de datos local ejecutar:
+//   npm run seed:igj
 //
-// Cuando se implemente, esta función debe retornar:
-//   - directores: string[]  (apellido nombre del director)
-//   - socios: string[]
-//   - fechaConstitucion: string | null
-//   - domicilioRegistrado: string | null
-//
-// El CUIT es el identificador canónico para el lookup.
+// Sin datos seeds, las consultas devuelven resultado vacío (graceful degradation)
+
+import { isIGJLoaded, getDirectoresPorCuitIGJ } from './db'
 
 export interface IGJResult {
   cuit: string
@@ -26,16 +20,45 @@ export interface IGJResult {
   fuenteUrl: string
 }
 
-export async function consultarIGJ(_cuit: string): Promise<IGJResult> {
-  // TODO: implementar cuando se identifique la fuente de datos
-  // Ver comentario arriba para opciones disponibles
-  return {
-    cuit: _cuit,
+const IGJ_FUENTE_URL = 'https://datos.jus.gob.ar/dataset/da045e06-35cb-4bdd-9b5e-ddee6712c86c'
+
+export async function consultarIGJ(cuit: string): Promise<IGJResult> {
+  const empty: IGJResult = {
+    cuit,
     directores: [],
     socios: [],
     fechaConstitucion: null,
     domicilioRegistrado: null,
     encontrado: false,
-    fuenteUrl: 'pendiente',
+    fuenteUrl: IGJ_FUENTE_URL,
+  }
+
+  try {
+    const loaded = await isIGJLoaded()
+    if (!loaded) return empty
+
+    const rows = await getDirectoresPorCuitIGJ(cuit)
+    if (rows.length === 0) return empty
+
+    const directores = rows
+      .filter(r => r.tipo_administrador === 'A')
+      .map(r => r.apellido_nombre)
+
+    const socios = rows
+      .filter(r => r.tipo_administrador === 'S')
+      .map(r => r.apellido_nombre)
+
+    return {
+      cuit,
+      directores,
+      socios,
+      fechaConstitucion: null, // not in autoridades table; needs entidades join with dates
+      domicilioRegistrado: null,
+      encontrado: true,
+      fuenteUrl: IGJ_FUENTE_URL,
+    }
+  } catch (err) {
+    console.warn(`[igj] Error consultando CUIT ${cuit}:`, err)
+    return empty
   }
 }

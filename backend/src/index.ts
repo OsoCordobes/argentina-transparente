@@ -2,6 +2,8 @@ import 'dotenv/config'
 import express from 'express'
 import analizarRouter from './routes/analizar'
 import historialRouter from './routes/historial'
+import dashboardRouter from './routes/dashboard'
+import entidadRouter from './routes/entidad'
 import { cordobaCapitalConnector } from './connectors/cordoba-capital'
 import { initDb, getReporte } from './lib/db'
 import { initGraph } from './lib/graph'
@@ -36,10 +38,12 @@ app.get('/municipios', (_req, res) => {
   ])
 })
 
-// POST /analizar
-app.use('/analizar', analizarRouter)
+// New entity-centric API
+app.use('/api/dashboard', dashboardRouter)
+app.use('/api/entidad', entidadRouter)
 
-// GET /historial
+// Legacy routes (still used by current frontend)
+app.use('/analizar', analizarRouter)
 app.use('/historial', historialRouter)
 
 // GET /reporte/:id
