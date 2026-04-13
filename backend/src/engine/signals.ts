@@ -1,5 +1,5 @@
 import { Contrato, Señal, EmpresaEnriquecida } from '../types'
-import { getDirectoresCompartidos, isGraphAvailable } from '../lib/graph'
+import { getDirectoresCompartidos, getRedDeEmpresas, isGraphAvailable } from '../lib/graph'
 
 const ORGANISMOS = [
   'Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)',
@@ -484,6 +484,194 @@ export function detectarDirectoresCompartidos(
   }
 }
 
+// ─── Señales de comportamiento coordinado (Sprint 4) ─────────────────────────
+
+export function detectarRotacionCoordinada(contratos: Contrato[]): Señal | null {
+  // Only consider base-award contract types (not extensions/amendments)
+  const BASE_TIPOS = ['LICITACI', 'CONCURSO', 'DIRECTA']
+  const base = contratos.filter(c =>
+    BASE_TIPOS.some(t => c.tipo.toUpperCase().includes(t))
+  )
+  if (base.length === 0) return null
+
+  // Group by area
+  const porArea = new Map<string, Contrato[]>()
+  for (const c of base) {
+    const area = c.area.trim().toUpperCase()
+    if (!area) continue
+    if (!porArea.has(area)) porArea.set(area, [])
+    porArea.get(area)!.push(c)
+  }
+
+  const casos: {
+    area: string
+    pares: { prov1: string; años1: number[]; prov2: string; años2: number[] }[]
+    montoTotal: number
+  }[] = []
+
+  for (const [area, cs] of porArea.entries()) {
+    const totalAnios = new Set(cs.map(c => c.anio))
+    if (totalAnios.size < 3) continue
+
+    // Group by proveedor within this area
+    const porProv = new Map<string, { años: Set<number>; monto: number }>()
+    for (const c of cs) {
+      const prov = c.proveedor.trim().toUpperCase()
+      if (!porProv.has(prov)) porProv.set(prov, { años: new Set(), monto: 0 })
+      const entry = porProv.get(prov)!
+      entry.años.add(c.anio)
+      entry.monto += c.monto
+    }
+    if (porProv.size < 2) continue
+
+    // Find pairs with no overlapping years (each wins in different years)
+    const provList = Array.from(porProv.entries())
+    const pares: { prov1: string; años1: number[]; prov2: string; años2: number[] }[] = []
+
+    for (let i = 0; i < provList.length; i++) {
+      for (let j = i + 1; j < provList.length; j++) {
+        const [prov1, d1] = provList[i]
+        const [prov2, d2] = provList[j]
+        const overlap = [...d1.años].filter(y => d2.años.has(y))
+        if (overlap.length > 0) continue
+        // Both need meaningful presence (combined ≥3 years)
+        if (d1.años.size + d2.años.size < 3) continue
+        pares.push({
+          prov1, años1: [...d1.años].sort(),
+          prov2, años2: [...d2.años].sort(),
+        })
+      }
+    }
+
+    if (pares.length === 0) continue
+    const montoTotal = cs.reduce((s, c) => s + c.monto, 0)
+    if (montoTotal < 10_000_000) continue
+
+    casos.push({ area, pares, montoTotal })
+  }
+
+  if (casos.length === 0) return null
+  casos.sort((a, b) => b.montoTotal - a.montoTotal)
+
+  const top = casos[0]
+  const totalMonto = casos.reduce((s, c) => s + c.montoTotal, 0)
+
+  return {
+    tipologia: 'rotacion_coordinada',
+    score: Math.min(80, 60 + casos.length * 5),
+    titulo: `Posible rotación coordinada en ${casos.length} área${casos.length > 1 ? 's' : ''}: proveedores que se alternan sin competir`,
+    resumen: `En ${casos.length} área${casos.length > 1 ? 's' : ''}, dos o más proveedores ganan contratos base en años distintos sin nunca coincidir en el mismo año. Caso principal: área "${top.area}" — ${top.pares[0].prov1} (años ${top.pares[0].años1.join(', ')}) y ${top.pares[0].prov2} (años ${top.pares[0].años2.join(', ')}) se alternan con ${ars(totalMonto)} involucrados. Este patrón es consistente con acuerdos de reparto de mercado prohibidos por la Ley de Defensa de la Competencia.`,
+    evidencia: top.pares.slice(0, 4).map(p => ({
+      descripcion: `"${top.area}": ${p.prov1} (años ${p.años1.join(', ')}) vs ${p.prov2} (años ${p.años2.join(', ')})`,
+      fuenteUrl: contratos[0].fuenteUrl,
+    })),
+    legal: {
+      articulos: [
+        'Art. 1 Ley 27.442 — Defensa de la Competencia (colusión en licitaciones)',
+        'Art. 310 Código Penal — falsedad en licitaciones públicas',
+        'Convenio OCDE — Directrices sobre colusión en compras públicas',
+      ],
+      severidad: 'grave',
+      denunciarAnte: [
+        ...ORGANISMOS,
+        'CNDC — Comisión Nacional de Defensa de la Competencia (cndc.gob.ar)',
+      ],
+    },
+  }
+}
+
+export function detectarAdendaPostAdjudicacion(contratos: Contrato[]): Señal | null {
+  const TIPOS_BASE = ['LICITACI', 'CONCURSO', 'DIRECTA']
+  const TIPOS_ADENDA = ['AMPLIACI', 'COMPLEMENTARIO', 'ADICIONAL']
+
+  // Group by (proveedor, area, anio) and classify each contrato
+  const grupos = new Map<string, { base: Contrato[]; adendas: Contrato[] }>()
+
+  for (const c of contratos) {
+    const prov = c.proveedor.trim().toUpperCase()
+    const area = c.area.trim().toUpperCase()
+    const key = `${prov}|||${area}|||${c.anio}`
+    if (!grupos.has(key)) grupos.set(key, { base: [], adendas: [] })
+    const g = grupos.get(key)!
+
+    if (TIPOS_BASE.some(t => c.tipo.toUpperCase().includes(t))) {
+      g.base.push(c)
+    } else if (TIPOS_ADENDA.some(t => c.tipo.toUpperCase().includes(t))) {
+      g.adendas.push(c)
+    }
+  }
+
+  const hallazgos: {
+    proveedor: string; area: string; anio: number
+    montoBase: number; montoAdenda: number; pct: number; fuenteUrl: string
+  }[] = []
+
+  for (const [key, g] of grupos.entries()) {
+    if (g.base.length === 0 || g.adendas.length === 0) continue
+    const montoBase  = g.base.reduce((s, c) => s + c.monto, 0)
+    const montoAdenda = g.adendas.reduce((s, c) => s + c.monto, 0)
+    const pct = (montoAdenda / montoBase) * 100
+    if (pct < 50 || montoBase < 5_000_000) continue
+    const [proveedor, area, anioStr] = key.split('|||')
+    hallazgos.push({ proveedor, area, anio: parseInt(anioStr), montoBase, montoAdenda, pct, fuenteUrl: g.base[0].fuenteUrl })
+  }
+
+  if (hallazgos.length === 0) return null
+  hallazgos.sort((a, b) => b.pct - a.pct)
+
+  const top = hallazgos[0]
+
+  return {
+    tipologia: 'adenda_postajudicacion',
+    score: Math.min(75, 55 + hallazgos.length * 4),
+    titulo: `${hallazgos.length} contrato${hallazgos.length > 1 ? 's' : ''} con ampliaciones post-adjudicación superiores al 50% del valor original`,
+    resumen: `Se detectaron ${hallazgos.length} caso${hallazgos.length > 1 ? 's' : ''} donde el monto total de ampliaciones o complementarios supera el 50% del contrato base. Caso principal: "${top.proveedor}" en "${top.area}" (${top.anio}): contrato base ${ars(top.montoBase)}, ampliado ${ars(top.montoAdenda)} (${top.pct.toFixed(0)}% de incremento). Las adendas masivas post-adjudicación permiten obtener contratos con precios artificialmente bajos y luego incrementarlos sin nuevo proceso competitivo.`,
+    evidencia: hallazgos.slice(0, 4).map(h => ({
+      descripcion: `${h.proveedor} (${h.anio}): base ${ars(h.montoBase)} → ampliado +${ars(h.montoAdenda)} (${h.pct.toFixed(0)}%)`,
+      fuenteUrl: h.fuenteUrl,
+    })),
+    legal: {
+      articulos: [
+        'Ley Provincial 8614 art. 14 (prohibición de adendas que desnaturalizan el proceso)',
+        'Art. 72 Decreto 1023/2001 — modificaciones al contrato original',
+        'Principio de equivalencia de la oferta original',
+      ],
+      severidad: top.pct >= 100 ? 'grave' : 'moderada',
+      denunciarAnte: ORGANISMOS,
+    },
+  }
+}
+
+export function detectarRedDeEmpresas(
+  pares: { empresa1: string; empresa2: string; cuit1: string; cuit2: string; directoresCompartidos: string[] }[]
+): Señal | null {
+  if (pares.length === 0) return null
+
+  return {
+    tipologia: 'red_de_empresas',
+    score: 88,
+    titulo: `${pares.length} par${pares.length > 1 ? 'es' : ''} de proveedores vinculados por 2 o más directores en común`,
+    resumen: `Se identificaron ${pares.length} par${pares.length > 1 ? 'es' : ''} de empresas proveedoras del municipio que comparten 2 o más directores en sus órganos de administración. La vinculación directiva entre empresas que compiten en licitaciones o se complementan en contratos constituye un indicio de posible colusión o grupo económico no declarado que distorsiona la competencia.`,
+    evidencia: pares.slice(0, 5).map(p => ({
+      descripcion: `${p.empresa1} y ${p.empresa2} comparten ${p.directoresCompartidos.length} directores: ${p.directoresCompartidos.join(', ')}`,
+      fuenteUrl: `https://www.cuitonline.com/search.php?q=${encodeURIComponent(p.empresa1)}`,
+    })),
+    legal: {
+      articulos: [
+        'Art. 1 Ley 27.442 — Defensa de la Competencia (colusión en licitaciones)',
+        'Art. 33 Ley General de Sociedades — grupos empresarios vinculados',
+        'Art. 210 Código Penal — asociación ilícita',
+      ],
+      severidad: 'grave',
+      denunciarAnte: [
+        ...ORGANISMOS,
+        'CNDC — Comisión Nacional de Defensa de la Competencia (cndc.gob.ar)',
+        'Fiscalía Federal de Córdoba',
+      ],
+    },
+  }
+}
+
 // ─── Orquestador ──────────────────────────────────────────────────────────────
 
 export async function calcularSeñales(
@@ -525,7 +713,20 @@ export async function calcularSeñales(
       const s = detectarDirectoresCompartidos(pares)
       if (s) señales.push(s)
     } catch (err) { console.error('[signals] Error en directores_compartidos:', err) }
+
+    try {
+      const pares = await getRedDeEmpresas(municipioId, 2)
+      const s = detectarRedDeEmpresas(pares)
+      if (s) señales.push(s)
+    } catch (err) { console.error('[signals] Error en red_de_empresas:', err) }
   }
+
+  // Señales de comportamiento coordinado (síncronas)
+  try { const s = detectarRotacionCoordinada(contratos); if (s) señales.push(s) }
+  catch (err) { console.error('[signals] Error en rotacion_coordinada:', err) }
+
+  try { const s = detectarAdendaPostAdjudicacion(contratos); if (s) señales.push(s) }
+  catch (err) { console.error('[signals] Error en adenda_postajudicacion:', err) }
 
   return señales.sort((a, b) => b.score - a.score)
 }

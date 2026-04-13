@@ -146,6 +146,40 @@ export async function getDirectoresCompartidos(municipio: string): Promise<Direc
   })
 }
 
+export interface RedDeEmpresasResult {
+  empresa1: string
+  empresa2: string
+  cuit1: string
+  cuit2: string
+  directoresCompartidos: string[]
+}
+
+// Pairs sharing ≥minShared directors — stronger signal than directores_compartidos (≥1)
+export async function getRedDeEmpresas(municipio: string, minShared = 2): Promise<RedDeEmpresasResult[]> {
+  if (!_available) return []
+  return withSession(async s => {
+    const result = await s.run(
+      `MATCH (e1:Empresa {municipio: $municipio})-[:TIENE_DIRECTOR]->(d:Director)
+             <-[:TIENE_DIRECTOR]-(e2:Empresa {municipio: $municipio})
+       WHERE e1.cuit < e2.cuit
+       WITH e1, e2, collect(d.nombre) AS directores
+       WHERE size(directores) >= $min
+       RETURN e1.nombre AS empresa1, e2.nombre AS empresa2,
+              e1.cuit AS cuit1, e2.cuit AS cuit2, directores
+       ORDER BY size(directores) DESC
+       LIMIT 20`,
+      { municipio, min: neo4j.int(minShared) }
+    )
+    return result.records.map(r => ({
+      empresa1:            r.get('empresa1') as string,
+      empresa2:            r.get('empresa2') as string,
+      cuit1:               r.get('cuit1') as string,
+      cuit2:               r.get('cuit2') as string,
+      directoresCompartidos: r.get('directores') as string[],
+    }))
+  })
+}
+
 export async function closeGraph(): Promise<void> {
   if (_driver) {
     await _driver.close()

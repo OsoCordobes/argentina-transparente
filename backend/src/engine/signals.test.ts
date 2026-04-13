@@ -12,6 +12,9 @@ import {
   detectarEmpresaNueva,
   detectarEmpresaSinEmpleados,
   detectarDirectoresCompartidos,
+  detectarRotacionCoordinada,
+  detectarAdendaPostAdjudicacion,
+  detectarRedDeEmpresas,
 } from './signals'
 import type { Contrato, EmpresaEnriquecida } from '../types'
 
@@ -671,5 +674,162 @@ describe('detectarDirectoresCompartidos', () => {
     }]
     const señal = detectarDirectoresCompartidos(pares)!
     expect(señal.evidencia[0].descripcion).toContain('PEREZ CARLOS')
+  })
+})
+
+// ─── detectarRotacionCoordinada ──────────────────────────────────────────────
+
+describe('detectarRotacionCoordinada', () => {
+  it('returns null for empty array', () => {
+    expect(detectarRotacionCoordinada([])).toBeNull()
+  })
+
+  it('returns null when only one provider per area', () => {
+    const contratos = [
+      c({ tipo: 'LICITACION PUBLICA', area: 'OBRAS', proveedor: 'ROGGIO SA', anio: 2021, monto: 20_000_000 }),
+      c({ tipo: 'LICITACION PUBLICA', area: 'OBRAS', proveedor: 'ROGGIO SA', anio: 2022, monto: 20_000_000 }),
+      c({ tipo: 'LICITACION PUBLICA', area: 'OBRAS', proveedor: 'ROGGIO SA', anio: 2023, monto: 20_000_000 }),
+    ]
+    expect(detectarRotacionCoordinada(contratos)).toBeNull()
+  })
+
+  it('returns null when providers share years (competition exists)', () => {
+    const contratos = [
+      c({ tipo: 'LICITACION PUBLICA', area: 'OBRAS', proveedor: 'EMPRESA A', anio: 2021, monto: 15_000_000 }),
+      c({ tipo: 'LICITACION PUBLICA', area: 'OBRAS', proveedor: 'EMPRESA B', anio: 2021, monto: 15_000_000 }),
+      c({ tipo: 'LICITACION PUBLICA', area: 'OBRAS', proveedor: 'EMPRESA A', anio: 2022, monto: 15_000_000 }),
+    ]
+    expect(detectarRotacionCoordinada(contratos)).toBeNull()
+  })
+
+  it('returns null when total monto < 10M', () => {
+    const contratos = [
+      c({ tipo: 'LICITACION PUBLICA', area: 'COMPRAS', proveedor: 'A SA', anio: 2021, monto: 1_000_000 }),
+      c({ tipo: 'LICITACION PUBLICA', area: 'COMPRAS', proveedor: 'B SA', anio: 2022, monto: 1_000_000 }),
+      c({ tipo: 'LICITACION PUBLICA', area: 'COMPRAS', proveedor: 'A SA', anio: 2023, monto: 1_000_000 }),
+    ]
+    expect(detectarRotacionCoordinada(contratos)).toBeNull()
+  })
+
+  it('fires when two providers alternate across 3+ years with no overlap', () => {
+    const contratos = [
+      c({ tipo: 'LICITACION PUBLICA', area: 'LIMPIEZA', proveedor: 'CLEAN SA', anio: 2019, monto: 20_000_000 }),
+      c({ tipo: 'LICITACION PUBLICA', area: 'LIMPIEZA', proveedor: 'ASEO SRL', anio: 2020, monto: 20_000_000 }),
+      c({ tipo: 'LICITACION PUBLICA', area: 'LIMPIEZA', proveedor: 'CLEAN SA', anio: 2021, monto: 20_000_000 }),
+      c({ tipo: 'LICITACION PUBLICA', area: 'LIMPIEZA', proveedor: 'ASEO SRL', anio: 2022, monto: 20_000_000 }),
+      c({ tipo: 'LICITACION PUBLICA', area: 'LIMPIEZA', proveedor: 'CLEAN SA', anio: 2023, monto: 20_000_000 }),
+    ]
+    const señal = detectarRotacionCoordinada(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.tipologia).toBe('rotacion_coordinada')
+    expect(señal!.legal.severidad).toBe('grave')
+  })
+
+  it('ignores extension/amendment tipos', () => {
+    // Only prórrogas — no base contracts → should not fire
+    const contratos = [
+      c({ tipo: 'PRÓRROGA', area: 'LIMPIEZA', proveedor: 'CLEAN SA', anio: 2021, monto: 20_000_000 }),
+      c({ tipo: 'PRÓRROGA', area: 'LIMPIEZA', proveedor: 'ASEO SRL', anio: 2022, monto: 20_000_000 }),
+      c({ tipo: 'PRÓRROGA', area: 'LIMPIEZA', proveedor: 'CLEAN SA', anio: 2023, monto: 20_000_000 }),
+    ]
+    expect(detectarRotacionCoordinada(contratos)).toBeNull()
+  })
+})
+
+// ─── detectarAdendaPostAdjudicacion ─────────────────────────────────────────
+
+describe('detectarAdendaPostAdjudicacion', () => {
+  it('returns null for empty array', () => {
+    expect(detectarAdendaPostAdjudicacion([])).toBeNull()
+  })
+
+  it('returns null when no amendments present', () => {
+    const contratos = [
+      c({ tipo: 'LICITACION PUBLICA', proveedor: 'ROGGIO SA', area: 'OBRAS', anio: 2022, monto: 50_000_000 }),
+    ]
+    expect(detectarAdendaPostAdjudicacion(contratos)).toBeNull()
+  })
+
+  it('returns null when amendment < 50% of base', () => {
+    const contratos = [
+      c({ tipo: 'LICITACION PUBLICA', proveedor: 'ROGGIO SA', area: 'OBRAS', anio: 2022, monto: 50_000_000 }),
+      c({ tipo: 'AMPLIACIÓN DE LA CONTRATACIÓN', proveedor: 'ROGGIO SA', area: 'OBRAS', anio: 2022, monto: 20_000_000 }), // 40%
+    ]
+    expect(detectarAdendaPostAdjudicacion(contratos)).toBeNull()
+  })
+
+  it('returns null when base monto < 5M', () => {
+    const contratos = [
+      c({ tipo: 'CONTRATACION DIRECTA', proveedor: 'MINI SA', area: 'TI', anio: 2022, monto: 2_000_000 }),
+      c({ tipo: 'AMPLIACI', proveedor: 'MINI SA', area: 'TI', anio: 2022, monto: 2_000_000 }),
+    ]
+    expect(detectarAdendaPostAdjudicacion(contratos)).toBeNull()
+  })
+
+  it('fires when amendment ≥ 50% of base', () => {
+    const contratos = [
+      c({ tipo: 'LICITACION PUBLICA', proveedor: 'OMEGA SA', area: 'OBRAS', anio: 2022, monto: 40_000_000 }),
+      c({ tipo: 'AMPLIACIÓN DE LA CONTRATACIÓN', proveedor: 'OMEGA SA', area: 'OBRAS', anio: 2022, monto: 25_000_000 }), // 62.5%
+    ]
+    const señal = detectarAdendaPostAdjudicacion(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.tipologia).toBe('adenda_postajudicacion')
+    expect(señal!.resumen).toContain('OMEGA SA')
+  })
+
+  it('marks as grave when amendment ≥ 100% (doubling)', () => {
+    const contratos = [
+      c({ tipo: 'CONCURSO DE PRECIOS', proveedor: 'DOBLE SA', area: 'SUMINISTROS', anio: 2022, monto: 20_000_000 }),
+      c({ tipo: 'COMPLEMENTARIOS', proveedor: 'DOBLE SA', area: 'SUMINISTROS', anio: 2022, monto: 25_000_000 }), // 125%
+    ]
+    expect(detectarAdendaPostAdjudicacion(contratos)!.legal.severidad).toBe('grave')
+  })
+
+  it('marks as moderada when amendment between 50-99%', () => {
+    const contratos = [
+      c({ tipo: 'LICITACION PUBLICA', proveedor: 'MEDIO SA', area: 'OBRAS', anio: 2022, monto: 30_000_000 }),
+      c({ tipo: 'AMPLIACIÓN DE LA CONTRATACIÓN', proveedor: 'MEDIO SA', area: 'OBRAS', anio: 2022, monto: 20_000_000 }), // 67%
+    ]
+    expect(detectarAdendaPostAdjudicacion(contratos)!.legal.severidad).toBe('moderada')
+  })
+})
+
+// ─── detectarRedDeEmpresas ───────────────────────────────────────────────────
+
+describe('detectarRedDeEmpresas', () => {
+  it('returns null for empty pares', () => {
+    expect(detectarRedDeEmpresas([])).toBeNull()
+  })
+
+  it('fires when there are pairs with shared directors', () => {
+    const pares = [{
+      empresa1: 'NORTE SA',
+      empresa2: 'SUR SRL',
+      cuit1: '30111111111',
+      cuit2: '30222222222',
+      directoresCompartidos: ['GARCIA MARIO', 'LOPEZ ANA'],
+    }]
+    const señal = detectarRedDeEmpresas(pares)
+    expect(señal).not.toBeNull()
+    expect(señal!.tipologia).toBe('red_de_empresas')
+    expect(señal!.legal.severidad).toBe('grave')
+  })
+
+  it('includes director count in evidence', () => {
+    const pares = [{
+      empresa1: 'ALPHA SA',
+      empresa2: 'BETA SRL',
+      cuit1: '30111',
+      cuit2: '30222',
+      directoresCompartidos: ['PEREZ CARLOS', 'GOMEZ JUAN', 'RAMIREZ MARIA'],
+    }]
+    const señal = detectarRedDeEmpresas(pares)!
+    expect(señal.evidencia[0].descripcion).toContain('3 directores')
+    expect(señal.evidencia[0].descripcion).toContain('PEREZ CARLOS')
+  })
+
+  it('has score of 88', () => {
+    const pares = [{ empresa1: 'A', empresa2: 'B', cuit1: '1', cuit2: '2', directoresCompartidos: ['X', 'Y'] }]
+    expect(detectarRedDeEmpresas(pares)!.score).toBe(88)
   })
 })
