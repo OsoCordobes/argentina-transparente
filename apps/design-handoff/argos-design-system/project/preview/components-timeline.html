@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin:0; padding:20px; background: var(--bg); font-family: var(--font-sans); }
+  .title { font: 600 11px var(--font-sans); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 14px; }
+  .tl { position: relative; padding-left: 20px; }
+  .tl::before { content:''; position:absolute; left:5px; top:0; bottom:0; width:1px; background: var(--border); }
+  .ev { position:relative; padding: 0 0 14px 0; }
+  .dot { position:absolute; left:-20px; top:2px; width: 11px; height: 11px; border-radius: 999px; background: #3b82f6; box-shadow: 0 0 0 3px #fff; }
+  .year { font: 700 11px var(--font-mono); color: var(--fg); }
+  .ev .t { font: 600 12px var(--font-sans); color: var(--gray-900); }
+  .ev .s { font: 400 11px var(--font-sans); color: var(--fg-muted); margin-top: 2px; }
+</style></head><body>
+<div class="title">Timeline</div>
+<div class="tl">
+  <div class="ev"><span class="dot" style="background:#f59e0b"></span><div class="year">2023</div><div class="t">Contratación directa · $48.200.000</div><div class="s">Obras Públicas · TECNOSERV SA</div></div>
+  <div class="ev"><span class="dot" style="background:#3b82f6"></span><div class="year">2022</div><div class="t">Prórroga · $19.800.000</div><div class="s">Obras Públicas · TECNOSERV SA</div></div>
+  <div class="ev"><span class="dot" style="background:#3b82f6"></span><div class="year">2021</div><div class="t">Licitación pública · $12.400.000</div><div class="s">Servicios Generales · CONSTRUCSUR SRL</div></div>
+  <div class="ev"><span class="dot" style="background:#10b981"></span><div class="year">2019</div><div class="t">Contratación directa · $5.100.000</div><div class="s">Salud · PROVEER SA</div></div>
+</div>
+</body></html>

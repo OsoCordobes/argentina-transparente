@@ -1,0 +1,115 @@
+name: Daily Ingestion (Cordoba)
+
+on:
+  schedule:
+    - cron: "30 8 * * *"
+  workflow_dispatch:
+    inputs:
+      forceReload:
+        description: "Force full contracts reload (seed:cordoba --force)"
+        required: false
+        type: boolean
+        default: true
+      runAfip:
+        description: "Run AFIP enrichment step"
+        required: false
+        type: boolean
+        default: false
+      runNeo4j:
+        description: "Run Neo4j sync step (requires NEO4J_* secrets)"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: daily-ingestion-cordoba
+  cancel-in-progress: false
+
+jobs:
+  ingest-and-analyze:
+    name: Ingest contracts and refresh analysis
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Seed Cordoba contracts (forced)
+        if: github.event_name == 'schedule' || inputs.forceReload == true
+        run: npm run seed:cordoba -- --force
+
+      - name: Seed Cordoba contracts (incremental/no-force)
+        if: github.event_name == 'workflow_dispatch' && inputs.forceReload != true
+        run: npm run seed:cordoba
+
+      - name: Refresh IGJ reference tables
+        run: npm run seed:igj
+
+      - name: Recalculate signals cache
+        run: npm run analyze -- --force
+
+      - name: Optional AFIP enrichment
+        if: github.event_name == 'workflow_dispatch' && inputs.runAfip == true
+        run: npm run seed:afip
+        continue-on-error: true
+
+      - name: Upload ingestion artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: argos-duckdb-${{ github.run_number }}
+          path: |
+            backend/data/argos.duckdb
+            backend/data/argos.duckdb.wal
+          if-no-files-found: warn
+
+  sync-neo4j:
+    name: Optional Neo4j sync
+    runs-on: ubuntu-latest
+    needs: ingest-and-analyze
+    if: github.event_name == 'workflow_dispatch' && inputs.runNeo4j == true
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      NEO4J_URI: ${{ secrets.NEO4J_URI }}
+      NEO4J_USER: ${{ secrets.NEO4J_USER }}
+      NEO4J_PASS: ${{ secrets.NEO4J_PASS }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Validate Neo4j secrets
+        shell: bash
+        run: |
+          if [ -z "${NEO4J_URI}" ] || [ -z "${NEO4J_USER}" ] || [ -z "${NEO4J_PASS}" ]; then
+            echo "Missing NEO4J secrets. Configure NEO4J_URI, NEO4J_USER, and NEO4J_PASS in repository secrets."
+            exit 1
+          fi
+
+      - name: Seed IGJ reference tables
+        run: npm run seed:igj
+
+      - name: Sync graph to Neo4j
+        run: npm run seed:neo4j -- --force

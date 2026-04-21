@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin:0; padding:24px; background: var(--bg); font-family: var(--font-sans); }
+  .title { font: 600 10px var(--font-sans); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.1em; margin: 0 0 14px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .cell { border: 1px solid var(--border); border-radius: 10px; padding: 22px 20px; display: flex; align-items: center; gap: 16px; min-height: 88px; }
+  .cell.dark { background: #020617; border-color: #0f172a; }
+  .divider { width: 1px; align-self: stretch; background: var(--border); margin: 0 4px; }
+  .cell.dark .divider { background: #1e293b; }
+  .wm { display: flex; flex-direction: column; line-height: 1; gap: 6px; }
+  .wm .name { font: 700 20px var(--font-sans); letter-spacing: 0.22em; color: var(--gray-900); text-transform: uppercase; }
+  .cell.dark .wm .name { color: #fff; }
+  .wm .sub { font: 500 9px var(--font-sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--fg-muted); }
+  .cell.dark .wm .sub { color: #64748b; }
+  .small { padding: 14px 16px; }
+  .small .wm .name { font-size: 14px; letter-spacing: 0.24em; }
+  .small .wm .sub { display: none; }
+  .grid-small { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 12px; }
+  .mono-only { justify-content: center; }
+  .note { margin-top: 18px; font: 400 10.5px var(--font-sans); color: var(--fg-subtle); line-height: 1.55; max-width: 640px; }
+  .note b { color: var(--fg); font-weight: 600; }
+</style></head><body>
+
+<p class="title">ARGOS — primary lockup · node graph</p>
+
+<div class="row">
+  <div class="cell">
+    <svg width="50" height="50" viewBox="0 0 52 52" fill="none" style="color:#0f172a;">
+      <line x1="14" y1="16" x2="26" y2="36" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="38" y1="16" x2="26" y2="36" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="14" y1="16" x2="38" y2="16" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="14" cy="16" r="4.5" fill="#fff" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="38" cy="16" r="4.5" fill="#fff" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="26" cy="36" r="5.5" fill="#2563eb"/>
+    </svg>
+    <div class="divider"></div>
+    <div class="wm"><span class="name">Argos</span><span class="sub">Relaciones públicas abiertas</span></div>
+  </div>
+  <div class="cell dark">
+    <svg width="50" height="50" viewBox="0 0 52 52" fill="none" style="color:#f8fafc;">
+      <line x1="14" y1="16" x2="26" y2="36" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="38" y1="16" x2="26" y2="36" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="14" y1="16" x2="38" y2="16" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="14" cy="16" r="4.5" fill="#020617" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="38" cy="16" r="4.5" fill="#020617" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="26" cy="36" r="5.5" fill="#60a5fa"/>
+    </svg>
+    <div class="divider"></div>
+    <div class="wm"><span class="name">Argos</span><span class="sub">Relaciones públicas abiertas</span></div>
+  </div>
+</div>
+
+<p class="title" style="margin-top:22px">Compact · favicon · mark-only</p>
+<div class="grid-small">
+  <div class="cell small">
+    <svg width="22" height="22" viewBox="0 0 52 52" fill="none" style="color:#0f172a;">
+      <line x1="14" y1="16" x2="26" y2="36" stroke="currentColor" stroke-width="2"/>
+      <line x1="38" y1="16" x2="26" y2="36" stroke="currentColor" stroke-width="2"/>
+      <line x1="14" y1="16" x2="38" y2="16" stroke="currentColor" stroke-width="2"/>
+      <circle cx="14" cy="16" r="5" fill="#fff" stroke="currentColor" stroke-width="2"/>
+      <circle cx="38" cy="16" r="5" fill="#fff" stroke="currentColor" stroke-width="2"/>
+      <circle cx="26" cy="36" r="6" fill="#2563eb"/>
+    </svg>
+    <div class="wm"><span class="name">Argos</span></div>
+  </div>
+  <div class="cell small dark">
+    <svg width="22" height="22" viewBox="0 0 52 52" fill="none" style="color:#f8fafc;">
+      <line x1="14" y1="16" x2="26" y2="36" stroke="currentColor" stroke-width="2"/>
+      <line x1="38" y1="16" x2="26" y2="36" stroke="currentColor" stroke-width="2"/>
+      <line x1="14" y1="16" x2="38" y2="16" stroke="currentColor" stroke-width="2"/>
+      <circle cx="14" cy="16" r="5" fill="#020617" stroke="currentColor" stroke-width="2"/>
+      <circle cx="38" cy="16" r="5" fill="#020617" stroke="currentColor" stroke-width="2"/>
+      <circle cx="26" cy="36" r="6" fill="#60a5fa"/>
+    </svg>
+    <div class="wm"><span class="name">Argos</span></div>
+  </div>
+  <div class="cell small mono-only">
+    <svg width="36" height="36" viewBox="0 0 52 52" fill="none" style="color:#0f172a;">
+      <line x1="14" y1="16" x2="26" y2="36" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="38" y1="16" x2="26" y2="36" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="14" y1="16" x2="38" y2="16" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="14" cy="16" r="4.5" fill="#fff" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="38" cy="16" r="4.5" fill="#fff" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="26" cy="36" r="5.5" fill="#2563eb"/>
+    </svg>
+  </div>
+  <div class="cell small mono-only dark">
+    <svg width="36" height="36" viewBox="0 0 52 52" fill="none" style="color:#f8fafc;">
+      <line x1="14" y1="16" x2="26" y2="36" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="38" y1="16" x2="26" y2="36" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="14" y1="16" x2="38" y2="16" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="14" cy="16" r="4.5" fill="#020617" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="38" cy="16" r="4.5" fill="#020617" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="26" cy="36" r="5.5" fill="#60a5fa"/>
+    </svg>
+  </div>
+</div>
+
+<p class="note"><b>Concept.</b> A minimal three-node graph — the literal data structure ARGOS operates on. Two open nodes (entities) connected to a filled blue node (the finding / verified record). Product-native, modern, unambiguous. Wordmark set in Inter Bold, uppercase, `0.22em` tracking — institutional without the serif gravitas.</p>
+
+</body></html>

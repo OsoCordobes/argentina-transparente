@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin: 0; padding: 20px; background: var(--bg); }
+  .swatches { display: grid; grid-template-columns: repeat(11, 1fr); gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .sw { aspect-ratio: 1/1.1; display: flex; flex-direction: column; justify-content: space-between; padding: 8px; }
+  .sw .lbl { font: 600 10px var(--font-sans); letter-spacing: 0.02em; }
+  .sw .hex { font: 400 9px var(--font-mono); opacity: 0.75; }
+  .sw.dark .lbl, .sw.dark .hex { color: #fff; }
+  .sw.light .lbl, .sw.light .hex { color: var(--gray-900); }
+  .title { font: 600 11px var(--font-sans); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 10px; }
+</style></head><body>
+<div class="title">Neutrals — Slate scale</div>
+<div class="swatches">
+  <div class="sw light" style="background:#f8fafc"><span class="lbl">50</span><span class="hex">#f8fafc</span></div>
+  <div class="sw light" style="background:#f1f5f9"><span class="lbl">100</span><span class="hex">#f1f5f9</span></div>
+  <div class="sw light" style="background:#e2e8f0"><span class="lbl">200</span><span class="hex">#e2e8f0</span></div>
+  <div class="sw light" style="background:#cbd5e1"><span class="lbl">300</span><span class="hex">#cbd5e1</span></div>
+  <div class="sw light" style="background:#94a3b8"><span class="lbl">400</span><span class="hex">#94a3b8</span></div>
+  <div class="sw dark"  style="background:#64748b"><span class="lbl">500</span><span class="hex">#64748b</span></div>
+  <div class="sw dark"  style="background:#475569"><span class="lbl">600</span><span class="hex">#475569</span></div>
+  <div class="sw dark"  style="background:#334155"><span class="lbl">700</span><span class="hex">#334155</span></div>
+  <div class="sw dark"  style="background:#1e293b"><span class="lbl">800</span><span class="hex">#1e293b</span></div>
+  <div class="sw dark"  style="background:#0f172a"><span class="lbl">900</span><span class="hex">#0f172a</span></div>
+  <div class="sw dark"  style="background:#020617"><span class="lbl">950</span><span class="hex">#020617</span></div>
+</div>
+</body></html>

@@ -1,0 +1,154 @@
+/* ============================================================
+   ARGOS — Design tokens (layer on top of shadcn HSL tokens)
+   Imported from index.css. See design-handoff/argos-design-system
+   for source of truth. shadcn tokens (--primary, --background,
+   --foreground, --border, --ring) already map to blue-600/slate,
+   so we only add what's missing: fonts, palette hexes, entity
+   accents, type scale, spacing, and dense shadows.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  /* Font stacks */
+  --font-sans:  'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-serif: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --font-mono:  'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Slate neutrals */
+  --gray-50:  #f8fafc;
+  --gray-100: #f1f5f9;
+  --gray-200: #e2e8f0;
+  --gray-300: #cbd5e1;
+  --gray-400: #94a3b8;
+  --gray-500: #64748b;
+  --gray-600: #475569;
+  --gray-700: #334155;
+  --gray-800: #1e293b;
+  --gray-900: #0f172a;
+  --gray-950: #020617;
+
+  /* Brand */
+  --blue-50:  #eff6ff;
+  --blue-100: #dbeafe;
+  --blue-200: #bfdbfe;
+  --blue-300: #93c5fd;
+  --blue-400: #60a5fa;
+  --blue-500: #3b82f6;
+  --blue-600: #2563eb;
+  --blue-700: #1d4ed8;
+  --blue-900: #1e3a8a;
+
+  /* Semantic */
+  --red-100:   #fee2e2; --red-300: #fca5a5; --red-500: #ef4444;
+  --red-600:   #dc2626; --red-700: #b91c1c; --red-900: #7f1d1d;
+  --amber-100: #fef3c7; --amber-300: #fcd34d; --amber-500: #f59e0b;
+  --amber-600: #d97706; --amber-700: #b45309;
+  --green-100: #dcfce7; --green-500: #22c55e; --green-600: #16a34a; --green-700: #15803d;
+
+  /* Entity-type accents (graph nodes, pistas row icons) */
+  --ent-empresa:   #3b82f6;
+  --ent-persona:   #10b981;
+  --ent-contrato:  #f59e0b;
+  --ent-agencia:   #8b5cf6;
+  --ent-ley:       #06b6d4;
+  --ent-municipio: #f97316;
+
+  /* Investigator workspace semantic tokens (light) */
+  --bg:            #ffffff;
+  --bg-subtle:     var(--gray-50);
+  --bg-muted:      var(--gray-100);
+  --surface:       #ffffff;
+  --surface-hover: var(--gray-50);
+
+  --fg:            var(--gray-900);
+  --fg-muted:      var(--gray-600);
+  --fg-subtle:     var(--gray-500);
+  --fg-disabled:   var(--gray-400);
+
+  --border-strong: var(--gray-300);
+
+  --accent-fg:     var(--blue-700);
+
+  --danger:        var(--red-500);
+  --danger-bg:     var(--red-100);
+  --warning:       var(--amber-500);
+  --warning-bg:    var(--amber-100);
+  --success:       var(--green-500);
+  --success-bg:    var(--green-100);
+
+  /* Type scale */
+  --fs-xs:   11px;
+  --fs-sm:   12px;
+  --fs-base: 14px;
+  --fs-md:   16px;
+  --fs-lg:   18px;
+  --fs-xl:   22px;
+  --fs-2xl:  28px;
+  --fs-3xl:  36px;
+  --fs-4xl:  48px;
+
+  --lh-tight:  1.15;
+  --lh-snug:   1.3;
+  --lh-normal: 1.5;
+  --lh-loose:  1.65;
+
+  --tracking-tight:  -0.02em;
+  --tracking-label:  0.08em;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  /* Radii — shadcn uses 0.5rem, ARGOS prefers 6px density */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  /* Elevation */
+  --shadow-xs: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.06), 0 1px 3px 0 rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 2px 4px -1px rgba(15, 23, 42, 0.06), 0 4px 8px -2px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 8px 16px -4px rgba(15, 23, 42, 0.10), 0 12px 24px -6px rgba(15, 23, 42, 0.08);
+  --shadow-focus: 0 0 0 3px rgba(37, 99, 235, 0.25);
+}
+
+/* ============================================================
+   SEMANTIC TYPE CLASSES
+   ============================================================ */
+
+.display-xl { font-family: var(--font-serif); font-weight: 700; font-size: var(--fs-4xl); line-height: var(--lh-tight); letter-spacing: var(--tracking-tight); }
+.display-lg { font-family: var(--font-serif); font-weight: 700; font-size: var(--fs-3xl); line-height: var(--lh-tight); letter-spacing: var(--tracking-tight); }
+.display-md { font-family: var(--font-serif); font-weight: 600; font-size: var(--fs-2xl); line-height: var(--lh-snug); letter-spacing: var(--tracking-tight); }
+
+.argos-h1 { font-family: var(--font-sans); font-weight: 700; font-size: var(--fs-2xl); line-height: var(--lh-tight); letter-spacing: var(--tracking-tight); }
+.argos-h2 { font-family: var(--font-sans); font-weight: 600; font-size: var(--fs-xl);  line-height: var(--lh-snug);  letter-spacing: var(--tracking-tight); }
+.argos-h3 { font-family: var(--font-sans); font-weight: 600; font-size: var(--fs-lg);  line-height: var(--lh-snug); }
+.argos-h4 { font-family: var(--font-sans); font-weight: 600; font-size: var(--fs-md);  line-height: var(--lh-snug); }
+
+.eyebrow  { font-family: var(--font-sans); font-weight: 600; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: var(--tracking-label); color: var(--fg-muted); }
+.mono     { font-family: var(--font-mono); font-weight: 400; font-size: var(--fs-sm);  font-variant-numeric: tabular-nums; }
+.mono-sm  { font-family: var(--font-mono); font-weight: 400; font-size: var(--fs-xs);  font-variant-numeric: tabular-nums; }
+
+.prose {
+  font-family: var(--font-serif);
+  font-size: var(--fs-md);
+  line-height: var(--lh-loose);
+  color: var(--fg);
+  max-width: 68ch;
+}
+
+/* ============================================================
+   Global defaults — Inter as primary UI font
+   ============================================================ */
+html, body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}

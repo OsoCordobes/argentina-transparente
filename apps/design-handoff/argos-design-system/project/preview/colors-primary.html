@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin: 0; padding: 20px; background: var(--bg); }
+  .title { font: 600 11px var(--font-sans); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 10px; }
+  .row { display: grid; grid-template-columns: repeat(9, 1fr); gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .sw { aspect-ratio: 1/1.1; padding: 8px; display: flex; flex-direction: column; justify-content: space-between; }
+  .sw .lbl { font: 600 10px var(--font-sans); }
+  .sw .hex { font: 400 9px var(--font-mono); opacity: 0.85; }
+  .sw.dark .lbl, .sw.dark .hex { color: #fff; }
+  .sw.light .lbl, .sw.light .hex { color: var(--gray-900); }
+  .use { margin-top: 10px; font: 400 11px var(--font-sans); color: var(--fg-muted); }
+  .use b { color: var(--fg); font-weight: 600; }
+</style></head><body>
+<div class="title">Primary — Institutional blue (action color)</div>
+<div class="row">
+  <div class="sw light" style="background:#eff6ff"><span class="lbl">50</span><span class="hex">#eff6ff</span></div>
+  <div class="sw light" style="background:#dbeafe"><span class="lbl">100</span><span class="hex">#dbeafe</span></div>
+  <div class="sw light" style="background:#bfdbfe"><span class="lbl">200</span><span class="hex">#bfdbfe</span></div>
+  <div class="sw light" style="background:#93c5fd"><span class="lbl">300</span><span class="hex">#93c5fd</span></div>
+  <div class="sw dark"  style="background:#60a5fa"><span class="lbl">400</span><span class="hex">#60a5fa</span></div>
+  <div class="sw dark"  style="background:#3b82f6"><span class="lbl">500</span><span class="hex">#3b82f6</span></div>
+  <div class="sw dark"  style="background:#2563eb; outline: 2px solid #2563eb; outline-offset:-8px;"><span class="lbl">600 • primary</span><span class="hex">#2563eb</span></div>
+  <div class="sw dark"  style="background:#1d4ed8"><span class="lbl">700</span><span class="hex">#1d4ed8</span></div>
+  <div class="sw dark"  style="background:#1e3a8a"><span class="lbl">900</span><span class="hex">#1e3a8a</span></div>
+</div>
+<p class="use"><b>600</b> default button · <b>700</b> hover · <b>50</b> accent tint · <b>500</b> dark-surface accent</p>
+</body></html>

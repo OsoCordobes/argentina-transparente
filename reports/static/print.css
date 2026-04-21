@@ -1,0 +1,38 @@
+@media print {
+  /* Hide navigation and interactive elements */
+  nav, header, .sidebar, button, [class*="nav"], [class*="sidebar"] {
+    display: none !important;
+  }
+
+  /* Readable colors */
+  body { color: #000 !important; background: #fff !important; }
+  * { color: #000 !important; background: transparent !important; }
+
+  /* Show full URLs after links */
+  a[href]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.75em;
+    color: #555 !important;
+  }
+
+  /* Page breaks before major sections */
+  h2 { page-break-before: always; margin-top: 0; }
+  h2:first-of-type { page-break-before: avoid; }
+
+  /* Expand all collapsed content */
+  details, details > * { display: block !important; }
+
+  /* Tables */
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #ccc; padding: 4px 8px; font-size: 0.85em; }
+  thead { background: #f0f0f0 !important; }
+
+  /* Page margins and footer */
+  @page {
+    margin: 2cm;
+    @bottom-center {
+      content: "ARGOS — Generado " attr(data-date) " — argos.railway.app";
+      font-size: 0.7em;
+    }
+  }
+}

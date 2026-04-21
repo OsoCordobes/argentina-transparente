@@ -1,5 +1,7 @@
 title: ARGOS — Investigación de Gasto Público
 description: Sistema de detección de señales de corrupción en contrataciones públicas. Córdoba, Argentina.
+customStylesheets:
+  - /print.css
 
 appearance:
   default: system

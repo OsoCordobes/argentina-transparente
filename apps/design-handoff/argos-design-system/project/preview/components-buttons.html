@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin:0; padding:20px; background: var(--bg); font-family: var(--font-sans); }
+  .title { font: 600 11px var(--font-sans); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 14px; }
+  .row { display:flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button { font: 500 13px var(--font-sans); border-radius: 6px; padding: 7px 14px; border: 1px solid transparent; cursor: pointer; display:inline-flex; align-items:center; gap:6px; }
+  .btn-primary { background: var(--blue-600); color: #fff; }
+  .btn-primary:hover { background: var(--blue-700); }
+  .btn-secondary { background: var(--gray-100); color: var(--gray-900); border-color: var(--gray-200); }
+  .btn-secondary:hover { background: var(--gray-200); }
+  .btn-ghost { background: transparent; color: var(--gray-700); }
+  .btn-ghost:hover { background: var(--gray-100); }
+  .btn-outline { background: #fff; color: var(--gray-900); border-color: var(--gray-300); }
+  .btn-outline:hover { background: var(--gray-50); }
+  .btn-danger { background: var(--red-500); color: #fff; }
+  .btn-sm { font-size: 12px; padding: 4px 10px; }
+  .btn-icon { padding: 6px; width: 28px; height: 28px; justify-content: center; }
+</style></head><body>
+<div class="title">Buttons</div>
+<div class="row">
+  <button class="btn-primary">Analizar gasto público</button>
+  <button class="btn-secondary">Exportar</button>
+  <button class="btn-outline">Cancelar</button>
+  <button class="btn-ghost">Ver más</button>
+  <button class="btn-danger">Eliminar</button>
+</div>
+<div class="row" style="margin-top:12px">
+  <button class="btn-primary btn-sm">Buscar</button>
+  <button class="btn-secondary btn-sm">Grafo</button>
+  <button class="btn-ghost btn-sm">Línea de tiempo</button>
+  <button class="btn-outline btn-icon">✕</button>
+</div>
+</body></html>

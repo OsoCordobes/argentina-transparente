@@ -1,0 +1,238 @@
+/* ============================================================
+   ARGOS — Colors & Type
+   Civic intelligence platform for Córdoba, Argentina
+   ============================================================
+
+   Two surfaces:
+     · Investigator workspace — dense, neutral light UI
+       (the Board: graph, timeline, inspector)
+     · Public reports / expedientes — dark, institutional
+       (the public-facing dossier)
+
+   Both surfaces share: Inter for UI, Source Serif 4 for
+   editorial/display, JetBrains Mono for data and CUITs.
+   Color system is HSL-based (inherited from the shadcn
+   token convention used in the codebase).
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  /* --- Font stacks ------------------------------------------------- */
+  --font-sans:    'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-serif:   'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --font-mono:    'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+
+  /* --- Neutral scale (slate/gray) --------------------------------- */
+  /* Cool slate, institutional. Use for text, borders, surfaces.     */
+  --gray-50:  #f8fafc;
+  --gray-100: #f1f5f9;
+  --gray-200: #e2e8f0;
+  --gray-300: #cbd5e1;
+  --gray-400: #94a3b8;
+  --gray-500: #64748b;
+  --gray-600: #475569;
+  --gray-700: #334155;
+  --gray-800: #1e293b;
+  --gray-900: #0f172a;
+  --gray-950: #020617;
+
+  /* --- Brand / Primary (institutional blue) ----------------------- */
+  /* Matches frontend primary (#2563eb / blue-600 family).           */
+  --blue-50:  #eff6ff;
+  --blue-100: #dbeafe;
+  --blue-200: #bfdbfe;
+  --blue-300: #93c5fd;
+  --blue-400: #60a5fa;
+  --blue-500: #3b82f6;
+  --blue-600: #2563eb;
+  --blue-700: #1d4ed8;
+  --blue-900: #1e3a8a;
+
+  /* --- Semantic signal colors ------------------------------------- */
+  /* Tuned for severity badges on signals/hallazgos.                 */
+  --red-100:   #fee2e2;  --red-300:   #fca5a5;  --red-500:   #ef4444;
+  --red-700:   #b91c1c;  --red-900:   #7f1d1d;  --red-950:   #450a0a;
+  --amber-100: #fef3c7;  --amber-300: #fcd34d;  --amber-500: #f59e0b;
+  --amber-700: #b45309;  --amber-900: #78350f;
+  --green-100: #dcfce7;  --green-500: #22c55e;  --green-700: #15803d;
+
+  /* --- Entity-type accents (graph nodes, badges) ------------------ */
+  /* Used to color nodes in the board view by entity type.          */
+  --ent-empresa:   #3b82f6; /* blue    */
+  --ent-persona:   #10b981; /* emerald */
+  --ent-contrato:  #f59e0b; /* amber   */
+  --ent-agencia:   #8b5cf6; /* violet  */
+  --ent-ley:       #06b6d4; /* cyan    */
+  --ent-municipio: #f97316; /* orange  */
+
+  /* ================================================================
+     SEMANTIC TOKENS — Investigator workspace (LIGHT)
+     These are the canonical tokens used across the Board UI.
+     ================================================================ */
+
+  --bg:            #ffffff;
+  --bg-subtle:     var(--gray-50);   /* sidebar, table headers */
+  --bg-muted:      var(--gray-100);  /* disabled, rest states  */
+  --surface:       #ffffff;          /* cards, panels          */
+  --surface-hover: var(--gray-50);
+
+  --fg:            var(--gray-900);  /* primary text           */
+  --fg-muted:      var(--gray-600);  /* labels, captions       */
+  --fg-subtle:     var(--gray-500);  /* timestamps, hints      */
+  --fg-disabled:   var(--gray-400);
+
+  --border:        var(--gray-200);
+  --border-strong: var(--gray-300);
+  --ring:          var(--blue-600);  /* focus ring             */
+
+  --primary:       var(--blue-600);
+  --primary-fg:    #ffffff;
+  --primary-hover: var(--blue-700);
+  --accent:        var(--blue-50);   /* hover tint, pinned row */
+  --accent-fg:     var(--blue-700);
+
+  --danger:        var(--red-500);
+  --danger-bg:     var(--red-100);
+  --warning:       var(--amber-500);
+  --warning-bg:    var(--amber-100);
+  --success:       var(--green-500);
+  --success-bg:    var(--green-100);
+
+  /* ================================================================
+     SEMANTIC TOKENS — Public expediente / Report (DARK)
+     Alternate theme used for the public-facing dossier surface.
+     ================================================================ */
+
+  --dark-bg:            var(--gray-950);
+  --dark-bg-subtle:     #0b1220;           /* between 950 & 900 */
+  --dark-surface:       var(--gray-900);   /* cards              */
+  --dark-surface-hover: #182238;           /* row hover         */
+  --dark-fg:            #ffffff;
+  --dark-fg-muted:      var(--gray-400);
+  --dark-fg-subtle:     var(--gray-500);
+  --dark-border:        var(--gray-800);
+  --dark-border-strong: var(--gray-700);
+
+  /* ================================================================
+     TYPE SCALE — tight, editorial, data-dense
+     ================================================================ */
+
+  --fs-xs:     11px;
+  --fs-sm:     12px;
+  --fs-base:   14px;
+  --fs-md:     16px;
+  --fs-lg:     18px;
+  --fs-xl:     22px;
+  --fs-2xl:    28px;
+  --fs-3xl:    36px;
+  --fs-4xl:    48px;
+
+  --lh-tight:  1.15;
+  --lh-snug:   1.3;
+  --lh-normal: 1.5;
+  --lh-loose:  1.65;
+
+  --tracking-tight:  -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide:   0.04em;
+  --tracking-label:  0.08em;  /* for uppercase eyebrow labels */
+
+  /* ================================================================
+     SPACING, RADII, ELEVATION
+     ================================================================ */
+
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  --radius-sm: 4px;
+  --radius:    6px;    /* default (shadcn radius = 0.5rem ≈ 8px — we use 6 for density) */
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+
+  --shadow-xs: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.06), 0 1px 3px 0 rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 2px 4px -1px rgba(15, 23, 42, 0.06), 0 4px 8px -2px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 8px 16px -4px rgba(15, 23, 42, 0.10), 0 12px 24px -6px rgba(15, 23, 42, 0.08);
+  --shadow-focus: 0 0 0 3px rgba(37, 99, 235, 0.25);
+}
+
+/* ============================================================
+   BASE — element defaults
+   ============================================================ */
+
+html {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body { margin: 0; font-family: var(--font-sans); font-size: var(--fs-base); line-height: var(--lh-normal); color: var(--fg); }
+
+/* ============================================================
+   SEMANTIC TYPE CLASSES
+   Use .display-* for editorial (serif) headlines on reports
+   and covers. Use .h1–.h4 for standard UI hierarchy (sans).
+   ============================================================ */
+
+.display-xl { font-family: var(--font-serif); font-weight: 700; font-size: var(--fs-4xl); line-height: var(--lh-tight);  letter-spacing: var(--tracking-tight); }
+.display-lg { font-family: var(--font-serif); font-weight: 700; font-size: var(--fs-3xl); line-height: var(--lh-tight);  letter-spacing: var(--tracking-tight); }
+.display-md { font-family: var(--font-serif); font-weight: 600; font-size: var(--fs-2xl); line-height: var(--lh-snug);   letter-spacing: var(--tracking-tight); }
+
+.h1 { font-family: var(--font-sans); font-weight: 700; font-size: var(--fs-2xl); line-height: var(--lh-tight); letter-spacing: var(--tracking-tight); }
+.h2 { font-family: var(--font-sans); font-weight: 600; font-size: var(--fs-xl);  line-height: var(--lh-snug);  letter-spacing: var(--tracking-tight); }
+.h3 { font-family: var(--font-sans); font-weight: 600; font-size: var(--fs-lg);  line-height: var(--lh-snug); }
+.h4 { font-family: var(--font-sans); font-weight: 600; font-size: var(--fs-md);  line-height: var(--lh-snug); }
+
+.body      { font-family: var(--font-sans); font-weight: 400; font-size: var(--fs-base); line-height: var(--lh-normal); }
+.body-sm   { font-family: var(--font-sans); font-weight: 400; font-size: var(--fs-sm);   line-height: var(--lh-normal); }
+.caption   { font-family: var(--font-sans); font-weight: 400; font-size: var(--fs-xs);   line-height: var(--lh-snug);   color: var(--fg-muted); }
+
+.eyebrow   { font-family: var(--font-sans); font-weight: 600; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: var(--tracking-label); color: var(--fg-muted); }
+
+.mono      { font-family: var(--font-mono); font-weight: 400; font-size: var(--fs-sm);   font-variant-numeric: tabular-nums; }
+.mono-sm   { font-family: var(--font-mono); font-weight: 400; font-size: var(--fs-xs);   font-variant-numeric: tabular-nums; }
+
+.numeric   { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1; }
+
+/* Editorial body copy used in long-form reports / expedientes */
+.prose {
+  font-family: var(--font-serif);
+  font-size: var(--fs-md);
+  line-height: var(--lh-loose);
+  color: var(--fg);
+  max-width: 68ch;
+}
+
+/* ============================================================
+   UTILITIES
+   ============================================================ */
+
+.text-fg         { color: var(--fg); }
+.text-muted      { color: var(--fg-muted); }
+.text-subtle     { color: var(--fg-subtle); }
+.text-primary    { color: var(--primary); }
+.text-danger     { color: var(--danger); }
+.text-warning    { color: var(--warning); }
+.text-success    { color: var(--success); }
+
+.bg-surface      { background: var(--surface); }
+.bg-subtle       { background: var(--bg-subtle); }
+.bg-muted        { background: var(--bg-muted); }
+
+.border-default  { border: 1px solid var(--border); }

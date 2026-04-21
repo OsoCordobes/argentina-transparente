@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin:0; padding:24px; background: var(--bg-subtle); }
+  .title { font: 600 11px var(--font-sans); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 16px; }
+  .row { display:grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+  .tile { height: 70px; background: #fff; border-radius: 8px; display:flex; align-items:flex-end; justify-content:center; padding: 8px; }
+  .tile span { font: 600 10px var(--font-sans); color: var(--fg-muted); }
+  .s-xs { box-shadow: var(--shadow-xs); }
+  .s-sm { box-shadow: var(--shadow-sm); }
+  .s-md { box-shadow: var(--shadow-md); }
+  .s-lg { box-shadow: var(--shadow-lg); }
+</style></head><body>
+<div class="title">Elevation / shadows</div>
+<div class="row">
+  <div class="tile s-xs"><span>xs · cards</span></div>
+  <div class="tile s-sm"><span>sm · hover</span></div>
+  <div class="tile s-md"><span>md · popover</span></div>
+  <div class="tile s-lg"><span>lg · drawer</span></div>
+</div>
+</body></html>

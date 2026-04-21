@@ -167,6 +167,15 @@ frontend/src/
 
 ## LOG
 
+### 2026-04-13 — Claude Code (Sprint 6: Evidence.dev public reports)
+- Scaffolded `reports/` Evidence.dev v2 site with DuckDB source (`argos_snapshot.duckdb`)
+- 5 pages: index (analyses + signals), `/analisis/[id]` (expediente + PDF), `/proveedor/[nombre]`, `/area/[nombre]`, `/red/[municipio]` (network graph)
+- `Disclaimer.svelte` component with print styles; `NetworkGraph.svelte` with D3 v7 force-directed layout
+- `print.css` for PDF export via `window.print()`; hides nav, forces black/white, shows full URLs
+- `npm run publish` script in `backend/package.json`: copies DuckDB → builds site
+- `reports/railway.json` for static deploy on Railway
+- Key lessons: Evidence.dev uses ASCII variable names only (no ñ); no `{:else}` text blocks (use `{#if}/{/if}` with HTML divs); no explicit component imports (auto-import from `components/`); Windows MAX_PATH requires proveedor URLs truncated to 80 chars
+
 ### 2026-03-18 — Claude Code (sesión plan 7h)
 - E2E producción PASSED: 122 contratos, 3 señales, Sonnet OK
 - +3 señales: `servicio_sin_historial`, `fraccionamiento_avanzado`, `gasto_fin_ejercicio`

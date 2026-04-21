@@ -1,0 +1,38 @@
+# ARGOS v3 — flow-next project configuration
+project: argos-v3
+description: >
+  Anti-corruption investigation platform for Argentine journalism.
+  Monorepo with pnpm workspaces. Local-first, forensic chain of custody.
+
+# Work scope — Ralph should only touch these directories
+scope:
+  allowed:
+    - packages/
+    - apps/
+    - .github/
+    - docker-compose.yml
+  read_only:
+    - backend/       # legacy — migrate, don't modify
+    - frontend/      # legacy — migrate, don't modify
+    - reports/       # legacy — migrate to apps/reports
+  forbidden:
+    - backend/data/  # DuckDB files
+    - .env
+    - .env.*
+
+# Quality gates Ralph must pass before marking a task done
+gates:
+  - pnpm --filter @argos/model typecheck
+  - pnpm --filter @argos/ingestion typecheck
+  - pnpm --filter @argos/engine typecheck
+  - pnpm --filter @argos/kb typecheck
+  - cd backend && npm test -- --run   # legacy tests must keep passing
+
+# Constraints (non-negotiable, enforce on every task)
+constraints:
+  - "Cero alucinaciones. Todo hallazgo trazable a fuente oficial."
+  - "Toda señal determinística y reproducible."
+  - "Toda fuente archivada con SHA-256 antes de procesar."
+  - "Lenguaje: indicios razonables, nunca conclusiones."
+  - "No tocar backend/ ni frontend/ — son legacy."
+  - "Cada PR debe pasar CI antes de merge."

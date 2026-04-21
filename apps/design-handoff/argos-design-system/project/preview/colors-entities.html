@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin: 0; padding: 20px; background: var(--bg); }
+  .title { font: 600 11px var(--font-sans); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 10px; }
+  .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  .ent { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; }
+  .dot { width: 14px; height: 14px; border-radius: 999px; display: inline-block; vertical-align: middle; margin-right: 6px; }
+  .name { font: 600 12px var(--font-sans); }
+  .hex { font: 400 10px var(--font-mono); color: var(--fg-muted); margin-top: 4px; }
+  .node { margin-top: 8px; border: 2px solid; border-radius: var(--radius); padding: 6px 8px; font: 600 10px var(--font-sans); }
+</style></head><body>
+<div class="title">Entity types — graph nodes &amp; chips</div>
+<div class="grid">
+  <div class="ent">
+    <div><span class="dot" style="background:#3b82f6"></span><span class="name">Empresa</span></div>
+    <div class="hex">#3b82f6</div>
+    <div class="node" style="background:#eff6ff; border-color:#93c5fd; color:#1d4ed8">TECNOSERV SA</div>
+  </div>
+  <div class="ent">
+    <div><span class="dot" style="background:#10b981"></span><span class="name">Persona</span></div>
+    <div class="hex">#10b981</div>
+    <div class="node" style="background:#ecfdf5; border-color:#6ee7b7; color:#047857">J. Pérez</div>
+  </div>
+  <div class="ent">
+    <div><span class="dot" style="background:#f59e0b"></span><span class="name">Contrato</span></div>
+    <div class="hex">#f59e0b</div>
+    <div class="node" style="background:#fffbeb; border-color:#fcd34d; color:#b45309">CT-4821/23</div>
+  </div>
+  <div class="ent">
+    <div><span class="dot" style="background:#8b5cf6"></span><span class="name">Agencia</span></div>
+    <div class="hex">#8b5cf6</div>
+    <div class="node" style="background:#f5f3ff; border-color:#c4b5fd; color:#6d28d9">Sec. Obras</div>
+  </div>
+  <div class="ent">
+    <div><span class="dot" style="background:#06b6d4"></span><span class="name">Ley / Decreto</span></div>
+    <div class="hex">#06b6d4</div>
+    <div class="node" style="background:#ecfeff; border-color:#67e8f9; color:#0e7490">Ord. 12.345</div>
+  </div>
+  <div class="ent">
+    <div><span class="dot" style="background:#f97316"></span><span class="name">Municipio</span></div>
+    <div class="hex">#f97316</div>
+    <div class="node" style="background:#fff7ed; border-color:#fdba74; color:#c2410c">Córdoba</div>
+  </div>
+</div>
+</body></html>

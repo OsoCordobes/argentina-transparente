@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin:0; padding:20px; background: var(--bg); font-family: var(--font-sans); }
+  .title { font: 600 11px var(--font-sans); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 12px; }
+  .row { display:flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .badge { display:inline-flex; align-items:center; gap: 5px; padding: 2px 8px; border-radius: 999px; border: 1px solid; font: 600 10px var(--font-sans); letter-spacing: 0.04em; text-transform: uppercase; }
+  .chip { display:inline-flex; align-items:center; gap: 4px; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border); font: 500 11px var(--font-sans); background: #fff; }
+  .dot { width: 8px; height: 8px; border-radius: 999px; display:inline-block; }
+</style></head><body>
+<div class="title">Severity badges</div>
+<div class="row">
+  <span class="badge" style="background:#fee2e2;border-color:#fca5a5;color:#b91c1c">● Grave · 92</span>
+  <span class="badge" style="background:#fef3c7;border-color:#fcd34d;color:#b45309">● Moderada · 64</span>
+  <span class="badge" style="background:#fef9c3;border-color:#fde047;color:#854d0e">● Leve · 28</span>
+  <span class="badge" style="background:#dcfce7;border-color:#86efac;color:#15803d">Verificado</span>
+</div>
+<div class="title" style="margin-top:16px">Entity &amp; typology chips</div>
+<div class="row">
+  <span class="chip"><span class="dot" style="background:#3b82f6"></span>Empresa</span>
+  <span class="chip"><span class="dot" style="background:#10b981"></span>Persona</span>
+  <span class="chip"><span class="dot" style="background:#f59e0b"></span>Contrato</span>
+  <span class="chip" style="background:var(--bg-muted)">prorrogas_excesivas</span>
+  <span class="chip" style="background:var(--bg-muted)">concentracion_proveedor</span>
+</div>
+</body></html>

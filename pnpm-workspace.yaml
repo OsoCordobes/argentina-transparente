@@ -1,0 +1,5 @@
+packages:
+  - 'packages/*'
+  - 'apps/*'
+# backend/, frontend/, reports/ are legacy npm projects.
+# They will be migrated to apps/ during Fase 1-5 and added here then.

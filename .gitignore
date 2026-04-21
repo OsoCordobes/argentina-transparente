@@ -33,7 +33,23 @@ tmp_*.cjs
 
 # DuckDB data files — local persistence, not committed
 backend/data/
+apps/api/data/
+
+# Snapshots — immutable forensic archive, tracked separately not in git
+data/snapshots/
+
 # Evidence.dev
 reports/.evidence/
 reports/build/
 reports/node_modules/
+reports/argos_snapshot.duckdb
+
+# pnpm
+pnpm-lock.yaml
+
+# Package build output (packages/*/dist, apps/*/dist)
+packages/*/dist/
+apps/api/dist/
+
+# Ralph runs log (can be large)
+scripts/ralph/runs/

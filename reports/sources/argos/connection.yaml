@@ -1,4 +1,4 @@
 name: argos
 type: duckdb
 options:
-  filename: ../backend/data/argos.duckdb
+  filename: ../../argos_snapshot.duckdb

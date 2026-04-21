@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin:0; padding:20px; background: var(--bg); }
+  .row { display:grid; grid-template-columns: 80px 1fr 110px; align-items: baseline; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .row:last-child { border-bottom: 0; }
+  .tag { font: 600 10px var(--font-sans); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .meta { font: 400 10px var(--font-mono); color: var(--fg-subtle); text-align: right; }
+  .eyebrow-demo { color: var(--fg-muted); }
+</style></head><body>
+<div class="row"><span class="tag">Eyebrow</span><span class="eyebrow">Contratos analizados</span><span class="meta">Inter · 600 · 11</span></div>
+<div class="row"><span class="tag">Mono</span><span class="mono">30-71234567-9 · 2023 · $12.480.000</span><span class="meta">JetBrains · 12</span></div>
+<div class="row"><span class="tag">Mono sm</span><span class="mono-sm">CT-4821/23 · 2019–2023</span><span class="meta">JetBrains · 11</span></div>
+<div class="row"><span class="tag">Numeric</span><span class="numeric" style="font: 600 18px var(--font-sans)">$ 2.847.392.100</span><span class="meta">tabular-nums</span></div>
+<div class="row" style="grid-template-columns: 80px 1fr"><span class="tag">Prose</span><span class="prose">El municipio asignó el 74% del gasto del área de Obras Públicas a un único proveedor durante el período 2022–2023.</span></div>
+</body></html>

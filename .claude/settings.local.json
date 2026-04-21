@@ -2,7 +2,36 @@
   "permissions": {
     "allow": [
       "Bash(curl -s -o /dev/null -w \"%{http_code} %{content_type} %{size_download}\" \"https://digestoaltagracia.com.ar/decretos\")",
-      "Bash(curl -s -o /dev/null -w \"%{http_code} %{content_type} %{size_download}\" \"https://altagracia.gob.ar/subareas/proveedores-2/\")"
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{content_type} %{size_download}\" \"https://altagracia.gob.ar/subareas/proveedores-2/\")",
+      "Bash(grep -E \"\\\\.tsx?$|^d\")",
+      "Bash(grep -r \"useLocality\\\\|LocalityContext\" /c/Users/amiun/Desktop/argentina-transparente/frontend/src --include=*.ts --include=*.tsx)",
+      "Bash(npm run:*)",
+      "WebFetch(domain:datosabiertos.minjus.gob.ar)",
+      "WebFetch(domain:www.igj.gob.ar)",
+      "WebFetch(domain:opencorporates.com)",
+      "WebFetch(domain:www.argentina.gob.ar)",
+      "WebFetch(domain:datos.gob.ar)",
+      "WebFetch(domain:datos.jus.gob.ar)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:localhost)",
+      "Bash(curl -s http://localhost:3001/historial)",
+      "Bash(npx tsc:*)",
+      "Bash(pnpm -v)",
+      "Bash(docker -v)",
+      "Bash(git --version)",
+      "Bash(npm install *)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"try{const fs=require('fs');const t=fs.readFileSync('C:/Users/amiun/.claude/projects/C--Users-amiun-desktop-argentina-transparente/memory/tasks.md','utf8');const n=t.split('\\\\n').filter(l=>l.includes('[ ]')).length;console.log(JSON.stringify({systemMessage:'\\uD83D\\uDCCB tasks.md: '+(n?n+' tarea(s) pendiente(s) - actualizar antes de cerrar':'todo al dia')}))}catch(e){console.log(JSON.stringify({systemMessage:'tasks.md no encontrado'}))}\" 2>/dev/null || true"
+          }
+        ]
+      }
     ]
   }
 }

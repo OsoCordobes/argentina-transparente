@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin:0; padding: 24px; background: #fafafa; font-family: var(--font-sans); }
+  .sheet-title { font: 600 10px var(--font-sans); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.14em; margin: 0 0 20px; }
+
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+
+  .opt { background: #fff; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .opt .hd { padding: 8px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 10px; background: #fbfbfb; }
+  .opt .hd .letter { font: 700 11px var(--font-mono); color: var(--blue-600); letter-spacing: 0.08em; }
+  .opt .hd .name { font: 600 12px var(--font-sans); color: var(--gray-900); }
+  .opt .hd .vibe { font: 400 11px var(--font-sans); color: var(--fg-muted); margin-left: auto; }
+
+  .two { display: grid; grid-template-columns: 1fr 1fr; }
+  .two > div { padding: 20px 22px; min-height: 104px; display: flex; align-items: center; gap: 14px; }
+  .two .light { background: #fff; }
+  .two .dark { background: #020617; border-left: 1px solid var(--border); }
+
+  .divider { width: 1px; align-self: stretch; background: #e2e8f0; }
+  .two .dark .divider { background: #1e293b; }
+
+  /* ---------- shared wordmark stacks ---------- */
+  .wm { display: flex; flex-direction: column; line-height: 1; gap: 5px; }
+  .wm .sub { font: 500 8px var(--font-sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--fg-muted); }
+  .dark .wm .sub { color: #64748b; }
+
+  .serif-caps { font: 600 22px var(--font-serif); letter-spacing: 0.18em; color: var(--gray-900); text-transform: uppercase; }
+  .dark .serif-caps { color: #fff; }
+
+  .serif-lg { font: 700 26px var(--font-serif); letter-spacing: -0.01em; color: var(--gray-900); }
+  .dark .serif-lg { color: #fff; }
+
+  .sans-caps { font: 700 18px var(--font-sans); letter-spacing: 0.22em; color: var(--gray-900); text-transform: uppercase; font-feature-settings: "ss01"; }
+  .dark .sans-caps { color: #fff; }
+
+  .mono-caps { font: 500 15px var(--font-mono); letter-spacing: 0.18em; color: var(--gray-900); text-transform: uppercase; }
+  .dark .mono-caps { color: #fff; }
+
+  .note { padding: 10px 14px; font: 400 10.5px var(--font-sans); color: var(--fg-muted); line-height: 1.55; background: #fbfbfb; border-top: 1px solid var(--border); }
+  .note b { color: var(--fg); font-weight: 600; }
+</style></head><body>
+
+<p class="sheet-title">ARGOS — logo direction sheet · six options</p>
+
+<div class="grid">
+
+  <!-- ═══════════════ A · APERTURE (current) ═══════════════ -->
+  <div class="opt">
+    <div class="hd"><span class="letter">A</span><span class="name">Aperture</span><span class="vibe">current · institutional · symbolic</span></div>
+    <div class="two">
+      <div class="light">
+        <svg width="46" height="46" viewBox="0 0 52 52" fill="none">
+          <circle cx="26" cy="26" r="25" stroke="#0f172a" stroke-width="1.25"/>
+          <path d="M6 26a20 20 0 0 1 40 0" stroke="#0f172a" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M6 26a20 20 0 0 0 40 0" stroke="#0f172a" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="26" cy="26" r="11" stroke="#0f172a" stroke-width="1.25"/>
+          <circle cx="26" cy="26" r="4.5" fill="#2563eb"/>
+        </svg>
+        <div class="divider"></div>
+        <div class="wm"><span class="serif-caps">Argos</span><span class="sub">Civic intelligence</span></div>
+      </div>
+      <div class="dark">
+        <svg width="46" height="46" viewBox="0 0 52 52" fill="none">
+          <circle cx="26" cy="26" r="25" stroke="#f8fafc" stroke-width="1.25"/>
+          <path d="M6 26a20 20 0 0 1 40 0" stroke="#f8fafc" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M6 26a20 20 0 0 0 40 0" stroke="#f8fafc" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="26" cy="26" r="11" stroke="#f8fafc" stroke-width="1.25"/>
+          <circle cx="26" cy="26" r="4.5" fill="#60a5fa"/>
+        </svg>
+        <div class="divider"></div>
+        <div class="wm"><span class="serif-caps">Argos</span><span class="sub">Civic intelligence</span></div>
+      </div>
+    </div>
+    <div class="note"><b>Aperture / iris</b> nodding to Argos Panoptes. Symbolic, literal. Serif smallcaps = legal register.</div>
+  </div>
+
+  <!-- ═══════════════ B · WORDMARK ONLY ═══════════════ -->
+  <div class="opt">
+    <div class="hd"><span class="letter">B</span><span class="name">Pure wordmark</span><span class="vibe">modern · typographic · confident</span></div>
+    <div class="two">
+      <div class="light" style="justify-content: center; padding: 28px 20px;">
+        <div class="wm" style="gap: 6px;">
+          <span style="font: 600 34px var(--font-serif); letter-spacing: -0.02em; color: var(--gray-900);">Argos<span style="color: #2563eb;">.</span></span>
+          <span class="sub">Inteligencia cívica · Córdoba</span>
+        </div>
+      </div>
+      <div class="dark" style="justify-content: center; padding: 28px 20px;">
+        <div class="wm" style="gap: 6px;">
+          <span style="font: 600 34px var(--font-serif); letter-spacing: -0.02em; color: #fff;">Argos<span style="color: #60a5fa;">.</span></span>
+          <span class="sub">Inteligencia cívica · Córdoba</span>
+        </div>
+      </div>
+    </div>
+    <div class="note"><b>No symbol.</b> Title-case serif with a single blue period — a "full stop" as the mark. Very Bloomberg / NYT / OpenCorporates. Strongest modern read.</div>
+  </div>
+
+  <!-- ═══════════════ C · MONOGRAM A ═══════════════ -->
+  <div class="opt">
+    <div class="hd"><span class="letter">C</span><span class="name">Monogram A</span><span class="vibe">formal · grant-ready · seal-like</span></div>
+    <div class="two">
+      <div class="light">
+        <!-- A inscribed in a circle, triangle roof + horizontal bar, minimal -->
+        <svg width="46" height="46" viewBox="0 0 52 52" fill="none">
+          <circle cx="26" cy="26" r="25" stroke="#0f172a" stroke-width="1.5"/>
+          <path d="M14 38 L26 13 L38 38" stroke="#0f172a" stroke-width="2" stroke-linejoin="miter" stroke-linecap="square"/>
+          <path d="M19 29 L33 29" stroke="#2563eb" stroke-width="2" stroke-linecap="square"/>
+        </svg>
+        <div class="divider"></div>
+        <div class="wm"><span class="serif-caps">Argos</span><span class="sub">Córdoba · Argentina</span></div>
+      </div>
+      <div class="dark">
+        <svg width="46" height="46" viewBox="0 0 52 52" fill="none">
+          <circle cx="26" cy="26" r="25" stroke="#f8fafc" stroke-width="1.5"/>
+          <path d="M14 38 L26 13 L38 38" stroke="#f8fafc" stroke-width="2" stroke-linejoin="miter" stroke-linecap="square"/>
+          <path d="M19 29 L33 29" stroke="#60a5fa" stroke-width="2" stroke-linecap="square"/>
+        </svg>
+        <div class="divider"></div>
+        <div class="wm"><span class="serif-caps">Argos</span><span class="sub">Córdoba · Argentina</span></div>
+      </div>
+    </div>
+    <div class="note"><b>Classical A in a circle</b>: grant-application safe. Reads as seal / academic crest / auditor badge. Horizontal bar = ledger / horizon / crossbar.</div>
+  </div>
+
+  <!-- ═══════════════ D · NODE / GRAPH ═══════════════ -->
+  <div class="opt">
+    <div class="hd"><span class="letter">D</span><span class="name">Node graph</span><span class="vibe">product-native · literal · modern</span></div>
+    <div class="two">
+      <div class="light">
+        <!-- three nodes connected - literal graph, minimal -->
+        <svg width="46" height="46" viewBox="0 0 52 52" fill="none">
+          <line x1="14" y1="16" x2="26" y2="36" stroke="#0f172a" stroke-width="1.5"/>
+          <line x1="38" y1="16" x2="26" y2="36" stroke="#0f172a" stroke-width="1.5"/>
+          <line x1="14" y1="16" x2="38" y2="16" stroke="#0f172a" stroke-width="1.5"/>
+          <circle cx="14" cy="16" r="4.5" fill="#fff" stroke="#0f172a" stroke-width="1.5"/>
+          <circle cx="38" cy="16" r="4.5" fill="#fff" stroke="#0f172a" stroke-width="1.5"/>
+          <circle cx="26" cy="36" r="5.5" fill="#2563eb"/>
+        </svg>
+        <div class="divider"></div>
+        <div class="wm"><span class="sans-caps">Argos</span><span class="sub">Relaciones públicas abiertas</span></div>
+      </div>
+      <div class="dark">
+        <svg width="46" height="46" viewBox="0 0 52 52" fill="none">
+          <line x1="14" y1="16" x2="26" y2="36" stroke="#f8fafc" stroke-width="1.5"/>
+          <line x1="38" y1="16" x2="26" y2="36" stroke="#f8fafc" stroke-width="1.5"/>
+          <line x1="14" y1="16" x2="38" y2="16" stroke="#f8fafc" stroke-width="1.5"/>
+          <circle cx="14" cy="16" r="4.5" fill="#020617" stroke="#f8fafc" stroke-width="1.5"/>
+          <circle cx="38" cy="16" r="4.5" fill="#020617" stroke="#f8fafc" stroke-width="1.5"/>
+          <circle cx="26" cy="36" r="5.5" fill="#60a5fa"/>
+        </svg>
+        <div class="divider"></div>
+        <div class="wm"><span class="sans-caps">Argos</span><span class="sub">Relaciones públicas abiertas</span></div>
+      </div>
+    </div>
+    <div class="note"><b>Three-node graph.</b> Product-native — this is literally what the tool does. Palantir / Linkurious / OpenSanctions energy.</div>
+  </div>
+
+  <!-- ═══════════════ E · CHEVRON / LEDGER ═══════════════ -->
+  <div class="opt">
+    <div class="hd"><span class="letter">E</span><span class="name">Ledger mark</span><span class="vibe">minimal · audit-coded · neutral</span></div>
+    <div class="two">
+      <div class="light">
+        <!-- stacked ledger bars - descending, one highlighted -->
+        <svg width="46" height="46" viewBox="0 0 52 52" fill="none">
+          <rect x="10" y="14" width="32" height="3" rx="1" fill="#0f172a"/>
+          <rect x="10" y="22" width="24" height="3" rx="1" fill="#0f172a"/>
+          <rect x="10" y="30" width="28" height="3" rx="1" fill="#2563eb"/>
+          <rect x="10" y="38" width="18" height="3" rx="1" fill="#0f172a" opacity="0.45"/>
+        </svg>
+        <div class="divider"></div>
+        <div class="wm"><span class="serif-lg">Argos</span><span class="sub">Datos públicos auditables</span></div>
+      </div>
+      <div class="dark">
+        <svg width="46" height="46" viewBox="0 0 52 52" fill="none">
+          <rect x="10" y="14" width="32" height="3" rx="1" fill="#f8fafc"/>
+          <rect x="10" y="22" width="24" height="3" rx="1" fill="#f8fafc"/>
+          <rect x="10" y="30" width="28" height="3" rx="1" fill="#60a5fa"/>
+          <rect x="10" y="38" width="18" height="3" rx="1" fill="#f8fafc" opacity="0.45"/>
+        </svg>
+        <div class="divider"></div>
+        <div class="wm"><span class="serif-lg">Argos</span><span class="sub">Datos públicos auditables</span></div>
+      </div>
+    </div>
+    <div class="note"><b>Ledger bars</b>: abstract bar chart / budget lines. Maximally neutral — no eye, no graph, no crest. Just data. Grant-safe, press-safe.</div>
+  </div>
+
+  <!-- ═══════════════ F · BRACKET ═══════════════ -->
+  <div class="opt">
+    <div class="hd"><span class="letter">F</span><span class="name">Bracketed</span><span class="vibe">terminal · technical · developer</span></div>
+    <div class="two">
+      <div class="light" style="justify-content: center; padding: 28px 20px;">
+        <div class="wm" style="gap: 6px; flex-direction: row; align-items: baseline;">
+          <span style="font: 500 24px var(--font-mono); color: #2563eb;">[</span>
+          <span style="font: 500 22px var(--font-mono); letter-spacing: 0.04em; color: var(--gray-900); text-transform: lowercase;">argos</span>
+          <span style="font: 500 24px var(--font-mono); color: #2563eb;">]</span>
+        </div>
+      </div>
+      <div class="dark" style="justify-content: center; padding: 28px 20px;">
+        <div class="wm" style="gap: 6px; flex-direction: row; align-items: baseline;">
+          <span style="font: 500 24px var(--font-mono); color: #60a5fa;">[</span>
+          <span style="font: 500 22px var(--font-mono); letter-spacing: 0.04em; color: #fff; text-transform: lowercase;">argos</span>
+          <span style="font: 500 24px var(--font-mono); color: #60a5fa;">]</span>
+        </div>
+      </div>
+    </div>
+    <div class="note"><b>Bracket monospace</b>: very open-source, very technical. Reads like a CLI tool / Linux project. Honest about being developer-built.</div>
+  </div>
+
+</div>
+
+</body></html>

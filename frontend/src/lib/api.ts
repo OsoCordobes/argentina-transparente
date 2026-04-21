@@ -100,3 +100,51 @@ export async function getReporte(id: string): Promise<Expediente | null> {
     return null
   }
 }
+
+export interface EntidadContrato {
+  anio: number
+  tipo: string
+  area: string
+  descripcion: string
+  monto: number
+  municipio: string
+  fuente_url: string
+}
+
+export interface EntidadAfip {
+  cuit: string
+  esEmpleador: boolean
+  inicioActividades: string | null
+  estado: string | null
+  actividadPrincipal: string | null
+}
+
+export interface EntidadTimeline {
+  anio: number
+  cantidad: number
+  monto: number
+}
+
+export interface Entidad {
+  nombre: string
+  montoTotal: number
+  totalContratos: number
+  anios: number[]
+  municipios: string[]
+  areas: string[]
+  afip: EntidadAfip | null
+  timeline: EntidadTimeline[]
+  tipos: { tipo: string; cantidad: number; monto: number }[]
+  contratos: EntidadContrato[]
+}
+
+export async function getEntidad(nombre: string): Promise<Entidad | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/entidad/${encodeURIComponent(nombre)}`)
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.ok ? data.entidad as Entidad : null
+  } catch {
+    return null
+  }
+}

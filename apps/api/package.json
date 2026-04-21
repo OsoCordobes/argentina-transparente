@@ -1,0 +1,43 @@
+{
+  "name": "@argos/api",
+  "version": "3.0.0",
+  "description": "ARGOS API — entity-centric Express backend",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "seed:all": "npx ts-node src/scripts/seed-all.ts",
+    "analyze": "npx ts-node src/scripts/analyze.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.79.0",
+    "@argos/engine": "workspace:*",
+    "@argos/ingestion": "workspace:*",
+    "@argos/kb": "workspace:*",
+    "@argos/model": "workspace:*",
+    "@octokit/rest": "^21.1.1",
+    "adm-zip": "^0.5.17",
+    "dotenv": "^17.3.1",
+    "duckdb": "^1.4.4",
+    "express": "^4.18.2",
+    "multer": "1.4.5-lts.2",
+    "neo4j-driver": "^6.0.1",
+    "node-fetch": "^3.3.2",
+    "uuid": "^10.0.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/multer": "^2.1.0",
+    "@types/node": "^20.11.0",
+    "@types/supertest": "^7.2.0",
+    "@types/uuid": "^10.0.0",
+    "supertest": "^7.2.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.4"
+  }
+}

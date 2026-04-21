@@ -218,6 +218,16 @@ export default function Report() {
             Generado el {new Date(expediente.generadoEn).toLocaleString('es-AR')} ·{' '}
             {expediente.señales.length} señal{expediente.señales.length !== 1 ? 'es' : ''} detectada{expediente.señales.length !== 1 ? 's' : ''}
           </p>
+          {import.meta.env.VITE_REPORTS_URL && (
+            <a
+              href={`${import.meta.env.VITE_REPORTS_URL}/analisis/${searchParams.get('id')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block text-xs text-blue-400 hover:text-blue-300 hover:underline transition-colors"
+            >
+              Ver reporte público →
+            </a>
+          )}
         </div>
 
         {/* Stats */}

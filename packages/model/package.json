@@ -1,0 +1,20 @@
+{
+  "name": "@argos/model",
+  "version": "1.0.0",
+  "description": "Shared Zod schemas and TypeScript types for ARGOS entities",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.4",
+    "vite": "^6.0.0"
+  }
+}

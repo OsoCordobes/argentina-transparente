@@ -408,8 +408,12 @@ export async function getContratosPorProveedor(proveedor: string): Promise<Entid
 
 // ─── Señales cache ────────────────────────────────────────────────────────────
 
-export async function clearSeñalesCache(): Promise<void> {
-  await dbRun(`DELETE FROM señales_cache`)
+export async function clearSeñalesCache(municipio?: string): Promise<void> {
+  if (municipio) {
+    await dbRun(`DELETE FROM señales_cache WHERE municipio = ?`, [municipio])
+  } else {
+    await dbRun(`DELETE FROM señales_cache`)
+  }
 }
 
 export async function insertSeñalCache(municipio: string, señal: Señal): Promise<void> {

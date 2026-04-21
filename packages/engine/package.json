@@ -1,0 +1,23 @@
+{
+  "name": "@argos/engine",
+  "version": "1.0.0",
+  "description": "Signal detection engine — plugin architecture over GraphContext",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@argos/model": "workspace:*",
+    "@types/uuid": "^11.0.0",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3",
+    "vite": "^6.0.0",
+    "vitest": "^4.1.4"
+  }
+}

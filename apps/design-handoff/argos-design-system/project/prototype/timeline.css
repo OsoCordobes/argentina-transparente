@@ -1,0 +1,187 @@
+/* ─── Fill-container canvas + Timeline view ───────────────────── */
+
+.board-canvas-fill {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* Timeline view */
+.tl-wrap {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+}
+.tl-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.tl-title {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--fg);
+  margin: 4px 0 2px;
+  letter-spacing: -0.01em;
+}
+.tl-subtitle {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.tl-legend {
+  display: flex; gap: 16px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  padding-top: 6px;
+}
+.tl-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.tl-legend-dot {
+  width: 10px; height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+}
+.tl-dot-contrato { background: var(--blue-500); }
+.tl-dot-aporte   { background: var(--amber-500); }
+.tl-dot-election { background: var(--red-500); }
+
+.tl-stage {
+  flex: 1;
+  position: relative;
+  overflow: auto;
+  padding: 40px 60px 40px 60px;
+}
+.tl-axis {
+  position: relative;
+  height: 40px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+.tl-year {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  text-align: center;
+}
+.tl-year-tick {
+  width: 1px; height: 8px;
+  background: var(--border-strong);
+  margin: 0 auto;
+}
+.tl-year-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-top: 6px;
+}
+.tl-election {
+  position: absolute;
+  top: -10px; bottom: -500px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 0;
+}
+.tl-election-line {
+  width: 2px;
+  height: 100%;
+  background: linear-gradient(to bottom, var(--red-400), transparent);
+  opacity: 0.4;
+  margin: 0 auto;
+}
+.tl-election-label {
+  position: absolute; top: 20px; left: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--red-600);
+  white-space: nowrap;
+  background: var(--bg);
+  padding: 2px 6px;
+  border: 1px solid rgba(220,38,38,0.2);
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.tl-lanes {
+  position: relative;
+  min-height: 450px;
+}
+.tl-item {
+  position: absolute;
+  transform: translateX(-50%);
+  cursor: pointer;
+  transition: transform 180ms;
+  z-index: 1;
+}
+.tl-item:hover, .tl-item.is-selected {
+  z-index: 2;
+  transform: translateX(-50%) translateY(-2px);
+}
+.tl-item-dot {
+  width: 10px; height: 10px;
+  border-radius: 999px;
+  background: var(--blue-500);
+  margin: 0 auto 4px;
+  box-shadow: 0 0 0 3px var(--bg), 0 0 0 4px var(--blue-500);
+}
+.tl-item.is-aporte .tl-item-dot {
+  background: var(--amber-500);
+  box-shadow: 0 0 0 3px var(--bg), 0 0 0 4px var(--amber-500);
+}
+.tl-item-card {
+  width: 180px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  font-size: 11px;
+}
+.tl-item.is-aporte .tl-item-card {
+  border-color: rgba(245,158,11,0.3);
+  background: linear-gradient(135deg, #fffbeb, var(--surface));
+}
+.tl-item.is-selected .tl-item-card {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-focus);
+}
+.tl-item-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 3px;
+  gap: 6px;
+}
+.tl-item-supplier {
+  font-weight: 600;
+  color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px;
+}
+.tl-item-year {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-subtle);
+  flex-shrink: 0;
+}
+.tl-item-title {
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  margin-bottom: 4px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tl-item-amount {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--blue-600);
+}
+
+/* Tweaks wrap helper */
+.segment-wrap {
+  flex-wrap: wrap;
+}
+.segment-wrap button {
+  flex: 1 0 auto;
+  min-width: 60px;
+}

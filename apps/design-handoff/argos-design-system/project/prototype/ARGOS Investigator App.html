@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>ARGOS · Investigador</title>
+  <link rel="stylesheet" href="app.css"/>
+  <link rel="stylesheet" href="aichat.css"/>
+  <link rel="stylesheet" href="neural.css"/>
+  <link rel="stylesheet" href="corkboard.css"/>
+  <link rel="stylesheet" href="radial.css"/>
+  <link rel="stylesheet" href="inspector.css"/>
+  <link rel="stylesheet" href="views.css"/>
+  <link rel="stylesheet" href="layout.css"/>
+  <link rel="stylesheet" href="workspace.css"/>
+  <link rel="stylesheet" href="new-views.css"/>
+  <link rel="stylesheet" href="timeline.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="data.jsx"></script>
+  <script type="text/babel" src="primitives.jsx"></script>
+  <script type="text/babel" src="AIChat.jsx"></script>
+  <script type="text/babel" src="ConceptNeural.jsx"></script>
+  <script type="text/babel" src="ConceptCorkboard.jsx"></script>
+  <script type="text/babel" src="ConceptRadial.jsx"></script>
+  <script type="text/babel" src="Inspector.jsx"></script>
+  <script type="text/babel" src="Views.jsx"></script>
+  <script type="text/babel" src="PistasSidebar.jsx"></script>
+  <script type="text/babel" src="AISidebar.jsx"></script>
+  <script type="text/babel" src="TableView.jsx"></script>
+  <script type="text/babel" src="MapView.jsx"></script>
+  <script type="text/babel" src="DossierEditor.jsx"></script>
+  <script type="text/babel" src="FeedbackFab.jsx"></script>
+  <script type="text/babel" src="App.jsx"></script>
+
+  <script type="text/babel">
+    // Wait for all Babel scripts to finish transpiling, then mount.
+    const tryMount = () => {
+      if (typeof App === 'undefined') return setTimeout(tryMount, 40);
+      ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+    };
+    tryMount();
+  </script>
+</body>
+</html>

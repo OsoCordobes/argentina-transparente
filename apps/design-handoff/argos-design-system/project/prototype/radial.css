@@ -1,0 +1,128 @@
+/* ─── Radial Spotlight ─────────────────────────────────────── */
+
+.radial {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at center, #0a1628 0%, #050a18 70%, #02050e 100%);
+  overflow: hidden;
+}
+
+.radial-bg {
+  position: absolute; inset: 0;
+  background-image:
+    radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.4), transparent),
+    radial-gradient(1px 1px at 70% 80%, rgba(255,255,255,0.3), transparent),
+    radial-gradient(1px 1px at 50% 10%, rgba(255,255,255,0.35), transparent),
+    radial-gradient(1px 1px at 90% 50%, rgba(255,255,255,0.3), transparent),
+    radial-gradient(1.5px 1.5px at 30% 70%, rgba(255,255,255,0.5), transparent);
+  background-size: 180px 180px, 220px 220px, 160px 160px, 200px 200px, 240px 240px;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.radial-svg {
+  position: absolute; inset: 0;
+  pointer-events: none;
+}
+
+.radial-core {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 16px 20px;
+  background: radial-gradient(ellipse at top, rgba(59,130,246,0.2), rgba(15,23,42,0.9));
+  border: 1.5px solid rgba(96,165,250,0.5);
+  border-radius: 12px;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 0 48px rgba(59,130,246,0.35), inset 0 0 24px rgba(59,130,246,0.1);
+  backdrop-filter: blur(12px);
+  z-index: 10;
+  min-width: 180px;
+}
+
+.radial-core-icon {
+  width: 36px; height: 36px;
+  border-radius: 999px;
+  background: rgba(59,130,246,0.3);
+  display: grid; place-items: center;
+  color: #93c5fd;
+  margin-bottom: 4px;
+}
+
+.radial-core-label { font-size: 14px; font-weight: 700; letter-spacing: 0.02em; color: #fff; text-align: center; }
+.radial-core-meta  { font-family: var(--font-mono); font-size: 10px; color: rgba(255,255,255,0.6); }
+.radial-core-stat  { font-family: var(--font-mono); font-size: 10px; color: #60a5fa; margin-top: 4px; letter-spacing: 0.02em; }
+
+.radial-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  background: transparent; border: 0; padding: 0;
+  color: var(--ent-color);
+  cursor: pointer;
+  transition: transform 180ms;
+}
+.radial-node:hover { transform: translate(-50%, -50%) scale(1.12); z-index: 20; }
+
+.radial-node-dot {
+  width: 28px; height: 28px;
+  border-radius: 999px;
+  background: rgba(15,23,42,0.9);
+  border: 1.5px solid var(--ent-color);
+  display: grid; place-items: center;
+  color: var(--ent-color);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--ent-color) 50%, transparent);
+  position: relative;
+}
+
+.radial-node-outer .radial-node-dot { width: 24px; height: 24px; }
+
+.radial-node.is-selected .radial-node-dot {
+  background: color-mix(in srgb, var(--ent-color) 30%, #0f172a);
+  box-shadow: 0 0 24px var(--ent-color), 0 0 0 3px rgba(255,255,255,0.2);
+}
+
+.radial-node.has-signal.sev-grave .radial-node-dot {
+  border-color: var(--red-500);
+  box-shadow: 0 0 20px var(--red-500);
+  animation: radial-signal 2s ease-in-out infinite;
+}
+@keyframes radial-signal {
+  0%,100% { box-shadow: 0 0 16px var(--red-500); }
+  50%     { box-shadow: 0 0 28px var(--red-500), 0 0 12px rgba(239,68,68,0.8); }
+}
+
+.radial-node-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: rgba(255,255,255,0.6);
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+  max-width: 120px;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.radial-node:hover .radial-node-label,
+.radial-node.is-selected .radial-node-label { color: #fff; }
+
+.radial-sig {
+  position: absolute; top: -3px; right: -3px;
+  width: 8px; height: 8px; border-radius: 999px;
+  background: var(--red-500);
+  box-shadow: 0 0 8px var(--red-500);
+}
+
+.radial-legend {
+  position: absolute; bottom: 16px; left: 16px;
+  background: rgba(10,22,40,0.7);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-family: var(--font-mono);
+  color: rgba(255,255,255,0.65);
+}
+.legend-title { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: rgba(255,255,255,0.9); margin-bottom: 8px; }
+.legend-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; font-size: 10px; }
+.legend-rows > div { display: flex; align-items: center; gap: 6px; }
+.legend-rows .dot { width: 8px; height: 8px; border-radius: 999px; }

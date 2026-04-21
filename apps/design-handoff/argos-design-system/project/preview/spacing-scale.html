@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="stylesheet" href="../colors_and_type.css">
+<style>
+  body { margin:0; padding:20px; background: var(--bg); }
+  .title { font: 600 11px var(--font-sans); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 12px; }
+  .scale { display: flex; align-items: flex-end; gap: 10px; height: 72px; }
+  .tick { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .bar { background: var(--blue-500); width: 100%; border-radius: 2px; }
+  .tick .lbl { font: 600 10px var(--font-mono); color: var(--fg); }
+  .tick .sub { font: 400 9px var(--font-sans); color: var(--fg-muted); }
+  .col { width: 36px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+</style></head><body>
+<div class="title">Spacing scale — 4px base</div>
+<div class="scale">
+  <div class="col"><div class="bar" style="height:4px"></div><span class="lbl">1</span><span class="sub">4</span></div>
+  <div class="col"><div class="bar" style="height:8px"></div><span class="lbl">2</span><span class="sub">8</span></div>
+  <div class="col"><div class="bar" style="height:12px"></div><span class="lbl">3</span><span class="sub">12</span></div>
+  <div class="col"><div class="bar" style="height:16px"></div><span class="lbl">4</span><span class="sub">16</span></div>
+  <div class="col"><div class="bar" style="height:20px"></div><span class="lbl">5</span><span class="sub">20</span></div>
+  <div class="col"><div class="bar" style="height:24px"></div><span class="lbl">6</span><span class="sub">24</span></div>
+  <div class="col"><div class="bar" style="height:32px"></div><span class="lbl">8</span><span class="sub">32</span></div>
+  <div class="col"><div class="bar" style="height:40px"></div><span class="lbl">10</span><span class="sub">40</span></div>
+  <div class="col"><div class="bar" style="height:48px"></div><span class="lbl">12</span><span class="sub">48</span></div>
+  <div class="col"><div class="bar" style="height:64px"></div><span class="lbl">16</span><span class="sub">64</span></div>
+</div>
+</body></html>

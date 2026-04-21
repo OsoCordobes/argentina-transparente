@@ -1,0 +1,124 @@
+/* ─── Neural canvas · minimal modern ─────────────────────────── */
+
+.neural {
+  position: absolute; inset: 0;
+  background: #07090f;
+  overflow: hidden;
+}
+
+/* very faint dot grid, masked soft */
+.neural-grid {
+  position: absolute; inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.08) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 85%);
+  pointer-events: none;
+}
+.neural-vignette { display: none; }
+
+.neural-svg {
+  position: absolute; inset: 0;
+  pointer-events: none;
+}
+
+/* ── Node ─────────────────────────────────────────────── */
+.neural-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex; align-items: center; gap: 8px;
+  background: transparent; border: 0; padding: 4px 6px;
+  color: rgba(255,255,255,0.65);
+  cursor: pointer;
+  transition: color 160ms ease;
+  z-index: 2;
+}
+.neural-node:hover { color: #fff; z-index: 10; }
+
+/* dot */
+.neural-node-core {
+  width: 8px; height: 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.9);
+  display: grid; place-items: center;
+  color: transparent;            /* hide icon by default — minimalist */
+  transition: all 160ms ease;
+  flex-shrink: 0;
+  position: relative;
+}
+.neural-node-core > svg { display: none; }
+
+/* entity type = tiny colored ring instead of filled color */
+.neural-node.ent-empresa    .neural-node-core { background: #e4e7ef; }
+.neural-node.ent-persona    .neural-node-core { background: #e4e7ef; }
+.neural-node.ent-contrato   .neural-node-core { background: #e4e7ef; }
+.neural-node.ent-organismo  .neural-node-core { background: #e4e7ef; }
+
+/* Anchor node — thin ring, slightly bigger, no glow */
+.neural-node.is-anchor .neural-node-core {
+  width: 14px; height: 14px;
+  background: transparent;
+  border: 1.5px solid #fff;
+  box-shadow: 0 0 0 4px rgba(255,255,255,0.06);
+}
+
+/* Selected — soft halo, single ring */
+.neural-node.is-selected .neural-node-core {
+  box-shadow: 0 0 0 4px rgba(255,255,255,0.18);
+  background: #fff;
+}
+.neural-node.is-selected { color: #fff; }
+
+/* ── Label ────────────────────────────────────────────── */
+.neural-node-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 450;
+  letter-spacing: 0;
+  white-space: nowrap;
+  max-width: 160px;
+  overflow: hidden; text-overflow: ellipsis;
+  opacity: 0.7;
+  transition: opacity 160ms;
+}
+.neural-node:hover .neural-node-label,
+.neural-node.is-selected .neural-node-label,
+.neural-node.is-anchor .neural-node-label { opacity: 1; }
+.neural-node.is-anchor .neural-node-label { font-weight: 600; font-size: 12px; }
+
+/* ── Signal indicator — single thin accent, no pulse ring ── */
+.neural-node.has-signal .neural-node-core {
+  background: var(--red-500);
+  box-shadow: 0 0 0 3px rgba(239,68,68,0.15);
+}
+.neural-node.has-signal.is-selected .neural-node-core {
+  box-shadow: 0 0 0 5px rgba(239,68,68,0.25);
+}
+.neural-node-pulse { display: none; } /* retired */
+
+/* ── HUD ──────────────────────────────────────────────── */
+.neural-hud-tl, .neural-hud-br, .neural-hud-tr {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: rgba(255,255,255,0.45);
+  letter-spacing: 0.08em;
+  z-index: 5;
+}
+.neural-hud-tl { top: 16px; left: 16px; display: flex; flex-direction: column; gap: 4px; }
+.neural-hud-tr { top: 16px; right: 16px; display: flex; gap: 6px; }
+.neural-hud-br { bottom: 16px; right: 16px; display: flex; gap: 4px; }
+
+.hud-row { display: flex; align-items: center; gap: 6px; text-transform: uppercase; }
+.hud-dot { width: 6px; height: 6px; border-radius: 999px; background: #22c55e; animation: pulse-dot 2s ease-in-out infinite; }
+@keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.hud-btn {
+  width: 28px; height: 28px;
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.6);
+  display: grid; place-items: center;
+  transition: all 120ms;
+}
+.hud-btn:hover { background: rgba(255,255,255,0.08); color: #fff; border-color: rgba(255,255,255,0.2); }
