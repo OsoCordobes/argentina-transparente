@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "seed:all": "npx ts-node src/scripts/seed-all.ts",
     "analyze": "npx ts-node src/scripts/analyze.ts"
   },

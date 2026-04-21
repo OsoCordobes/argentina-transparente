@@ -26,10 +26,37 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Typecheck packages
-        run: pnpm --filter './packages/*' typecheck
+        run: pnpm --filter ./packages/* typecheck
 
       - name: Test packages
-        run: pnpm --filter './packages/*' test
+        run: pnpm --filter ./packages/* test
+
+  api:
+    name: api (monorepo) — typecheck + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck api
+        run: pnpm --filter '@argos/api' typecheck
+
+      - name: Build api
+        run: pnpm --filter '@argos/api' build
+
+      - name: Test api (pass if no tests yet)
+        run: pnpm --filter '@argos/api' exec vitest run --passWithNoTests
 
   backend:
     name: backend (legacy) — typecheck + test
@@ -58,7 +85,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
   board:
-    name: board — typecheck
+    name: board — typecheck + build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,3 +104,67 @@ jobs:
 
       - name: Typecheck board
         run: pnpm --filter '@argos/board' typecheck
+
+      - name: Build board
+        run: pnpm --filter '@argos/board' build
+
+  frontend:
+    name: frontend (legacy) — build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+
+  reports:
+    name: reports — build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: reports/package-lock.json
+
+      - name: Install reports dependencies
+        run: npm ci
+        working-directory: reports
+
+      - name: Build reports
+        run: npm run build
+        working-directory: reports
+
+  windows-smoke:
+    name: windows — root typecheck smoke
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Root typecheck (cross-platform script)
+        run: npm run typecheck

@@ -4,10 +4,10 @@
   "version": "3.0.0",
   "description": "ARGOS — Plataforma de investigación periodística anti-corrupción",
   "scripts": {
-    "build": "pnpm -r --filter './packages/*' --filter './apps/*' build",
-    "test": "pnpm -r --filter './packages/*' --filter './apps/*' test",
-    "typecheck": "pnpm -r --filter './packages/*' --filter './apps/*' typecheck",
-    "lint": "pnpm -r --filter './packages/*' --filter './apps/*' lint",
+    "build": "pnpm -r --filter ./packages/* --filter ./apps/* build",
+    "test": "pnpm -r --filter ./packages/* --filter @argos/api test",
+    "typecheck": "pnpm -r --filter ./packages/* --filter ./apps/* typecheck",
+    "lint": "pnpm -r --filter ./packages/* --filter ./apps/* lint",
     "dev": "concurrently \"pnpm --filter @argos/api dev\" \"pnpm --filter @argos/board dev\"",
     "prepare": "husky"
   },
@@ -15,7 +15,7 @@
     "packages/**/*.{ts,tsx}": [
       "tsc-files --noEmit"
     ],
-    "backend/src/**/*.{ts}": [
+    "backend/src/**/*.ts": [
       "bash -c 'cd backend && npx tsc --noEmit'"
     ],
     "**/*.{ts,tsx,js,json}": [

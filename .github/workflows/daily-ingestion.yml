@@ -46,6 +46,12 @@ jobs:
       - name: Install backend dependencies
         run: npm ci
 
+      - name: Preflight backend typecheck
+        run: npm run typecheck
+
+      - name: Preflight backend tests
+        run: npm test
+
       - name: Seed Cordoba contracts (forced)
         if: github.event_name == 'schedule' || inputs.forceReload == true
         run: npm run seed:cordoba -- --force
@@ -99,6 +105,9 @@ jobs:
 
       - name: Install backend dependencies
         run: npm ci
+
+      - name: Preflight backend typecheck
+        run: npm run typecheck
 
       - name: Validate Neo4j secrets
         shell: bash
