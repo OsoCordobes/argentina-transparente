@@ -7,7 +7,7 @@ async function main() {
   console.log(`Analizando Córdoba Capital ${anioDesde}–${anioHasta}...`)
   const contratos = await cordobaCapitalConnector.getContratos(anioDesde, anioHasta)
   console.log(`Total contratos: ${contratos.length}`)
-  const señales = calcularSeñales(contratos)
+  const señales = await calcularSeñales(contratos)
   console.log(`\nSeñales detectadas: ${señales.length}\n`)
   for (const s of señales) {
     console.log(`[score:${s.score}] [${s.legal.severidad}] ${s.tipologia}`)

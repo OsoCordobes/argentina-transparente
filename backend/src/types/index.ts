@@ -61,6 +61,18 @@ export interface Expediente {
   comoVerificar?: ComoVerificar
 }
 
+export interface EmpresaEnriquecida {
+  cuit: string | null
+  razonSocial: string | null
+  esEmpleador: boolean
+  inicioActividades: string | null  // "DD/MM/YYYY" desde AFIP
+  estado: string | null             // "ACTIVO" | "INACTIVO"
+  actividadPrincipal: string | null
+  directores: string[]              // nombres, desde IGJ (vacío hasta Sprint 3 completo)
+  encontrado: boolean
+  fuenteUrl: string
+}
+
 export interface MunicipioConnector {
   id: string
   nombre: string

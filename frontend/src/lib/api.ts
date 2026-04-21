@@ -40,11 +40,16 @@ export interface Expediente {
   comoVerificar?: ComoVerificar
 }
 
+export interface AnalisisResult {
+  id: string
+  expediente: Expediente
+}
+
 export async function analizarMunicipio(
   municipioId: string,
   anioDesde: number,
   anioHasta: number
-): Promise<Expediente> {
+): Promise<AnalisisResult> {
   const res = await fetch(`${API_URL}/analizar`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -52,7 +57,7 @@ export async function analizarMunicipio(
   })
   const data = await res.json()
   if (!data.ok) throw new Error(data.error ?? 'Error desconocido')
-  return data.expediente as Expediente
+  return { id: data.id as string, expediente: data.expediente as Expediente }
 }
 
 export async function getMunicipios(): Promise<{
@@ -66,12 +71,13 @@ export async function getMunicipios(): Promise<{
 
 export interface HistorialItem {
   id: string
-  period: string
-  executive_summary: string
-  total_contracts: number
-  total_amount: number
-  signals_found: number | null
-  created_at: string
+  municipio: string
+  anio_desde: number
+  anio_hasta: number
+  generado_en: string
+  resumen_ejecutivo: string | null
+  total_contratos: number
+  total_señales: number
 }
 
 export async function getHistorial(): Promise<HistorialItem[]> {
@@ -81,5 +87,16 @@ export async function getHistorial(): Promise<HistorialItem[]> {
     return res.json()
   } catch {
     return []
+  }
+}
+
+export async function getReporte(id: string): Promise<Expediente | null> {
+  try {
+    const res = await fetch(`${API_URL}/reporte/${id}`)
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.expediente as Expediente
+  } catch {
+    return null
   }
 }

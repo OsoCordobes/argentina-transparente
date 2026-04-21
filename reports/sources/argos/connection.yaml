@@ -1,0 +1,4 @@
+name: argos
+type: duckdb
+options:
+  filename: ../backend/data/argos.duckdb

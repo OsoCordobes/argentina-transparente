@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express'
 import { getConnector } from '../connectors/interface'
 import { calcularSeñales } from '../engine/signals'
 import { generarExpediente } from '../lib/claude'
+import { insertReporte } from '../lib/db'
+import { enriquecerEntidades } from '../lib/enrichment'
 
 const router = Router()
 
@@ -43,12 +45,15 @@ router.post('/', async (req: Request, res: Response) => {
         error: `Sin datos disponibles para ${municipioId} en ${desde}–${hasta}. El portal publica con aproximadamente 1 año de retraso.`,
       })
 
-    const señales = calcularSeñales(contratos)
+    const empresas = await enriquecerEntidades(contratos, municipioId)
+    const señales = await calcularSeñales(contratos, empresas, municipioId)
     const expediente = await generarExpediente(
       connector.nombre, desde, hasta, contratos, señales
     )
 
-    return res.json({ ok: true, expediente })
+    const reporteId = await insertReporte(expediente, municipioId, desde, hasta)
+
+    return res.json({ ok: true, id: reporteId, expediente })
   } catch (err) {
     console.error('[analizar] Error:', err)
     return res.status(500).json({ ok: false, error: String(err) })

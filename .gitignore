@@ -30,3 +30,10 @@ dist-ssr
 # n8n dev/debug scripts
 tmp_*.js
 tmp_*.cjs
+
+# DuckDB data files — local persistence, not committed
+backend/data/
+# Evidence.dev
+reports/.evidence/
+reports/build/
+reports/node_modules/

@@ -3,12 +3,17 @@ import * as XLSX from 'xlsx'
 const API_BASE = 'https://gobiernoabierto.cordoba.gob.ar/api/datos-abiertos'
 
 // Dataset IDs por año — verificados contra la API real
+// Para agregar un año nuevo: verificar que el endpoint devuelva HTTP 200 y Content-Type XLSX
+// antes de hardcodear el ID.
 const DATASET_VERSION_IDS: Record<number, string> = {
   2023: '6467',
   2022: '6466',
   2021: '5978',
   2020: '5977',
   2019: '2',
+  // 2024: no publicado en gobiernoabierto.cordoba.gob.ar al 2026-04-09.
+  //   IDs probados (6468, 6469, 6470) devuelven HTTP 400.
+  //   Fuente alternativa cuando esté disponible: compras.cordoba.gob.ar
 }
 
 interface RecursoAPI {

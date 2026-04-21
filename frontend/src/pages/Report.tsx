@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { getReporte } from '../lib/api'
 import type { Expediente, Señal } from '../lib/api'
 
 function ExportDenunciaButton({ expediente }: { expediente: Expediente }) {
@@ -140,13 +141,30 @@ function SignalCard({ señal }: { señal: Señal }) {
 
 export default function Report() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [expediente, setExpediente] = useState<Expediente | null>(null)
+  const [loadError, setLoadError] = useState(false)
 
   useEffect(() => {
-    const raw = sessionStorage.getItem('expediente')
-    if (!raw) { navigate('/'); return }
-    setExpediente(JSON.parse(raw))
-  }, [navigate])
+    const id = searchParams.get('id')
+    if (id) {
+      getReporte(id).then(exp => {
+        if (!exp) { setLoadError(true); return }
+        setExpediente(exp)
+      })
+    } else {
+      navigate('/')
+    }
+  }, [searchParams, navigate])
+
+  if (loadError) return (
+    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center gap-4">
+      <p className="text-gray-400">Reporte no encontrado.</p>
+      <button onClick={() => navigate('/')} className="text-sm text-blue-400 hover:underline">
+        ← Volver al inicio
+      </button>
+    </div>
+  )
 
   if (!expediente) return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center">
@@ -243,7 +261,7 @@ export default function Report() {
               <div
                 key={i}
                 className="space-y-1 cursor-pointer hover:bg-gray-800/40 transition-colors rounded-lg px-2 -mx-2"
-                onClick={() => navigate('/provider/' + encodeURIComponent(p.nombre))}
+                onClick={() => navigate(`/provider/${encodeURIComponent(p.nombre)}?id=${searchParams.get('id')}`)}
               >
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-300 truncate flex-1 pr-4">{p.nombre}</span>

@@ -2,7 +2,11 @@ import 'dotenv/config'
 import express from 'express'
 import analizarRouter from './routes/analizar'
 import historialRouter from './routes/historial'
+import dashboardRouter from './routes/dashboard'
+import entidadRouter from './routes/entidad'
 import { cordobaCapitalConnector } from './connectors/cordoba-capital'
+import { initDb, getReporte } from './lib/db'
+import { initGraph } from './lib/graph'
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -34,12 +38,34 @@ app.get('/municipios', (_req, res) => {
   ])
 })
 
-// POST /analizar
-app.use('/analizar', analizarRouter)
+// New entity-centric API
+app.use('/api/dashboard', dashboardRouter)
+app.use('/api/entidad', entidadRouter)
 
-// GET /historial
+// Legacy routes (still used by current frontend)
+app.use('/analizar', analizarRouter)
 app.use('/historial', historialRouter)
 
-app.listen(PORT, () => {
-  console.log(`La Bestia v2 corriendo en http://localhost:${PORT}`)
+// GET /reporte/:id
+app.get('/reporte/:id', async (req, res) => {
+  try {
+    const reporte = await getReporte(req.params.id)
+    if (!reporte) return res.status(404).json({ error: 'Reporte no encontrado' })
+    res.json(reporte)
+  } catch (err) {
+    console.error('[reporte] Error:', err)
+    res.status(500).json({ error: String(err) })
+  }
 })
+
+// Inicializar DB + grafo y arrancar servidor
+Promise.all([initDb(), initGraph()])
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`ARGOS v2 corriendo en http://localhost:${PORT}`)
+    })
+  })
+  .catch(err => {
+    console.error('Error inicializando servicios:', err)
+    process.exit(1)
+  })
