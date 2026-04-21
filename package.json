@@ -12,14 +12,22 @@
     "prepare": "husky"
   },
   "lint-staged": {
-    "packages/**/*.{ts,tsx}": ["tsc-files --noEmit"],
-    "backend/src/**/*.{ts}": ["bash -c 'cd backend && npx tsc --noEmit'"],
-    "**/*.{ts,tsx,js,json}": ["prettier --write --ignore-unknown"]
+    "packages/**/*.{ts,tsx}": [
+      "tsc-files --noEmit"
+    ],
+    "backend/src/**/*.{ts}": [
+      "bash -c 'cd backend && npx tsc --noEmit'"
+    ],
+    "**/*.{ts,tsx,js,json}": [
+      "prettier --write --ignore-unknown"
+    ]
   },
   "devDependencies": {
     "concurrently": "^9.0.0",
     "husky": "^9.0.0",
     "lint-staged": "^15.0.0",
+    "prettier": "^3.8.3",
+    "tsc-files": "^1.1.4",
     "typescript": "^5.3.3"
   },
   "pnpm": {
