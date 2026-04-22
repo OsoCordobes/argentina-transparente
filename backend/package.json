@@ -17,6 +17,7 @@
     "seed:igj": "npx ts-node src/scripts/seed-igj.ts",
     "seed:afip": "npx ts-node src/scripts/seed-afip.ts",
     "seed:neo4j": "npx ts-node src/scripts/seed-neo4j.ts",
+    "backfill:entities": "npx ts-node src/scripts/backfill-entity-registry.ts --",
     "seed:all": "npm run seed:cordoba && npm run seed:igj && npm run seed:afip && npm run seed:neo4j",
     "analyze": "npx ts-node src/scripts/analyze.ts",
     "publish": "cp data/argos.duckdb ../reports/argos_snapshot.duckdb && cd ../reports && npx evidence build"
