@@ -680,6 +680,76 @@ Requiere sprint dedicado.
 **Stack OCR base instalado** (commit anterior, no usado todavía):
 unpdf, tesseract.js, pdf-to-png-converter, cheerio, p-queue, compromise.
 
+Nuevos seeds: `seed:cordoba-sueldos` (datasets 131+201+5+3292),
+`seed:cordoba-presupuesto` (datasets 14+65+12, 2007–2026),
+`seed:cordoba-provincia` (cataloga 145+ packages), `seed:proveedores-padron`,
+`seed:boe-cba` (indexa 40K PDFs Boletín Oficial Provincia).
+
+128 tests verde. tsc OK. 11 archivos, 1,495 LOC netas.
+
+### 2026-04-25 (cont) — Claude Code (post-MVP round 9: UPC connector + extractor fix + TC investigation)
+
+**Round 9 — Connector UPC + fix cost-limit extractor + bloqueo TC documentado:**
+
+**Connector UPC (Universidad Provincial de Córdoba):**
+- `lib/upc.ts`: cliente WP REST API v2 de `www.upc.edu.ar/wp-json/wp/v2/posts`.
+  Multi-búsqueda (licitacion, compra directa, concurso de precios, contratacion
+  directa) con dedup por post ID. Sin geo-restricción.
+  Funciones exportadas para testabilidad: `TITULO_RE`, `extraerTipo`,
+  `extraerNumero`, `extraerMonto`, `extraerProveedor`.
+  Limitación declarada: la mayoría de adjudicatarios están en PDFs adjuntos
+  — solo se inserta lo que aparece literalmente en el HTML (CLAUDE.md §2).
+  Proveedor vacío → almacena como "SIN ADJUDICAR" con flag explícito.
+
+- `lib/upc.test.ts`: 35 tests puros (sin HTTP). Cubre TITULO_RE, extraerTipo
+  (tilde/sin tilde), extraerNumero (N°/Nro./N.°), extraerMonto ($ explícito vs
+  estimaciones vagas), extraerProveedor (adjudicación vs anuncio de apertura).
+
+- `scripts/seed-upc.ts`: `npm run seed:upc`. FuenteMetadata completa,
+  `nivelConfianza: 'medio'`, `metodoExtraccion: 'scraper_html'`.
+
+**Fix: límite de costo en extractor (`lib/extractor-norma.ts`):**
+- Bug: `--max-cost-usd` en el seed histórico solo prevenía que la 2da fase
+  (API) se ejecutara, pero NO abortaba la 1ra fase (CSV) a mitad de proceso.
+  El costo proyectado era ~$10 vs el límite $6.
+- Fix: `ExtraerNormasOptions` extendida con `maxCostUSD?` y `costoAcumInicial?`.
+  El batch loop chequea `(costoAcumInicial + costoTotal) >= maxCostUSD` ANTES de
+  cada batch de 20 normas y corta con `cortadoPorCosto = true`.
+- `scripts/seed-cordoba-historico.ts` actualizado para pasar los nuevos params.
+
+**Bloqueo TC documentado:**
+- `tribunaldecuentas.cba.gov.ar`: NXDOMAIN desde fuera de Argentina.
+- Todos los subdominios `*.cba.gov.ar`: CloudFront geo-restricción 403.
+- No hay dataset estructurado de TC en el portal provincial CKAN.
+- Path de unbloqueo: ejecutar desde IP argentina (VPN/proxy/VPS en Córdoba).
+- Schema `auditorias_tribunal_cuentas` ya existe en DuckDB (Round 8), listo
+  cuando se levante el bloqueo.
+
+Seed histórico completado con `--max-cost-usd 6`. La cuenta Anthropic se agotó
+en la norma 2,920/6,925 ($4.21). Las normas 2,920-6,925 fallaron con 400
+"credit balance too low" — sin costo adicional pero con verbose de errores.
+API phase (488 normas) también falló completa por el mismo motivo.
+
+Métricas finales seed:
+- 1,089 contratos insertados (4,011 descartados por guardrails)
+- Cache hit: 0% (TTL 5 min del cache de Anthropic se agotó entre batches)
+- Costo: $4.2117 USD. Total cordoba-capital en DB: 2,405 contratos.
+
+`analyze --force` post-seed detectó 7 señales en cordoba-capital:
+- [83 grave] PINTURAS CAVAZZON S.R.L. monopolio 92.8% del gasto en Cultura
+- [80 grave] 588 contrataciones directas por $4.113.400.908
+- [80 grave] Rotación coordinada en 6 áreas (proveedores que se alternan)
+- [75 grave] 65 proveedores sin historial: $18.222.550.899
+- [70 moderada] Fraccionamiento avanzado en 3 proveedores
+- [59 moderada] 1 contrato con adenda >50% post-adjudicación
+- [54 moderada] 1 proveedor crónico multi-año: $166M
+
+Bug detectado: el extractor no aborta al recibir "credit balance too low" —
+continúa intentando todos los batches restantes (sin costo, pero ~200 errores
+innecesarios). Fix pendiente: detectar este error específico y cortar de inmediato.
+
+163 tests verde (103 + 25 + 35 nuevos). tsc OK (backend).
+
 Tests: 222 verde, sin regresiones.
 
 Estado: M1 60% completado (4 milestones de 8 ejecutados con datos
