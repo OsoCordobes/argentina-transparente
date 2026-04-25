@@ -9,6 +9,7 @@ import redRouter from './routes/red'
 import denunciaRouter from './routes/denuncia'
 import cruceRouter from './routes/cruce'
 import scrapersRouter from './routes/scrapers'
+import alertasRouter from './routes/alertas'
 import { registrarFuente } from './lib/db'
 import { fuenteCordobaCapital } from './connectors/cordoba-capital'
 import { fuenteArgentinaCompra } from './connectors/argentina-compra'
@@ -60,6 +61,7 @@ app.use('/api/red', redRouter)
 app.use('/api/denuncia', denunciaRouter)
 app.use('/api/cruce', cruceRouter)
 app.use('/api/scrapers', scrapersRouter)
+app.use('/api/alertas', alertasRouter)
 
 // Legacy routes (still used by current frontend)
 app.use('/analizar', analizarRouter)

@@ -24,6 +24,7 @@
     "seed:icij": "npx ts-node src/scripts/seed-icij.ts",
     "seed:all": "npm run seed:cordoba && npm run seed:nacion && npm run seed:igj && npm run seed:afip && npm run seed:neo4j && npm run seed:opensanctions",
     "analyze": "npx ts-node src/scripts/analyze.ts",
+    "alertas:check": "npx ts-node src/scripts/check-alertas.ts",
     "ckan:explore": "npx ts-node src/scripts/ckan-explore.ts"
   },
   "dependencies": {

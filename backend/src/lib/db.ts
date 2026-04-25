@@ -207,6 +207,24 @@ export async function initDb(): Promise<void> {
       PRIMARY KEY (id, ejecutado_en)
     )
   `)
+
+  // ─── Alertas automáticas (detector de eventos) ─────────────────────────────
+  // Sistema de monitoreo continuo: detecta scrapers rotos, fuentes desactualizadas,
+  // y datos nuevos disponibles. Generadas por scripts/check-alertas.ts (cron),
+  // expuestas via GET /api/alertas, mostradas como badge en AppShell.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS alertas (
+      id              TEXT PRIMARY KEY,
+      tipo            TEXT NOT NULL,    -- 'scraper_roto'|'fuente_desactualizada'|'datos_nuevos'
+      severidad       TEXT NOT NULL,    -- 'info'|'warning'|'critical'
+      titulo          TEXT NOT NULL,
+      detalle         TEXT,
+      fuente_id       TEXT,             -- referencia opcional a fuentes_datos.id
+      detectado_en    TEXT NOT NULL,
+      leida           BOOLEAN NOT NULL DEFAULT false,
+      leida_en        TEXT
+    )
+  `)
 }
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
@@ -722,6 +740,84 @@ export async function getOSMatchesCount(): Promise<{ total: number; matched: num
     `SELECT COUNT(*) as cnt FROM opensanctions_matches WHERE matched = true`
   )
   return { total: total[0]?.cnt ?? 0, matched: matched[0]?.cnt ?? 0 }
+}
+
+// ─── Alertas helpers ──────────────────────────────────────────────────────────
+
+export type AlertaTipo = 'scraper_roto' | 'fuente_desactualizada' | 'datos_nuevos'
+export type AlertaSeveridad = 'info' | 'warning' | 'critical'
+
+export interface Alerta {
+  id: string
+  tipo: AlertaTipo
+  severidad: AlertaSeveridad
+  titulo: string
+  detalle: string | null
+  fuenteId: string | null
+  detectadoEn: string
+  leida: boolean
+  leidaEn: string | null
+}
+
+export async function upsertAlerta(a: Omit<Alerta, 'leida' | 'leidaEn'>): Promise<void> {
+  await dbRun(
+    `INSERT OR REPLACE INTO alertas
+     (id, tipo, severidad, titulo, detalle, fuente_id, detectado_en, leida, leida_en)
+     VALUES (?, ?, ?, ?, ?, ?, ?, false, NULL)`,
+    [a.id, a.tipo, a.severidad, a.titulo, a.detalle, a.fuenteId, a.detectadoEn]
+  )
+}
+
+export async function getAlertas(opts: { soloNoLeidas?: boolean; limit?: number } = {}): Promise<Alerta[]> {
+  const where = opts.soloNoLeidas ? 'WHERE leida = false' : ''
+  const limit = opts.limit ?? 100
+  const rows = await dbAll<{
+    id: string; tipo: string; severidad: string; titulo: string
+    detalle: string | null; fuente_id: string | null
+    detectado_en: string; leida: boolean; leida_en: string | null
+  }>(
+    `SELECT * FROM alertas ${where} ORDER BY detectado_en DESC LIMIT ?`,
+    [limit]
+  )
+  return rows.map(r => ({
+    id: r.id,
+    tipo: r.tipo as AlertaTipo,
+    severidad: r.severidad as AlertaSeveridad,
+    titulo: r.titulo,
+    detalle: r.detalle,
+    fuenteId: r.fuente_id,
+    detectadoEn: r.detectado_en,
+    leida: r.leida,
+    leidaEn: r.leida_en,
+  }))
+}
+
+export async function marcarAlertaLeida(id: string): Promise<void> {
+  await dbRun(
+    `UPDATE alertas SET leida = true, leida_en = ? WHERE id = ?`,
+    [new Date().toISOString(), id]
+  )
+}
+
+export async function marcarTodasLeidas(): Promise<number> {
+  const noLeidas = await dbAll<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM alertas WHERE leida = false`
+  )
+  await dbRun(
+    `UPDATE alertas SET leida = true, leida_en = ? WHERE leida = false`,
+    [new Date().toISOString()]
+  )
+  return noLeidas[0]?.cnt ?? 0
+}
+
+export async function countAlertasNoLeidas(): Promise<{ total: number; critical: number }> {
+  const total = await dbAll<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM alertas WHERE leida = false`
+  )
+  const critical = await dbAll<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM alertas WHERE leida = false AND severidad = 'critical'`
+  )
+  return { total: total[0]?.cnt ?? 0, critical: critical[0]?.cnt ?? 0 }
 }
 
 // ─── Scraper health helpers ───────────────────────────────────────────────────

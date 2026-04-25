@@ -260,3 +260,66 @@ export function useScrapersHealth() {
     retry: 0,
   })
 }
+
+// ─── Alertas (post-MVP round 6) ───────────────────────────────────────────────
+
+export type AlertaTipo = 'scraper_roto' | 'fuente_desactualizada' | 'datos_nuevos'
+export type AlertaSeveridad = 'info' | 'warning' | 'critical'
+
+export interface Alerta {
+  id: string
+  tipo: AlertaTipo
+  severidad: AlertaSeveridad
+  titulo: string
+  detalle: string | null
+  fuenteId: string | null
+  detectadoEn: string
+  leida: boolean
+  leidaEn: string | null
+}
+
+export interface AlertasResponse {
+  ok: true
+  count: { total: number; critical: number }
+  alertas: Alerta[]
+}
+
+export interface AlertasCountResponse {
+  ok: true
+  total: number
+  critical: number
+}
+
+export function useAlertas(soloNoLeidas = true) {
+  return useQuery({
+    queryKey: ['alertas', soloNoLeidas],
+    queryFn: () =>
+      fetchJSON<AlertasResponse>(
+        `/api/alertas?soloNoLeidas=${soloNoLeidas}&limit=100`
+      ),
+    staleTime: 30_000,
+    retry: 0,
+  })
+}
+
+export function useAlertasCount() {
+  return useQuery({
+    queryKey: ['alertas', 'count'],
+    queryFn: () => fetchJSON<AlertasCountResponse>('/api/alertas/count'),
+    staleTime: 60_000,
+    retry: 0,
+    refetchInterval: 5 * 60_000, // poll cada 5 min
+  })
+}
+
+export async function marcarAlertaLeida(id: string): Promise<void> {
+  const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+  await fetch(`${API_URL}/api/alertas/${encodeURIComponent(id)}/leer`, { method: 'POST' })
+}
+
+export async function marcarTodasAlertasLeidas(): Promise<number> {
+  const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+  const res = await fetch(`${API_URL}/api/alertas/leer-todas`, { method: 'POST' })
+  const data = await res.json()
+  return data.marcadas ?? 0
+}

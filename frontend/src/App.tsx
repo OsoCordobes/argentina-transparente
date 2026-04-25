@@ -13,6 +13,7 @@ const Contrato = lazy(() => import('./pages/Contrato'))
 const Red = lazy(() => import('./pages/Red'))
 const Fuentes = lazy(() => import('./pages/Fuentes'))
 const Municipios = lazy(() => import('./pages/Municipios'))
+const Alertas = lazy(() => import('./pages/Alertas'))
 const Login = lazy(() => import('./pages/Login'))
 const Casos = lazy(() => import('./pages/Casos'))
 const Caso = lazy(() => import('./pages/Caso'))
@@ -69,6 +70,14 @@ export default function App() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <Municipios />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/alertas"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <Alertas />
               </Suspense>
             }
           />

@@ -8,6 +8,7 @@ import {
   ExternalLink,
   FolderOpen,
   Building2,
+  Bell,
   LogOut,
   LogIn,
   User,
@@ -16,6 +17,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { CommandPalette } from '@/components/search/CommandPalette'
 import { useAuth } from '@/lib/auth'
+import { useAlertasCount } from '@/lib/queries'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +31,7 @@ export function AppShell() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
+  const { data: alertasCount } = useAlertasCount()
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -89,6 +92,29 @@ export function AppShell() {
               ⌘K
             </kbd>
           </button>
+
+          <Link
+            to="/alertas"
+            className="relative inline-flex items-center justify-center h-9 w-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            title={alertasCount?.total
+              ? `${alertasCount.total} alertas sin leer`
+              : 'Alertas'}
+          >
+            <Bell className="h-4 w-4" />
+            {alertasCount && alertasCount.total > 0 && (
+              <span
+                className={cn(
+                  'absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1',
+                  'rounded-full text-[10px] font-semibold flex items-center justify-center',
+                  alertasCount.critical > 0
+                    ? 'bg-destructive text-destructive-foreground'
+                    : 'bg-yellow-500 text-white'
+                )}
+              >
+                {alertasCount.total > 99 ? '99+' : alertasCount.total}
+              </span>
+            )}
+          </Link>
 
           {user ? (
             <DropdownMenu>

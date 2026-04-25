@@ -178,6 +178,8 @@ VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos
 | `npm run seed:icij -- /ruta/csvs` | backend/ | Carga ICIJ Offshore Leaks en DuckDB |
 | `npm run seed:santafe` | backend/ | Carga contratos Santa Fe (CKAN) |
 | `GET /api/scrapers/health` | backend/ | Estado de scrapers registrados |
+| `npm run alertas:check` | backend/ | Detector de alertas (cron-friendly) |
+| `GET /api/alertas` | backend/ | Lista alertas (?soloNoLeidas=true) |
 | CI (GitHub Actions) | `.github/workflows/ci.yml` | typecheck + tests + build en push/PR |
 
 ---
@@ -202,6 +204,7 @@ VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos
 - ✅ **Scraper base + health monitoring** (`lib/scraper.ts` + `scrapers_health` DuckDB + `GET /api/scrapers/health`)
 - ✅ **Connector Santa Fe** (CKAN + CSV, `npm run seed:santafe`)
 - ✅ **Modo comparativo jurisdicciones** (`/municipios` — bar chart + cards per jurisdicción + scraper health)
+- ✅ **Alertas automáticas** (`/alertas` + badge en topbar; detector vía `npm run alertas:check`; scrapers rotos / fuentes desactualizadas / datos nuevos)
 
 **Pendiente post-MVP:**
 - Pipeline OCR Claude Vision para boletines pre-2015
@@ -513,6 +516,38 @@ Frontend:
 - `AppShell.tsx`: nuevo nav item "Jurisdicciones" → /municipios (Building2).
 - `lib/queries.ts`: `useScrapersHealth` + `ScraperHealth` + `ScrapersHealthResponse`.
 - `App.tsx`: ruta `/municipios` lazy.
+
+103 tests siguen verde. tsc --noEmit OK (backend + frontend).
+
+### 2026-04-25 (cont) — Claude Code (post-MVP round 6: alertas automáticas)
+
+**Round 6 — Sistema de alertas event-driven:**
+
+Backend:
+- `db.ts`: tabla `alertas` (id PK, tipo, severidad, titulo, detalle, fuente_id,
+  detectado_en, leida, leida_en) + `alerta_snapshots` (snapshot de counts para
+  detectar deltas). Helpers `upsertAlerta`/`getAlertas`/`marcarAlertaLeida`/
+  `marcarTodasLeidas`/`countAlertasNoLeidas`.
+- `lib/alertas.ts`: `detectarAlertas()` corre 3 chequeos:
+  1. **Scrapers rotos**: itera `scrapers_health` última run, si !ok → critical.
+  2. **Fuentes desactualizadas**: compara `ultimo_crawl` vs frecuencia esperada
+     (diaria=2d, semanal=10d, mensual=45d, anual=400d). >2x el umbral = critical.
+  3. **Datos nuevos**: compara contratos count actual vs snapshot anterior.
+     Delta positivo → alerta info "N contratos nuevos en municipio X".
+  IDs estables → idempotente (UPSERT, no duplicados).
+- `routes/alertas.ts`: GET / (lista + count), GET /count (badge liviano),
+  POST /:id/leer, POST /leer-todas, POST /detectar (manual trigger).
+- `scripts/check-alertas.ts`: cron-friendly. Ejemplo crontab al docstring.
+  Nuevo script npm: `npm run alertas:check`.
+
+Frontend:
+- `lib/queries.ts`: `useAlertas` (lista) + `useAlertasCount` (badge, refetch 5min)
+  + helpers `marcarAlertaLeida` / `marcarTodasAlertasLeidas`.
+- `pages/Alertas.tsx`: lista con icono por tipo, color por severidad, filtro
+  "solo no leídas", botones "marcar leída" / "marcar todas leídas".
+- `AppShell.tsx`: badge Bell con count en topbar (rojo=critical, amarillo=warning,
+  link a /alertas). 99+ cap visual.
+- `App.tsx`: ruta `/alertas` lazy.
 
 103 tests siguen verde. tsc --noEmit OK (backend + frontend).
 
