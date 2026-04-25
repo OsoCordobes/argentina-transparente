@@ -9,6 +9,12 @@ export interface Contrato {
   numeroExpediente?: string   // "EXP-2022-001234" si el dataset lo tiene
   numeroContrato?: string     // número de resolución/decreto
   fechaContrato?: string      // "2022-03-15"
+
+  // ── Trazabilidad de extracción (CLAUDE.md §4) ──────────────────────────────
+  // Defaultea a alto/api_estructurada al insertarse si no se especifica.
+  nivelConfianza?: NivelConfianza        // 'alto' (API), 'medio' (OCR), 'bajo' (scraper)
+  metodoExtraccion?: ConnectorTipo       // tipo de connector que lo produjo
+  paginaPdf?: number                     // página origen si vino de OCR
 }
 
 export interface Señal {

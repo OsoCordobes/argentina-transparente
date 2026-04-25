@@ -180,6 +180,7 @@ VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos
 | `GET /api/scrapers/health` | backend/ | Estado de scrapers registrados |
 | `npm run alertas:check` | backend/ | Detector de alertas (cron-friendly) |
 | `GET /api/alertas` | backend/ | Lista alertas (?soloNoLeidas=true) |
+| `npm run seed:boletin -- --url <PDF>` | backend/ | OCR Vision API sobre Boletín Oficial |
 | CI (GitHub Actions) | `.github/workflows/ci.yml` | typecheck + tests + build en push/PR |
 
 ---
@@ -205,9 +206,9 @@ VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos
 - ✅ **Connector Santa Fe** (CKAN + CSV, `npm run seed:santafe`)
 - ✅ **Modo comparativo jurisdicciones** (`/municipios` — bar chart + cards per jurisdicción + scraper health)
 - ✅ **Alertas automáticas** (`/alertas` + badge en topbar; detector vía `npm run alertas:check`; scrapers rotos / fuentes desactualizadas / datos nuevos)
+- ✅ **Pipeline OCR Boletines** (`npm run seed:boletin -- --url|--file`; Sonnet 4.6 con PDF nativo + adaptive thinking + prompt caching; zod validation; trazabilidad por página)
 
 **Pendiente post-MVP:**
-- Pipeline OCR Claude Vision para boletines pre-2015
 - Análisis obra pública via Boletín Oficial
 - Cruce nómina municipal vs proveedores
 - Modo comparativo entre municipios

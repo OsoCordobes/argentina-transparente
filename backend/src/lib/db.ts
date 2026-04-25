@@ -54,6 +54,17 @@ export async function initDb(): Promise<void> {
     )
   `)
 
+  // ─── Trazabilidad de extracción (post-MVP round 7) ──────────────────────────
+  // ALTER idempotente — DuckDB no soporta IF NOT EXISTS en ADD COLUMN, capturamos
+  // el error de columna duplicada al re-correr.
+  for (const alter of [
+    `ALTER TABLE contratos ADD COLUMN nivel_confianza TEXT DEFAULT 'alto'`,
+    `ALTER TABLE contratos ADD COLUMN metodo_extraccion TEXT DEFAULT 'api_estructurada'`,
+    `ALTER TABLE contratos ADD COLUMN pagina_pdf INTEGER`,
+  ]) {
+    try { await dbRun(alter) } catch { /* columna ya existe */ }
+  }
+
   // ─── Pre-computed signals cache ────────────────────────────────────────────
   await dbRun(`
     CREATE TABLE IF NOT EXISTS señales_cache (
@@ -383,9 +394,17 @@ export async function insertContratoBatch(municipio: string, contratos: Contrato
     const hash = hashContrato(municipio, c)
     try {
       await dbRun(
-        `INSERT OR IGNORE INTO contratos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [hash, municipio, c.anio, c.tipo, c.proveedor, normProveedor(c.proveedor),
-         c.area, c.descripcion ?? '', c.monto, c.fuenteUrl, now]
+        `INSERT OR IGNORE INTO contratos
+         (hash, municipio, anio, tipo, proveedor, proveedor_norm, area, descripcion,
+          monto, fuente_url, cargado_en, nivel_confianza, metodo_extraccion, pagina_pdf)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          hash, municipio, c.anio, c.tipo, c.proveedor, normProveedor(c.proveedor),
+          c.area, c.descripcion ?? '', c.monto, c.fuenteUrl, now,
+          c.nivelConfianza ?? 'alto',
+          c.metodoExtraccion ?? 'api_estructurada',
+          c.paginaPdf ?? null,
+        ]
       )
       inserted++
     } catch {
