@@ -1,14 +1,16 @@
-# La Bestia — Estado Técnico v2.0
+# ARGOS — Estado Técnico v3.0
 
 > Canal de comunicación entre agentes (Cowork ↔ Claude Code).
 > Leer ESTADO antes de tocar cualquier archivo.
+>
+> Nota: el proyecto se llamó "La Bestia" en sus primeras iteraciones. Renombrado a **ARGOS** en Sprint 0 (v3.0). Los servicios de Railway aún tienen el subdomain `bestia-backend-...` por inercia; renombrarlos requiere acción manual del usuario en Railway.
 
 ---
 
 ## URLs de Producción
 
 - **Frontend:** https://victorious-luck-production-8d3a.up.railway.app
-- **Backend:** https://bestia-backend-3e456938-0eae-49cf-b246-93a05746e060-production.up.railway.app
+- **Backend:** https://bestia-backend-3e456938-0eae-49cf-b246-93a05746e060-production.up.railway.app *(rename pendiente en Railway → `argos-backend`)*
 
 ---
 
@@ -17,7 +19,7 @@
 | Capa | Tecnología | Deploy |
 |------|-----------|--------|
 | Frontend | React 18 + TypeScript + Tailwind + Vite | Railway (victorious-luck) |
-| Backend | Node.js + TypeScript + Express | Railway (bestia-backend) |
+| Backend | Node.js + TypeScript + Express | Railway (bestia-backend, rename pendiente) |
 | LLM | Claude Sonnet 4 (anthropic SDK) | API call desde backend |
 | Datos | gobiernoabierto.cordoba.gob.ar | API pública REST + XLSX |
 
@@ -112,7 +114,7 @@ PORT=3001
 **Frontend (`frontend/.env.development` / `.env.production`):**
 ```
 VITE_API_URL=http://localhost:3001
-VITE_API_URL=https://bestia-backend-...railway.app
+VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos-backend-...
 ```
 
 ---

@@ -55,9 +55,9 @@ export default function Landing() {
     <div className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center p-8">
       <div className="max-w-xl w-full space-y-8">
         <div className="text-center space-y-2">
-          <h1 className="text-4xl font-bold tracking-tight">La Bestia</h1>
+          <h1 className="text-4xl font-bold tracking-tight">ARGOS</h1>
           <p className="text-gray-400 text-lg">
-            Análisis automatizado de gasto público municipal en Córdoba, Argentina
+            Argentina Transparente — análisis automatizado de gasto público
           </p>
         </div>
 
