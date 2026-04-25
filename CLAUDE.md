@@ -180,6 +180,78 @@ frontend/src/
 - Frontend: botón "Copiar para compartir" en Report
 - Test 5 años 2019–2023: 1390 contratos, 5 señales detectadas
 
+### 2026-04-25 — Claude Code (sesión multi-sprint v3.0)
+
+**PR #3 — `claude/anticorruption-tool-frontend-f0dYN` → `main`**
+
+Sprint 0 — Renombrado completo La Bestia → ARGOS. CLAUDE.md header v3.0,
+frontend (title/og), backend package name → argos-backend@3.0.0, README real,
+borrados LA_BESTIA_CONTEXT.md y frontend/.lovable/. URLs Railway preservadas
+con flag "rename pendiente" (acción manual del usuario).
+
+Sprint 1 — Frontend SPA investigativa entity-centric. Borradas Landing/Report/
+ProviderProfile (793 LOC). Nuevo AppShell con cmd+k global (cmdk + debounce
+200ms vs `/api/entidad/search`), Dashboard cross-municipio con KPIs + top
+entidades + grilla de señales activas, Entidad con tabs (Resumen/Contratos/
+Timeline/Señales) + tabla virtualizada `@tanstack/react-table` con
+sort+filter+paginación + recharts BarChart anual. React Query providers,
+sonner toaster, queries.ts tipadas.
+
+Sprint 2 — Cierre del círculo entity-centric.
+- Backend: `Señal.cuits?: string[]`, `getSeñalesPorCuit(cuit)`, `getContratoPorHash`,
+  `getRedCytoscape(municipio)` que emite { nodes, edges } directo. Routes nuevas
+  `/api/contrato/:hash` (ficha con cadena de custodia hash + URL fuente) y
+  `/api/red/:municipio` (Cytoscape). `analyze.ts` extraerCuits matchea nombres
+  ≥4 chars contra Map empresas para poblar `entidades_cuit`.
+- Frontend: pages/Contrato.tsx (cadena de custodia forense), pages/Red.tsx
+  (Cytoscape + dagre, click empresa → entidad, click arista → directores +
+  marco legal Ley 27.442/LGS art.33), tab Señales en Entidad consume señales
+  cruzadas por CUIT (no más placeholder).
+
+Sprint 3 — Casos persistentes + denuncia formal.
+- `supabase/migrations/0001_casos.sql`: schema casos/caso_entidades/caso_contratos/
+  caso_directores/caso_senales/caso_notas con RLS y triggers de actualizado_en.
+- Frontend: lib/supabase.ts (stub si no configurado), lib/auth.tsx (AuthProvider),
+  lib/casoQueries.ts (CRUD via React Query), stores/casoStore.ts (zustand
+  bookmarks volátiles). Páginas Login (magic-link), Casos (lista + dialog crear),
+  Caso (workspace tabs + sidebar notas markdown autosave 800ms), Denuncia (wizard
+  5 pasos zod + react-hook-form, narrativa auto desde caso). Componente
+  AddToCase reutilizable en Entidad/Contrato.
+- Backend: lib/denuncia-pdf.tsx con `@react-pdf/renderer` (carátula, hechos,
+  señales, anexos numerados con hash + fuente, cadena de custodia formal).
+  Route POST /api/denuncia computa SHA256 + timestamp ISO, expone vía headers
+  X-Document-SHA256 / X-Document-Timestamp / X-Document-ID.
+- tsconfig.json backend: `jsx: "react-jsx"`, +@types/react.
+
+Sprint 4 — Data Foundation base.
+- types: ConnectorTipo, FuenteMetadata, NivelConfianza. MunicipioConnector
+  +tipo +fuente opcionales (backwards compat).
+- DuckDB: tabla `fuentes_datos` con metadata trazable (CLAUDE.md §4 cumplido).
+- Conectores: cordoba-capital declara FuenteMetadata oficial.
+- OpenSanctions: lib/opensanctions.ts (search + match endpoints, esRiesgoAlto
+  helper para clasificar PEP/sancionado/offshore/crimen). Routes /api/cruce/
+  fuentes|persona|empresa.
+- Frontend: pages/Fuentes.tsx (transparencia de procedencia), useFuentes(),
+  link en footer.
+
+Pendiente para post-MVP:
+- Connector CKAN genérico para datos.gob.ar / CABA / provincias.
+- Scraper Playwright + health monitoring.
+- Pipeline OCR Claude Vision (boletines pre-2015, costo estimado ~$7K para
+  Córdoba 2010–2018 a $0.02/página).
+- Bulk download ICIJ Offshore Leaks → tablas internacional_personas/entidades.
+- Señal `aparicion_offshore` integrada al engine (cache de matches por CUIT
+  para evitar 1 round-trip API por señal).
+- Setup Supabase del usuario: crear proyecto, aplicar migración 0001_casos.sql,
+  setear VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY.
+- Rename servicio Railway bestia-backend → argos-backend (manual).
+
+Métricas finales sesión:
+- 5 commits pusheados a `claude/anticorruption-tool-frontend-f0dYN`
+- 89 tests vitest siguen verde
+- backend tsc + build OK, frontend tsc + build OK (1.65MB → 491KB gzip)
+- ~5500 LOC netas agregadas (frontend ~3500 + backend ~2000)
+
 
 NO BORRAR//INSTRUCCIONES
 # Argentina Transparente — Instrucciones fijas
