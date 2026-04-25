@@ -22,6 +22,9 @@ export interface Señal {
     severidad: 'grave' | 'moderada' | 'leve'
     denunciarAnte: string[]
   }
+  // CUITs de las entidades implicadas en la señal (poblado en analyze.ts).
+  // Permite asociar señal↔entidad sin string matching frágil.
+  cuits?: string[]
 }
 
 export interface ComoVerificar {

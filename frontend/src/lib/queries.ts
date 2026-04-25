@@ -68,10 +68,25 @@ export interface ContratoDetalle {
   descripcion: string
   monto: number
   anio: number
+  municipio?: string
   fuenteUrl: string
   numeroExpediente?: string
   numeroContrato?: string
   fechaContrato?: string
+}
+
+export interface SeñalAsociada {
+  id: string
+  municipio: string
+  tipologia: string
+  titulo: string
+  resumen: string
+  score: number
+  severidad: Severidad
+  evidencia: { descripcion: string; fuenteUrl: string }[]
+  legal: { articulos: string[]; severidad: string; denunciarAnte: string[] }
+  cuits: string[]
+  computadoEn: string
 }
 
 export interface AfipInfo {
@@ -93,11 +108,48 @@ export interface EntidadDetalle {
   timeline: { anio: number; cantidad: number; monto: number }[]
   tipos: { tipo: string; cantidad: number; monto: number }[]
   contratos: ContratoDetalle[]
+  señales?: SeñalAsociada[]
 }
 
 export interface EntidadResponse {
   ok: true
   entidad: EntidadDetalle
+}
+
+export interface ContratoResponse {
+  ok: true
+  contrato: ContratoDetalle
+  afip: AfipInfo | null
+  señales: SeñalAsociada[]
+  cadenaCustodia: { fuenteUrl: string; hashContrato: string }
+}
+
+export interface CytoNode {
+  data: {
+    id: string
+    label: string
+    type: 'empresa' | 'director'
+    cuit?: string
+    municipio?: string
+  }
+}
+
+export interface CytoEdge {
+  data: {
+    id: string
+    source: string
+    target: string
+    label?: string
+    weight?: number
+    sharedDirectors?: string[]
+  }
+}
+
+export interface RedResponse {
+  ok: true
+  municipio: string
+  elements: { nodes: CytoNode[]; edges: CytoEdge[] }
+  stats: { nodes: number; edges: number }
 }
 
 export function useDashboard() {
@@ -129,5 +181,27 @@ export function useEntidad(nombre: string | undefined) {
       ),
     enabled: !!nombre && nombre.length > 0,
     staleTime: 60_000,
+  })
+}
+
+export function useContrato(hash: string | undefined) {
+  return useQuery({
+    queryKey: ['contrato', hash],
+    queryFn: () => fetchJSON<ContratoResponse>(`/api/contrato/${hash}`),
+    enabled: !!hash && hash.length >= 8,
+    staleTime: 5 * 60_000, // contrato individual cambia poco
+  })
+}
+
+export function useRed(municipio: string | undefined) {
+  return useQuery({
+    queryKey: ['red', municipio],
+    queryFn: () =>
+      fetchJSON<RedResponse>(
+        `/api/red/${encodeURIComponent(municipio ?? '')}`
+      ),
+    enabled: !!municipio && municipio.length > 0,
+    staleTime: 5 * 60_000,
+    retry: 0, // si Neo4j no está disponible, no retry repetidos
   })
 }

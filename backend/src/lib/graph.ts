@@ -180,6 +180,96 @@ export async function getRedDeEmpresas(municipio: string, minShared = 2): Promis
   })
 }
 
+// ─── Cytoscape export ─────────────────────────────────────────────────────────
+
+export interface CytoNode {
+  data: {
+    id: string
+    label: string
+    type: 'empresa' | 'director'
+    cuit?: string
+    municipio?: string
+    sharedDirectors?: number
+  }
+}
+
+export interface CytoEdge {
+  data: {
+    id: string
+    source: string
+    target: string
+    label?: string
+    weight?: number
+    sharedDirectors?: string[]
+  }
+}
+
+export interface CytoElements {
+  nodes: CytoNode[]
+  edges: CytoEdge[]
+}
+
+// Devuelve elementos Cytoscape de la red empresa↔director↔empresa para un municipio.
+// Cada empresa aparece como nodo. Cada director compartido genera un edge directo
+// empresa↔empresa con label = nombre del director (más limpio para investigación
+// que el bipartito empresa→director→empresa).
+export async function getRedCytoscape(municipio: string): Promise<CytoElements> {
+  if (!_available) return { nodes: [], edges: [] }
+
+  return withSession(async s => {
+    const result = await s.run(
+      `MATCH (e1:Empresa {municipio: $municipio})-[:TIENE_DIRECTOR]->(d:Director)
+             <-[:TIENE_DIRECTOR]-(e2:Empresa {municipio: $municipio})
+       WHERE e1.cuit < e2.cuit
+       WITH e1, e2, collect(d.nombre) AS directores
+       WHERE size(directores) >= 1
+       RETURN e1.cuit AS cuit1, e1.nombre AS nombre1,
+              e2.cuit AS cuit2, e2.nombre AS nombre2,
+              directores
+       ORDER BY size(directores) DESC
+       LIMIT 200`,
+      { municipio }
+    )
+
+    const nodeMap = new Map<string, CytoNode>()
+    const edges: CytoEdge[] = []
+
+    for (const r of result.records) {
+      const cuit1 = r.get('cuit1') as string
+      const cuit2 = r.get('cuit2') as string
+      const nombre1 = r.get('nombre1') as string
+      const nombre2 = r.get('nombre2') as string
+      const directores = r.get('directores') as string[]
+
+      if (!nodeMap.has(cuit1)) {
+        nodeMap.set(cuit1, {
+          data: { id: cuit1, label: nombre1, type: 'empresa', cuit: cuit1, municipio },
+        })
+      }
+      if (!nodeMap.has(cuit2)) {
+        nodeMap.set(cuit2, {
+          data: { id: cuit2, label: nombre2, type: 'empresa', cuit: cuit2, municipio },
+        })
+      }
+
+      edges.push({
+        data: {
+          id: `${cuit1}__${cuit2}`,
+          source: cuit1,
+          target: cuit2,
+          label: directores.length === 1
+            ? directores[0]
+            : `${directores.length} directores`,
+          weight: directores.length,
+          sharedDirectors: directores,
+        },
+      })
+    }
+
+    return { nodes: Array.from(nodeMap.values()), edges }
+  })
+}
+
 export async function closeGraph(): Promise<void> {
   if (_driver) {
     await _driver.close()

@@ -388,22 +388,34 @@ export async function searchEntidades(query: string, limit = 20): Promise<TopEnt
 }
 
 export interface EntidadContrato {
+  hash: string
   anio: number
   tipo: string
   area: string
   descripcion: string
   monto: number
+  proveedor: string
   municipio: string
   fuente_url: string
 }
 
 export async function getContratosPorProveedor(proveedor: string): Promise<EntidadContrato[]> {
   return dbAll<EntidadContrato>(`
-    SELECT anio, tipo, area, descripcion, monto, municipio, fuente_url
+    SELECT hash, anio, tipo, area, descripcion, monto, proveedor, municipio, fuente_url
     FROM contratos
     WHERE proveedor_norm = ?
     ORDER BY anio DESC, monto DESC
   `, [proveedor.toUpperCase()])
+}
+
+export async function getContratoPorHash(hash: string): Promise<EntidadContrato | null> {
+  const rows = await dbAll<EntidadContrato>(`
+    SELECT hash, anio, tipo, area, descripcion, monto, proveedor, municipio, fuente_url
+    FROM contratos
+    WHERE hash = ?
+    LIMIT 1
+  `, [hash])
+  return rows[0] ?? null
 }
 
 // ─── Señales cache ────────────────────────────────────────────────────────────
@@ -412,7 +424,11 @@ export async function clearSeñalesCache(): Promise<void> {
   await dbRun(`DELETE FROM señales_cache`)
 }
 
-export async function insertSeñalCache(municipio: string, señal: Señal): Promise<void> {
+export async function insertSeñalCache(
+  municipio: string,
+  señal: Señal,
+  cuits: string[] = []
+): Promise<void> {
   const id = crypto.randomUUID()
   await dbRun(
     `INSERT INTO señales_cache VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -420,7 +436,8 @@ export async function insertSeñalCache(municipio: string, señal: Señal): Prom
       id, municipio, señal.tipologia, señal.titulo, señal.resumen,
       señal.score, señal.legal.severidad,
       JSON.stringify(señal.evidencia), JSON.stringify(señal.legal),
-      null, new Date().toISOString()
+      cuits.length > 0 ? JSON.stringify(cuits) : null,
+      new Date().toISOString()
     ]
   )
 }
@@ -435,6 +452,7 @@ export interface SeñalCacheRow {
   severidad: string
   evidencia_json: string
   legal_json: string
+  entidades_cuit: string | null
   computado_en: string
 }
 
@@ -445,6 +463,18 @@ export async function getSeñalesCache(municipio?: string): Promise<SeñalCacheR
     )
   }
   return dbAll<SeñalCacheRow>(`SELECT * FROM señales_cache ORDER BY score DESC`)
+}
+
+// Señales asociadas a un CUIT específico (entidades_cuit es JSON array de strings).
+export async function getSeñalesPorCuit(cuit: string): Promise<SeñalCacheRow[]> {
+  // DuckDB list_contains sobre el JSON parseado. Fallback: LIKE pattern matching.
+  return dbAll<SeñalCacheRow>(
+    `SELECT * FROM señales_cache
+     WHERE entidades_cuit IS NOT NULL
+       AND entidades_cuit LIKE ?
+     ORDER BY score DESC`,
+    [`%"${cuit}"%`]
+  )
 }
 
 export async function getSeñalesCacheCount(): Promise<number> {

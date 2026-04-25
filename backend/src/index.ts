@@ -4,6 +4,8 @@ import analizarRouter from './routes/analizar'
 import historialRouter from './routes/historial'
 import dashboardRouter from './routes/dashboard'
 import entidadRouter from './routes/entidad'
+import contratoRouter from './routes/contrato'
+import redRouter from './routes/red'
 import { cordobaCapitalConnector } from './connectors/cordoba-capital'
 import { initDb, getReporte } from './lib/db'
 import { initGraph } from './lib/graph'
@@ -24,7 +26,7 @@ app.use(express.json())
 
 // GET /health
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, version: '2.0.0' })
+  res.json({ ok: true, version: '3.0.0' })
 })
 
 // GET /municipios
@@ -41,6 +43,8 @@ app.get('/municipios', (_req, res) => {
 // New entity-centric API
 app.use('/api/dashboard', dashboardRouter)
 app.use('/api/entidad', entidadRouter)
+app.use('/api/contrato', contratoRouter)
+app.use('/api/red', redRouter)
 
 // Legacy routes (still used by current frontend)
 app.use('/analizar', analizarRouter)
@@ -62,7 +66,7 @@ app.get('/reporte/:id', async (req, res) => {
 Promise.all([initDb(), initGraph()])
   .then(() => {
     app.listen(PORT, () => {
-      console.log(`ARGOS v2 corriendo en http://localhost:${PORT}`)
+      console.log(`ARGOS v3 corriendo en http://localhost:${PORT}`)
     })
   })
   .catch(err => {

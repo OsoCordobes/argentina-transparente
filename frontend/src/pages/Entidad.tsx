@@ -303,16 +303,94 @@ export default function Entidad() {
                 <CardHeader>
                   <CardTitle className="text-base">Señales asociadas</CardTitle>
                   <CardDescription>
-                    Disponible en Sprint 2 — requiere poblar{' '}
-                    <code className="text-xs">señales_cache.entidades_cuit</code> en backend
+                    {entidad.señales && entidad.señales.length > 0
+                      ? `${entidad.señales.length} señal(es) cruzando por CUIT`
+                      : 'Sin señales asociadas al CUIT de esta entidad'}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="border border-dashed rounded-md p-8 text-center text-sm text-muted-foreground">
-                    <Construction className="h-6 w-6 mx-auto mb-2 opacity-50" />
-                    Hoy las señales se calculan a nivel municipio. La asociación señal↔entidad
-                    se desbloquea cuando el motor escriba los CUITs detectados en cada señal.
-                  </div>
+                  {!entidad.afip && (
+                    <Alert>
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertTitle>Sin enriquecimiento AFIP</AlertTitle>
+                      <AlertDescription>
+                        No se encontró CUIT para esta entidad — no es posible asociar
+                        señales. Ejecutá <code className="text-xs">npm run seed:afip</code>{' '}
+                        en el backend.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  {entidad.afip && (!entidad.señales || entidad.señales.length === 0) && (
+                    <div className="border border-dashed rounded-md p-8 text-center text-sm text-muted-foreground">
+                      <Construction className="h-6 w-6 mx-auto mb-2 opacity-50" />
+                      No se detectaron señales asociadas al CUIT{' '}
+                      <code className="text-xs">{entidad.afip.cuit}</code>. Si esperás
+                      ver señales, recorré <code className="text-xs">npm run analyze --force</code>{' '}
+                      en el backend para repoblar <code className="text-xs">entidades_cuit</code>.
+                    </div>
+                  )}
+                  {entidad.señales && entidad.señales.length > 0 && (
+                    <div className="space-y-3">
+                      {entidad.señales.map((s) => (
+                        <div
+                          key={s.id}
+                          className="border rounded-md p-4 space-y-2 hover:border-foreground/20 transition-colors"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <Badge
+                                variant={
+                                  s.severidad === 'grave'
+                                    ? 'destructive'
+                                    : s.severidad === 'moderada'
+                                      ? 'secondary'
+                                      : 'outline'
+                                }
+                              >
+                                {s.severidad}
+                              </Badge>
+                              <h3 className="text-sm font-medium mt-2">{s.titulo}</h3>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {s.tipologia.replace(/_/g, ' ')} · {s.municipio}
+                              </p>
+                            </div>
+                            <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+                              score {s.score}
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{s.resumen}</p>
+                          {s.evidencia.length > 0 && (
+                            <details className="text-xs">
+                              <summary className="cursor-pointer text-muted-foreground">
+                                {s.evidencia.length} pieza(s) de evidencia
+                              </summary>
+                              <ul className="mt-2 space-y-1 ml-4 list-disc">
+                                {s.evidencia.map((ev, i) => (
+                                  <li key={i}>
+                                    {ev.descripcion}
+                                    {ev.fuenteUrl && (
+                                      <>
+                                        {' '}
+                                        <a
+                                          href={ev.fuenteUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="text-primary hover:underline inline-flex items-center gap-0.5"
+                                        >
+                                          <ExternalLink className="h-2.5 w-2.5" />
+                                          fuente
+                                        </a>
+                                      </>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            </details>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -409,18 +487,29 @@ function ContratosTable({ contratos }: { contratos: ContratoDetalle[] }) {
         ),
       },
       {
-        id: 'fuente',
-        header: 'Fuente',
+        id: 'acciones',
+        header: '',
         cell: (c) => (
-          <a
-            href={c.row.original.fuenteUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-            title="Abrir dataset oficial"
-          >
-            <ExternalLink className="h-3 w-3" />
-          </a>
+          <div className="flex items-center gap-2">
+            {c.row.original.hash && (
+              <Link
+                to={`/contrato/${c.row.original.hash}`}
+                className="text-xs text-primary hover:underline whitespace-nowrap"
+                title="Ver ficha individual del contrato"
+              >
+                Ver ficha
+              </Link>
+            )}
+            <a
+              href={c.row.original.fuenteUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+              title="Abrir dataset oficial"
+            >
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
         ),
       },
     ],

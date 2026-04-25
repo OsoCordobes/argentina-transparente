@@ -35,7 +35,7 @@ export function AppShell() {
             <NavItem to="/" icon={<LayoutDashboard className="h-4 w-4" />}>
               Dashboard
             </NavItem>
-            <NavItem to="/red" icon={<Network className="h-4 w-4" />} disabled>
+            <NavItem to="/red" icon={<Network className="h-4 w-4" />}>
               Red
             </NavItem>
             <a

@@ -12,7 +12,28 @@ import {
 } from '../lib/db'
 import { initGraph } from '../lib/graph'
 import { calcularSeñales } from '../engine/signals'
-import type { EmpresaEnriquecida } from '../types'
+import type { EmpresaEnriquecida, Señal } from '../types'
+
+// Extrae los CUITs de las entidades implicadas en una señal mirando título y
+// evidencia para encontrar nombres de proveedores presentes en el Map de empresas.
+// Esto desbloquea la asociación señal↔entidad sin string matching frágil en el
+// frontend (Sprint 2 del plan ARGOS v3.0).
+function extraerCuits(señal: Señal, empresas: Map<string, EmpresaEnriquecida>): string[] {
+  if (empresas.size === 0) return []
+  const cuits = new Set<string>()
+  const haystack = (
+    señal.titulo + ' ' +
+    señal.evidencia.map(e => e.descripcion).join(' ')
+  ).toUpperCase()
+  for (const [nombre, emp] of empresas) {
+    if (!emp.cuit) continue
+    if (nombre.length < 4) continue // evita falsos positivos en siglas
+    if (haystack.includes(nombre)) {
+      cuits.add(emp.cuit)
+    }
+  }
+  return Array.from(cuits)
+}
 
 const MUNICIPIOS = ['cordoba-capital']
 
@@ -79,13 +100,17 @@ async function main() {
     const señales = await calcularSeñales(contratos, empresas, municipio)
 
     for (const s of señales) {
-      await insertSeñalCache(municipio, s)
+      const cuits = extraerCuits(s, empresas)
+      await insertSeñalCache(municipio, s, cuits)
     }
 
     totalSeñales += señales.length
-    console.log(`[${municipio}] ✓ ${señales.length} señales detectadas:`)
+    const conCuits = señales.filter(s => extraerCuits(s, empresas).length > 0).length
+    console.log(`[${municipio}] ✓ ${señales.length} señales detectadas (${conCuits} con CUITs asociados):`)
     for (const s of señales) {
-      console.log(`  [${s.score}] [${s.legal.severidad}] ${s.tipologia}: ${s.titulo.slice(0, 80)}`)
+      const cuits = extraerCuits(s, empresas)
+      const cuitsStr = cuits.length > 0 ? ` [cuits: ${cuits.length}]` : ''
+      console.log(`  [${s.score}] [${s.legal.severidad}] ${s.tipologia}${cuitsStr}: ${s.titulo.slice(0, 80)}`)
     }
   }
 
