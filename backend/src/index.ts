@@ -7,6 +7,10 @@ import entidadRouter from './routes/entidad'
 import contratoRouter from './routes/contrato'
 import redRouter from './routes/red'
 import denunciaRouter from './routes/denuncia'
+import cruceRouter from './routes/cruce'
+import { registrarFuente } from './lib/db'
+import { fuenteCordobaCapital } from './connectors/cordoba-capital'
+import { fuenteOpenSanctions } from './lib/opensanctions'
 import { cordobaCapitalConnector } from './connectors/cordoba-capital'
 import { initDb, getReporte } from './lib/db'
 import { initGraph } from './lib/graph'
@@ -47,6 +51,7 @@ app.use('/api/entidad', entidadRouter)
 app.use('/api/contrato', contratoRouter)
 app.use('/api/red', redRouter)
 app.use('/api/denuncia', denunciaRouter)
+app.use('/api/cruce', cruceRouter)
 
 // Legacy routes (still used by current frontend)
 app.use('/analizar', analizarRouter)
@@ -66,7 +71,15 @@ app.get('/reporte/:id', async (req, res) => {
 
 // Inicializar DB + grafo y arrancar servidor
 Promise.all([initDb(), initGraph()])
-  .then(() => {
+  .then(async () => {
+    // Sprint 4: registrar fuentes conocidas en fuentes_datos (idempotente)
+    try {
+      await registrarFuente(fuenteCordobaCapital)
+      await registrarFuente(fuenteOpenSanctions)
+    } catch (err) {
+      console.warn('[fuentes] Error registrando fuentes iniciales:', err)
+    }
+
     app.listen(PORT, () => {
       console.log(`ARGOS v3 corriendo en http://localhost:${PORT}`)
     })

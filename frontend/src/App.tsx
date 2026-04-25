@@ -8,6 +8,7 @@ import Login from './pages/Login'
 import Casos from './pages/Casos'
 import Caso from './pages/Caso'
 import Denuncia from './pages/Denuncia'
+import Fuentes from './pages/Fuentes'
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
           <Route path="/entidad/:nombre" element={<Entidad />} />
           <Route path="/contrato/:hash" element={<Contrato />} />
           <Route path="/red" element={<Red />} />
+          <Route path="/fuentes" element={<Fuentes />} />
           <Route path="/login" element={<Login />} />
           <Route path="/casos" element={<Casos />} />
           <Route path="/caso/:id" element={<Caso />} />

@@ -2,7 +2,7 @@ import DuckDB from 'duckdb'
 import crypto from 'crypto'
 import path from 'path'
 import fs from 'fs'
-import type { Contrato, Señal, Expediente } from '../types/index'
+import type { Contrato, Señal, Expediente, FuenteMetadata } from '../types/index'
 
 const DATA_DIR = path.join(process.cwd(), 'data')
 const DB_PATH = path.join(DATA_DIR, 'argos.duckdb')
@@ -124,6 +124,26 @@ export async function initDb(): Promise<void> {
       total_contratos INTEGER NOT NULL DEFAULT 0,
       total_señales   INTEGER NOT NULL DEFAULT 0,
       expediente_json TEXT    NOT NULL
+    )
+  `)
+
+  // ─── Fuentes de datos — Sprint 4 (Data Foundation) ────────────────────────
+  // Cumple CLAUDE.md sección 4: toda fuente registrada con origen, fecha,
+  // método, formato y nivel de confianza.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS fuentes_datos (
+      id                TEXT PRIMARY KEY,
+      jurisdiccion      TEXT NOT NULL,
+      tipo              TEXT NOT NULL,    -- ConnectorTipo
+      url               TEXT NOT NULL,
+      formato           TEXT NOT NULL,
+      oficial           BOOLEAN NOT NULL,
+      licencia          TEXT,
+      frecuencia        TEXT,
+      nivel_confianza   TEXT NOT NULL,    -- 'alto'|'medio'|'bajo'
+      notas             TEXT,
+      registrado_en     TEXT NOT NULL,
+      ultimo_crawl      TEXT
     )
   `)
 }
@@ -517,6 +537,56 @@ export async function getHistorial(limit = 20): Promise<HistorialEntry[]> {
      LIMIT ?`,
     [limit]
   )
+}
+
+// ─── Fuentes de datos (Sprint 4) ──────────────────────────────────────────────
+
+export interface FuenteDatosRow {
+  id: string
+  jurisdiccion: string
+  tipo: string
+  url: string
+  formato: string
+  oficial: boolean
+  licencia: string | null
+  frecuencia: string | null
+  nivel_confianza: string
+  notas: string | null
+  registrado_en: string
+  ultimo_crawl: string | null
+}
+
+export async function registrarFuente(f: FuenteMetadata): Promise<void> {
+  await dbRun(
+    `INSERT OR REPLACE INTO fuentes_datos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      f.id,
+      f.jurisdiccion,
+      'api_estructurada', // por ahora; el conector debería pasar tipo
+      f.url,
+      f.formato,
+      f.oficial,
+      f.licencia ?? null,
+      f.frecuenciaActualizacion ?? null,
+      f.nivelConfianza,
+      f.notas ?? null,
+      new Date().toISOString(),
+      null,
+    ]
+  )
+}
+
+export async function listarFuentes(): Promise<FuenteDatosRow[]> {
+  return dbAll<FuenteDatosRow>(`
+    SELECT * FROM fuentes_datos ORDER BY jurisdiccion, registrado_en
+  `)
+}
+
+export async function marcarUltimoCrawl(fuenteId: string): Promise<void> {
+  await dbRun(`UPDATE fuentes_datos SET ultimo_crawl = ? WHERE id = ?`, [
+    new Date().toISOString(),
+    fuenteId,
+  ])
 }
 
 export async function getReporte(id: string): Promise<ReporteCompleto | null> {

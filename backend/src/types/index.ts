@@ -81,4 +81,33 @@ export interface MunicipioConnector {
   nombre: string
   aniosDisponibles: number[]
   getContratos(anioDesde: number, anioHasta: number): Promise<Contrato[]>
+
+  // ── Sprint 4 (Data Foundation) — metadata trazable ────────────────────────
+  // Estos campos son opcionales por backwards compat con conectores existentes
+  // pero conectores nuevos DEBERÍAN proveerlos para cumplir CLAUDE.md sección 4
+  // (toda fuente debe registrarse con origen, fecha, método, formato y nivel
+  // de confianza).
+  tipo?: ConnectorTipo
+  fuente?: FuenteMetadata
+}
+
+export type ConnectorTipo =
+  | 'api_estructurada'    // CKAN, JSON, XLSX directo desde API oficial
+  | 'scraper_html'        // Playwright sobre portal sin API
+  | 'ocr_pdf'             // Vision API sobre boletines escaneados
+  | 'dataset_internacional' // OpenSanctions, ICIJ, OFAC, etc.
+
+export type NivelConfianza = 'alto' | 'medio' | 'bajo'
+
+export interface FuenteMetadata {
+  // Identificador estable para FK desde contratos.fuente_id
+  id: string
+  jurisdiccion: string             // 'Córdoba Capital', 'Nación', etc.
+  url: string                      // URL pública del dataset/portal
+  formato: string                  // 'XLSX', 'JSON', 'PDF', 'CSV', etc.
+  oficial: boolean                 // ¿es fuente oficial (gobierno)?
+  licencia?: string                // CC-BY-4.0, etc. cuando corresponda
+  frecuenciaActualizacion?: string // 'anual', 'mensual', 'eventual'
+  nivelConfianza: NivelConfianza
+  notas?: string
 }

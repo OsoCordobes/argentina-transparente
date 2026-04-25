@@ -135,7 +135,9 @@ export function AppShell() {
         <div className="mx-auto max-w-screen-2xl px-4 md:px-6 py-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span>ARGOS — motor anticorrupción ciudadano</span>
           <span className="opacity-50">·</span>
-          <span>Datos: gobiernoabierto.cordoba.gob.ar (Ley 27.275)</span>
+          <Link to="/fuentes" className="hover:text-foreground hover:underline">
+            Fuentes de datos
+          </Link>
           <span className="opacity-50">·</span>
           <span>Cero alucinaciones · Toda señal verificable</span>
         </div>

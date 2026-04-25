@@ -205,3 +205,32 @@ export function useRed(municipio: string | undefined) {
     retry: 0, // si Neo4j no está disponible, no retry repetidos
   })
 }
+
+// Sprint 4 — Data Foundation
+export interface FuenteDatos {
+  id: string
+  jurisdiccion: string
+  tipo: string
+  url: string
+  formato: string
+  oficial: boolean
+  licencia: string | null
+  frecuencia: string | null
+  nivel_confianza: 'alto' | 'medio' | 'bajo'
+  notas: string | null
+  registrado_en: string
+  ultimo_crawl: string | null
+}
+
+export interface FuentesResponse {
+  ok: true
+  fuentes: FuenteDatos[]
+}
+
+export function useFuentes() {
+  return useQuery({
+    queryKey: ['fuentes'],
+    queryFn: () => fetchJSON<FuentesResponse>('/api/cruce/fuentes'),
+    staleTime: 5 * 60_000,
+  })
+}
