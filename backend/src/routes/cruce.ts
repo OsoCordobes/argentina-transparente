@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { searchOpenSanctions, matchOpenSanctions, esRiesgoAlto } from '../lib/opensanctions'
-import { listarFuentes } from '../lib/db'
+import { listarFuentes, buscarICIJPorNombre, getICIJCount } from '../lib/db'
 
 const router = Router()
 
@@ -76,6 +76,46 @@ router.get('/empresa', async (req: Request, res: Response) => {
     })
   } catch (err) {
     console.error('[cruce/empresa] Error:', err)
+    res.status(500).json({ ok: false, error: String(err) })
+  }
+})
+
+// GET /api/cruce/icij?nombre=... — búsqueda directa en base local ICIJ
+// Requiere haber ejecutado: npm run seed:icij -- /ruta/a/csvs
+router.get('/icij', async (req: Request, res: Response) => {
+  const nombre = String(req.query.nombre ?? '').trim()
+  if (nombre.length < 3) {
+    return res.status(400).json({ ok: false, error: 'Nombre mínimo 3 caracteres' })
+  }
+
+  try {
+    const [resultados, stats] = await Promise.all([
+      buscarICIJPorNombre(nombre, 20),
+      getICIJCount(),
+    ])
+
+    res.json({
+      ok: true,
+      query: nombre,
+      baseCargada: stats.total > 0,
+      totalEnBase: stats.total,
+      fuentesDisponibles: stats.fuentes,
+      resultados: resultados.map(e => ({
+        nodeId: e.nodeId,
+        nombre: e.nombre,
+        tipo: e.tipo,
+        fuente: e.fuente,
+        jurisdiccion: e.jurisdiccion,
+        countries: e.countries,
+        estado: e.estado,
+        url: `https://offshoreleaks.icij.org/nodes/${e.nodeId}`,
+      })),
+      instruccion: stats.total === 0
+        ? 'Base ICIJ no cargada. Ejecutar: npm run seed:icij -- /ruta/al/directorio'
+        : null,
+    })
+  } catch (err) {
+    console.error('[cruce/icij] Error:', err)
     res.status(500).json({ ok: false, error: String(err) })
   }
 })

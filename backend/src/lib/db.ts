@@ -164,6 +164,32 @@ export async function initDb(): Promise<void> {
       consultado_en       TEXT NOT NULL
     )
   `)
+
+  // ─── Bulk ICIJ Offshore Leaks Database ─────────────────────────────────────
+  // Cargado via: npm run seed:icij -- /ruta/a/csvs/
+  // Descarga: https://offshoreleaks.icij.org/pages/database
+  // Incluye: Panama Papers, Pandora Papers, Paradise Papers, Bahamas Leaks, Offshore Leaks.
+  // Permite detección offline sin rate limit, mucho más rápido que API on-demand.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS icij_entidades (
+      node_id         TEXT PRIMARY KEY,
+      nombre          TEXT NOT NULL,
+      nombre_norm     TEXT NOT NULL,
+      tipo            TEXT NOT NULL,     -- 'entity'|'officer'|'intermediary'
+      jurisdiccion    TEXT,
+      countries       TEXT,
+      country_codes   TEXT,
+      estado          TEXT,
+      fuente          TEXT NOT NULL,     -- 'Panama Papers'|'Pandora Papers'|etc.
+      incorporacion   TEXT,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+
+  await dbRun(`
+    CREATE INDEX IF NOT EXISTS idx_icij_nombre_norm
+    ON icij_entidades(nombre_norm)
+  `)
 }
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
@@ -679,6 +705,103 @@ export async function getOSMatchesCount(): Promise<{ total: number; matched: num
     `SELECT COUNT(*) as cnt FROM opensanctions_matches WHERE matched = true`
   )
   return { total: total[0]?.cnt ?? 0, matched: matched[0]?.cnt ?? 0 }
+}
+
+// ─── ICIJ Offline Leaks helpers ───────────────────────────────────────────────
+
+export interface ICIJEntidad {
+  nodeId: string
+  nombre: string
+  tipo: 'entity' | 'officer' | 'intermediary'
+  jurisdiccion: string | null
+  countries: string | null
+  countryCodes: string | null
+  estado: string | null
+  fuente: string
+  incorporacion: string | null
+}
+
+export async function insertICIJBatch(entidades: ICIJEntidad[]): Promise<number> {
+  const now = new Date().toISOString()
+  let inserted = 0
+  for (const e of entidades) {
+    try {
+      await dbRun(
+        `INSERT OR IGNORE INTO icij_entidades VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          e.nodeId,
+          e.nombre,
+          normalizeICIJ(e.nombre),
+          e.tipo,
+          e.jurisdiccion,
+          e.countries,
+          e.countryCodes,
+          e.estado,
+          e.fuente,
+          e.incorporacion,
+          now,
+        ]
+      )
+      inserted++
+    } catch {
+      // duplicate node_id — skip silently
+    }
+  }
+  return inserted
+}
+
+// Búsqueda por nombre normalizado — usada por seed:icij para cruzar contra empresas
+// y por /api/cruce/icij para búsqueda directa.
+export async function buscarICIJPorNombre(
+  nombre: string,
+  limit = 20
+): Promise<ICIJEntidad[]> {
+  const norm = normalizeICIJ(nombre)
+  if (norm.length < 3) return []
+
+  const rows = await dbAll<{
+    node_id: string; nombre: string; tipo: string; jurisdiccion: string | null
+    countries: string | null; country_codes: string | null; estado: string | null
+    fuente: string; incorporacion: string | null
+  }>(
+    `SELECT node_id, nombre, tipo, jurisdiccion, countries, country_codes,
+            estado, fuente, incorporacion
+     FROM icij_entidades
+     WHERE nombre_norm LIKE ?
+     LIMIT ?`,
+    [`%${norm}%`, limit]
+  )
+  return rows.map(r => ({
+    nodeId: r.node_id,
+    nombre: r.nombre,
+    tipo: r.tipo as ICIJEntidad['tipo'],
+    jurisdiccion: r.jurisdiccion,
+    countries: r.countries,
+    countryCodes: r.country_codes,
+    estado: r.estado,
+    fuente: r.fuente,
+    incorporacion: r.incorporacion,
+  }))
+}
+
+export async function getICIJCount(): Promise<{ total: number; fuentes: Record<string, number> }> {
+  const total = await dbAll<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM icij_entidades`)
+  const porFuente = await dbAll<{ fuente: string; cnt: number }>(
+    `SELECT fuente, COUNT(*) as cnt FROM icij_entidades GROUP BY fuente ORDER BY cnt DESC`
+  )
+  const fuentes: Record<string, number> = {}
+  for (const r of porFuente) fuentes[r.fuente] = r.cnt
+  return { total: total[0]?.cnt ?? 0, fuentes }
+}
+
+function normalizeICIJ(s: string): string {
+  return s
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')  // strip diacritics
+    .replace(/[^A-Z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 export async function getReporte(id: string): Promise<ReporteCompleto | null> {

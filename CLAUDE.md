@@ -175,6 +175,7 @@ VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos
 | `npm run ckan:explore -- nacion` | backend/ | Lista datasets de compras en datos.gob.ar |
 | `npm run seed:nacion -- 2022` | backend/ | Descarga contratos nacionales 2022 |
 | `npm run seed:caba -- 2023` | backend/ | Descarga contratos CABA 2023 |
+| `npm run seed:icij -- /ruta/csvs` | backend/ | Carga ICIJ Offshore Leaks en DuckDB |
 | CI (GitHub Actions) | `.github/workflows/ci.yml` | typecheck + tests + build en push/PR |
 
 ---
@@ -195,11 +196,11 @@ VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos
 - ✅ **CKAN client + `npm run ckan:explore`** (Nación / CABA / Santa Fe / Rosario)
 - ✅ **Connector Argentina Compra** (Estado nacional OCDS, 2016–presente, `npm run seed:nacion`)
 - ✅ **Connector CABA** (CKAN + CSV discovery, 2018–presente, `npm run seed:caba`)
+- ✅ **ICIJ Offshore Leaks bulk** (Panama Papers + Pandora + Paradise + Bahamas; `npm run seed:icij -- /ruta`; auto-cruza contra `empresas` y popula `opensanctions_matches`)
 
 **Pendiente post-MVP:**
 - Scraper Playwright + health monitoring
 - Pipeline OCR Claude Vision para boletines pre-2015
-- Bulk download ICIJ Offshore Leaks → tablas locales (vs query on-demand actual)
 - Análisis obra pública via Boletín Oficial
 - Cruce nómina municipal vs proveedores
 - Modo comparativo entre municipios
@@ -449,6 +450,38 @@ endpoint GET /municipios). `analyze.ts` actualizado para incluir
   seed:cordoba → seed:nacion → seed:igj → seed:afip → seed:neo4j → seed:opensanctions
 
 103 tests siguen verde. tsc --noEmit OK. Sin cambios en frontend.
+
+### 2026-04-25 (cont) — Claude Code (post-MVP round 4: ICIJ bulk)
+
+**Round 4 — ICIJ Offshore Leaks integración offline:**
+
+- `lib/db.ts`: tabla `icij_entidades` (node_id, nombre, nombre_norm, tipo,
+  jurisdiccion, countries, country_codes, fuente, estado, incorporacion).
+  Índice en `nombre_norm` para búsqueda eficiente. Helpers:
+  `insertICIJBatch`, `buscarICIJPorNombre`, `getICIJCount`, `normalizeICIJ`.
+
+- `lib/icij.ts`: parser streaming CSV (readline line-by-line — los archivos
+  pueden ser >1GB). `parsearEntidades(Entities.csv)` + `parsearOfficers(Officers.csv)`.
+  `encontrarArchivosICIJ(dir)` busca los CSVs recursivamente sin importar
+  estructura interna del ZIP. Divisor CSV respeta comillas dobles + escape `""`.
+
+- `scripts/seed-icij.ts`: acepta `/ruta/al/directorio` como argumento.
+  Soporte `--force` y `--solo-ar` (filtra por country_codes=ARG, más rápido).
+  Al finalizar carga, cruza automáticamente contra tabla `empresas` (por nombre
+  normalizado) y popula `opensanctions_matches` con riesgo='offshore' + URL
+  `offshoreleaks.icij.org/nodes/:node_id`. Esto hace que `npm run analyze`
+  detecte offshore sin API on-demand y sin rate limit.
+
+- `routes/cruce.ts`: nuevo endpoint `GET /api/cruce/icij?nombre=...` que
+  consulta la base local. Retorna `baseCargada: bool + totalEnBase + fuentes`
+  para que el frontend sepa si el dataset está disponible.
+
+Cobertura ICIJ: Panama Papers (~800K entidades), Pandora Papers (~330K),
+Paradise Papers (~25K), Offshore Leaks (~540K), Bahamas Leaks (~175K).
+Con `--solo-ar` carga solo los registros vinculados a Argentina (~pocos miles),
+útil para ambientes con menos disco/RAM.
+
+103 tests siguen verde. tsc --noEmit OK.
 
 
 NO BORRAR//INSTRUCCIONES
