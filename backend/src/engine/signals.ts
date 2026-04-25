@@ -1,4 +1,4 @@
-import { Contrato, Señal, EmpresaEnriquecida } from '../types'
+import { Contrato, Señal, EmpresaEnriquecida, OSMatch } from '../types'
 import { getDirectoresCompartidos, getRedDeEmpresas, isGraphAvailable } from '../lib/graph'
 
 const ORGANISMOS = [
@@ -672,12 +672,90 @@ export function detectarRedDeEmpresas(
   }
 }
 
+// ─── Aparición en datasets internacionales (post-MVP — OpenSanctions/ICIJ) ──
+
+// Riesgos que disparan la señal. PEP solo no la dispara — estar en lista de
+// PEPs es información, no necesariamente delito. Los offshore/sanción/crimen
+// sí son indicadores de actividad ilegal o jurisdicciones opacas.
+const RIESGOS_OFFSHORE: Array<NonNullable<OSMatch['riesgo']>> = [
+  'sancionado',
+  'offshore',
+  'crimen',
+]
+
+export function detectarAparicionOffshore(
+  contratos: Contrato[],
+  empresas: Map<string, EmpresaEnriquecida>,
+  osMatches: Map<string, OSMatch>
+): Señal | null {
+  if (osMatches.size === 0 || empresas.size === 0 || contratos.length === 0) {
+    return null
+  }
+  const proveedoresMap = agruparPorProveedor(contratos)
+
+  type Hit = { proveedor: string; cuit: string; match: OSMatch; monto: number; cantidad: number }
+  const hits: Hit[] = []
+
+  for (const [proveedor, cs] of proveedoresMap) {
+    const emp = empresas.get(proveedor)
+    if (!emp?.cuit) continue
+    const match = osMatches.get(emp.cuit)
+    if (!match || !match.matched || !match.riesgo) continue
+    if (!RIESGOS_OFFSHORE.includes(match.riesgo)) continue
+    hits.push({
+      proveedor,
+      cuit: emp.cuit,
+      match,
+      monto: montoTotal(cs),
+      cantidad: cs.length,
+    })
+  }
+
+  if (hits.length === 0) return null
+  hits.sort((a, b) => b.monto - a.monto)
+
+  const totalMonto = hits.reduce((s, x) => s + x.monto, 0)
+  const cuits = hits.map(h => h.cuit)
+  const tieneOffshore = hits.some(h => h.match.riesgo === 'offshore')
+  const tieneSancion = hits.some(h => h.match.riesgo === 'sancionado')
+
+  // Lista de organismos: extiende ORGANISMOS con UIF + Procuración cuando hay
+  // offshore o sanción internacional (relevancia federal/internacional).
+  const denunciarAnte = [
+    ...ORGANISMOS,
+    'UIF — Unidad de Información Financiera (uif.gob.ar)',
+    'Procuración del Tesoro de la Nación',
+  ]
+
+  return {
+    tipologia: 'aparicion_offshore',
+    score: tieneSancion ? 95 : tieneOffshore ? 92 : 88,
+    titulo: `${hits.length} proveedor${hits.length > 1 ? 'es' : ''} con vínculos en datasets internacionales (${[...new Set(hits.map(h => h.match.riesgo))].join('/')})`,
+    resumen: `Se detectaron ${hits.length} empresa(s) proveedora(s) del Estado, por ${ars(totalMonto)} acumulado en ${hits.reduce((s, h) => s + h.cantidad, 0)} contratos, con presencia en bases internacionales de riesgo (ICIJ Offshore Leaks, sanciones internacionales o investigaciones criminales). La aparición en estas bases constituye un fuerte indicador de uso de jurisdicciones opacas, posibles operaciones de lavado o de actividades sancionadas globalmente.`,
+    evidencia: hits.slice(0, 5).map(h => ({
+      descripcion: `${h.proveedor} (CUIT ${h.cuit}, ${ars(h.monto)}): ${h.match.riesgo} — ${h.match.entidadCaption ?? h.match.datasetPrincipal ?? 'OpenSanctions match'}`,
+      fuenteUrl: h.match.entidadUrl ?? `https://www.opensanctions.org/search/?q=${encodeURIComponent(h.proveedor)}`,
+    })),
+    legal: {
+      articulos: [
+        'Ley 25.246 — Encubrimiento y lavado de activos de origen delictivo',
+        'Ley 27.401 — Responsabilidad penal de personas jurídicas',
+        'Convención de la OCDE contra el cohecho de funcionarios públicos extranjeros',
+      ],
+      severidad: 'grave',
+      denunciarAnte,
+    },
+    cuits,
+  }
+}
+
 // ─── Orquestador ──────────────────────────────────────────────────────────────
 
 export async function calcularSeñales(
   contratos: Contrato[],
   empresas?: Map<string, EmpresaEnriquecida>,
-  municipioId?: string
+  municipioId?: string,
+  osMatches?: Map<string, OSMatch>
 ): Promise<Señal[]> {
   const señales: Señal[] = []
 
@@ -704,6 +782,14 @@ export async function calcularSeñales(
 
     try { const s = detectarEmpresaSinEmpleados(contratos, empresas); if (s) señales.push(s) }
     catch (err) { console.error('[signals] Error en empresa_sin_empleados:', err) }
+  }
+
+  // Señal de cruce internacional (requiere AFIP + cache OpenSanctions)
+  if (empresas && empresas.size > 0 && osMatches && osMatches.size > 0) {
+    try {
+      const s = detectarAparicionOffshore(contratos, empresas, osMatches)
+      if (s) señales.push(s)
+    } catch (err) { console.error('[signals] Error en aparicion_offshore:', err) }
   }
 
   // Señales de red (requieren Neo4j con directores cargados)

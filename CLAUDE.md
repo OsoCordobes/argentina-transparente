@@ -1,14 +1,16 @@
-# La Bestia — Estado Técnico v2.0
+# ARGOS — Estado Técnico v3.0
 
 > Canal de comunicación entre agentes (Cowork ↔ Claude Code).
 > Leer ESTADO antes de tocar cualquier archivo.
+>
+> Nota: el proyecto se llamó "La Bestia" en sus primeras iteraciones. Renombrado a **ARGOS** en Sprint 0 (v3.0). Los servicios de Railway aún tienen el subdomain `bestia-backend-...` por inercia; renombrarlos requiere acción manual del usuario en Railway.
 
 ---
 
 ## URLs de Producción
 
 - **Frontend:** https://victorious-luck-production-8d3a.up.railway.app
-- **Backend:** https://bestia-backend-3e456938-0eae-49cf-b246-93a05746e060-production.up.railway.app
+- **Backend:** https://bestia-backend-3e456938-0eae-49cf-b246-93a05746e060-production.up.railway.app *(rename pendiente en Railway → `argos-backend`)*
 
 ---
 
@@ -17,59 +19,100 @@
 | Capa | Tecnología | Deploy |
 |------|-----------|--------|
 | Frontend | React 18 + TypeScript + Tailwind + Vite | Railway (victorious-luck) |
-| Backend | Node.js + TypeScript + Express | Railway (bestia-backend) |
+| Backend | Node.js + TypeScript + Express | Railway (bestia-backend, rename pendiente) |
 | LLM | Claude Sonnet 4 (anthropic SDK) | API call desde backend |
 | Datos | gobiernoabierto.cordoba.gob.ar | API pública REST + XLSX |
 
 ---
 
-## Arquitectura — Flujo de datos
+## Arquitectura — Flujo de datos (v3.0)
+
+**Frontend SPA** (entity-centric, post Sprint 1-3):
 
 ```
 Usuario
   │
-  ▼
-Landing.tsx ──POST /analizar──► Express (index.ts)
-  │                                   │
-  │                          getConnector(municipioId)
-  │                                   │
-  │                     cordobaCapitalConnector
-  │                        .getContratos(desde, hasta)
-  │                                   │
-  │                          fetcher.ts → API REST + timeout
-  │                          parser.ts  → XLSX parse
-  │                                   │
-  │                          calcularSeñales(contratos)
-  │                          [8 detectores en signals.ts]
-  │                                   │
-  │                          enriquecerProveedores() ← afip.ts (best-effort)
-  │                                   │
-  │                          generarExpediente()
-  │                          [Claude Sonnet — prompt periodístico]
-  │                                   │
-  │◄──── { ok: true, expediente } ────┘
-  │
-  ▼
-sessionStorage.setItem('expediente', ...)
-  │
-  ▼
-Report.tsx — señales expandibles, top proveedores, guía denuncia, botón Compartir
+  ├─►  /              Dashboard          GET /api/dashboard
+  ├─►  /entidad/:n    Ficha entidad      GET /api/entidad/:nombre
+  ├─►  /contrato/:h   Ficha contrato     GET /api/contrato/:hash
+  ├─►  /red           Grafo Cytoscape    GET /api/red/:municipio
+  ├─►  /fuentes       Procedencia datos  GET /api/cruce/fuentes
+  ├─►  /casos         Lista de casos     Supabase (RLS)
+  ├─►  /caso/:id      Workspace caso     Supabase (RLS)
+  └─►  /caso/:id/denuncia                POST /api/denuncia → PDF + SHA256
+
+Búsqueda global (⌘K):  GET /api/entidad/search?q=...
+
+Stack frontend: React 18 + TS + Tailwind + Vite + React Query +
+react-router-dom v6 + Cytoscape + react-pdf consumo (PDF llega
+del backend) + Supabase JS + zustand.
+```
+
+**Backend pipeline** (seed → signals → cache → API):
+
+```
+seed:cordoba ──► cordobaCapitalConnector
+                    .getContratos(desde, hasta)
+                       │
+                       ▼
+                fetcher.ts → API REST + timeout
+                parser.ts  → XLSX parse
+                       │
+                       ▼
+                DuckDB (contratos table)
+                       │
+                       ▼
+seed:afip ────► afip.ts → empresas table (CUIT, esEmpleador, etc.)
+seed:igj  ────► igj_entidades + igj_autoridades (CSV bulk load)
+seed:neo4j ──► upsertEmpresaGrafo + upsertDirectoresGrafo (Neo4j)
+                       │
+                       ▼
+analyze.ts ──► calcularSeñales(contratos, empresas, municipio)
+                  [14 detectores en signals.ts]
+                       │
+                       ├─► extraerCuits(señal, empresas) → cuits[]
+                       ▼
+                señales_cache (con entidades_cuit JSON array)
+                       │
+                       ▼
+              GET /api/dashboard / /api/entidad / /api/contrato / etc.
+
+POST /api/denuncia ──► renderDenunciaPDF() [@react-pdf/renderer]
+                       └─► PDF buffer + SHA256 + ISO timestamp + UUID
 ```
 
 ---
 
-## Señales Implementadas (8 total)
+## Señales Implementadas (15 total)
 
-| Señal | Tipología | Umbral | Severidad |
+Detectores en `backend/src/engine/signals.ts`. Tests cubren 103 casos.
+
+| Señal | Tipología | Origen | Severidad |
 |-------|-----------|--------|-----------|
-| Prórrogas excesivas | `prorrogas_excesivas` | ≥20% del gasto via prórroga | grave si ≥40% |
-| Concentración proveedor | `concentracion_proveedor` | ≥35% gasto en 1 proveedor | grave si ≥60% |
-| Contrataciones directas | `contrataciones_directas` | ≥5 contratos directos y ≥8% gasto | grave si >20 contratos |
-| Monopolio por rubro | `monopolio_rubro` | ≥60% del gasto de un área en 1 proveedor | grave si ≥80% |
-| Servicios sin historial | `servicio_sin_historial` | Servicios MO >$50M en ≤2 años | grave |
-| Fraccionamiento avanzado | `fraccionamiento_avanzado` | ≥3 contratos directos, total >$20M, ninguno >40% | moderada |
-| Gasto fin de ejercicio | `gasto_fin_ejercicio` | ≥30% via prórroga/ampliación en año único | grave si ≥40% |
-| Proveedor crónico | `proveedor_cronico` | Presencia en ≥60% años, total >$50M (multi-año) | moderada |
+| Prórrogas excesivas | `prorrogas_excesivas` | Contratos | moderada / grave |
+| Concentración proveedor | `concentracion_proveedor` | Contratos | moderada / grave |
+| Contrataciones directas | `contrataciones_directas` | Contratos | moderada / grave |
+| Monopolio por rubro | `monopolio_rubro` | Contratos | moderada / grave |
+| Servicios sin historial | `servicio_sin_historial` | Contratos | grave |
+| Fraccionamiento avanzado | `fraccionamiento_avanzado` | Contratos | moderada |
+| Gasto fin de ejercicio | `gasto_fin_ejercicio` | Contratos | moderada / grave |
+| Proveedor crónico | `proveedor_cronico` | Contratos multi-año | moderada |
+| Empresa nueva | `empresa_nueva` | Contratos + AFIP | moderada |
+| Empresa sin empleados | `empresa_sin_empleados` | Contratos + AFIP | grave |
+| Directores compartidos | `directores_compartidos` | Neo4j (IGJ) | grave |
+| Red de empresas | `red_de_empresas` | Neo4j (IGJ, ≥2 dir) | grave |
+| Rotación coordinada | `rotacion_coordinada` | Contratos (timing) | grave |
+| Adenda post-adjudicación | `adenda_postajudicacion` | Contratos | moderada / grave |
+| **Aparición offshore/sanción** | `aparicion_offshore` | AFIP + cache OpenSanctions/ICIJ | grave |
+
+Cada `Señal` lleva opcionalmente `cuits?: string[]` (poblado por `analyze.ts`)
+para asociación señal↔entidad sin string matching frágil. Esa columna se
+escribe a `señales_cache.entidades_cuit` (JSON).
+
+`aparicion_offshore` requiere ejecutar `npm run seed:opensanctions` antes de
+`npm run analyze --force`. Cachea matches en tabla `opensanctions_matches`
+con TTL 30 días. Solo dispara si el riesgo es offshore/sancionado/crimen
+(PEP solo no dispara — es información, no delito).
 
 ---
 
@@ -78,8 +121,10 @@ Report.tsx — señales expandibles, top proveedores, guía denuncia, botón Com
 | Fuente | URL | Años | Formato |
 |--------|-----|------|---------|
 | Córdoba Capital | gobiernoabierto.cordoba.gob.ar/.../compras-y-contrataciones/2 | 2019–2023 | XLSX via API REST |
+| Nación (Argentina Compra) | api.contrataciones.argentina.gob.ar/v1 | 2016–presente | JSON OCDS v1.1 |
+| CABA | data.buenosaires.gob.ar (CKAN) | 2018–presente | CSV via discovery CKAN |
 
-Dataset IDs: 2019→`2`, 2020→`5977`, 2021→`5978`, 2022→`6466`, 2023→`6467`
+Dataset IDs Córdoba: 2019→`2`, 2020→`5977`, 2021→`5978`, 2022→`6466`, 2023→`6467`
 
 ---
 
@@ -112,7 +157,7 @@ PORT=3001
 **Frontend (`frontend/.env.development` / `.env.production`):**
 ```
 VITE_API_URL=http://localhost:3001
-VITE_API_URL=https://bestia-backend-...railway.app
+VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos-backend-...
 ```
 
 ---
@@ -121,18 +166,49 @@ VITE_API_URL=https://bestia-backend-...railway.app
 
 | Comando | Desde | Descripción |
 |---------|-------|-------------|
+| `npm run test` | backend/ | 103 unit tests (vitest) |
 | `npm run test:connector` | backend/ | Descarga y parsea 2023 |
 | `npm run test:signals 2022 2023` | backend/ | 2 años, señales detectadas |
 | `npm run test:signals 2019 2023` | backend/ | 5 años — 1390 contratos, 5 señales |
 | `npm run test:e2e` | backend/ | E2E contra localhost:3001 |
 | `npx ts-node src/test-production.ts` | backend/ | E2E contra Railway producción |
+| `npm run ckan:explore -- nacion` | backend/ | Lista datasets de compras en datos.gob.ar |
+| `npm run seed:nacion -- 2022` | backend/ | Descarga contratos nacionales 2022 |
+| `npm run seed:caba -- 2023` | backend/ | Descarga contratos CABA 2023 |
+| `npm run seed:icij -- /ruta/csvs` | backend/ | Carga ICIJ Offshore Leaks en DuckDB |
+| `npm run seed:santafe` | backend/ | Carga contratos Santa Fe (CKAN) |
+| `GET /api/scrapers/health` | backend/ | Estado de scrapers registrados |
+| `npm run alertas:check` | backend/ | Detector de alertas (cron-friendly) |
+| `GET /api/alertas` | backend/ | Lista alertas (?soloNoLeidas=true) |
+| `npm run seed:boletin -- --url <PDF>` | backend/ | OCR Vision API sobre Boletín Oficial |
+| CI (GitHub Actions) | `.github/workflows/ci.yml` | typecheck + tests + build en push/PR |
 
 ---
 
 ## Roadmap
 
-- Verificación AFIP completa (CUIT + empleadores + incumplimientos)
-- Exportar expediente a PDF
+**Hecho en v3.0 (PR #3, Sprints 0-4 + post-MVP round 1-3):**
+- ✅ Verificación AFIP best-effort
+- ✅ Exportar expediente a PDF (Denuncia formal con cadena de custodia)
+- ✅ Frontend SPA investigativa entity-centric
+- ✅ Casos persistentes con Supabase + RLS
+- ✅ Red de empresas con Cytoscape + Neo4j
+- ✅ OpenSanctions client + endpoints `/api/cruce/*`
+- ✅ Connector framework con metadata trazable
+- ✅ **Señal `aparicion_offshore` integrada al engine** (cache OS por CUIT, TTL 30d)
+- ✅ **CI GitHub Actions** (typecheck + tests + build + naming-check)
+- ✅ **Frontend code splitting** (lazy routes + manualChunks; bundle inicial 491KB → 185KB gzip)
+- ✅ **CKAN client + `npm run ckan:explore`** (Nación / CABA / Santa Fe / Rosario)
+- ✅ **Connector Argentina Compra** (Estado nacional OCDS, 2016–presente, `npm run seed:nacion`)
+- ✅ **Connector CABA** (CKAN + CSV discovery, 2018–presente, `npm run seed:caba`)
+- ✅ **ICIJ Offshore Leaks bulk** (Panama Papers + Pandora + Paradise + Bahamas; `npm run seed:icij -- /ruta`; auto-cruza contra `empresas` y popula `opensanctions_matches`)
+- ✅ **Scraper base + health monitoring** (`lib/scraper.ts` + `scrapers_health` DuckDB + `GET /api/scrapers/health`)
+- ✅ **Connector Santa Fe** (CKAN + CSV, `npm run seed:santafe`)
+- ✅ **Modo comparativo jurisdicciones** (`/municipios` — bar chart + cards per jurisdicción + scraper health)
+- ✅ **Alertas automáticas** (`/alertas` + badge en topbar; detector vía `npm run alertas:check`; scrapers rotos / fuentes desactualizadas / datos nuevos)
+- ✅ **Pipeline OCR Boletines** (`npm run seed:boletin -- --url|--file`; Sonnet 4.6 con PDF nativo + adaptive thinking + prompt caching; zod validation; trazabilidad por página)
+
+**Pendiente post-MVP:**
 - Análisis obra pública via Boletín Oficial
 - Cruce nómina municipal vs proveedores
 - Modo comparativo entre municipios
@@ -140,27 +216,92 @@ VITE_API_URL=https://bestia-backend-...railway.app
 
 ---
 
-## Estructura de Archivos Clave
+## Estructura de Archivos Clave (v3.0)
 
 ```
 backend/src/
-├── index.ts                    ← Express, /health /municipios /analizar
-├── routes/analizar.ts          ← Validaciones + pipeline
+├── index.ts                    ← Express + monta /api/* + registra fuentes
+├── routes/
+│   ├── analizar.ts             ← Legacy: POST /analizar (flujo antiguo)
+│   ├── historial.ts            ← Legacy: GET /historial
+│   ├── dashboard.ts            ← GET /api/dashboard
+│   ├── entidad.ts              ← GET /api/entidad/search + /:nombre
+│   ├── contrato.ts             ← GET /api/contrato/:hash (Sprint 2)
+│   ├── red.ts                  ← GET /api/red/:municipio (Cytoscape)
+│   ├── denuncia.ts             ← POST /api/denuncia (PDF + SHA256)
+│   └── cruce.ts                ← /api/cruce/{fuentes,persona,empresa}
 ├── connectors/
-│   ├── interface.ts            ← Registry + getConnector()
-│   └── cordoba-capital/
-│       ├── fetcher.ts          ← API REST + XLSX + timeouts
-│       └── parser.ts           ← XLSX → Contrato[]
-├── engine/signals.ts           ← 8 detectores de riesgo
+│   ├── interface.ts            ← Registry + getConnector() (3 connectores)
+│   ├── cordoba-capital/
+│   │   ├── index.ts            ← MunicipioConnector + FuenteMetadata (XLSX)
+│   │   ├── fetcher.ts          ← API REST + XLSX + timeouts
+│   │   └── parser.ts           ← XLSX → Contrato[]
+│   ├── argentina-compra/
+│   │   ├── index.ts            ← Estado nacional OCDS 2016–presente
+│   │   ├── fetcher.ts          ← JSON paginado (50K max/año, 250ms delay)
+│   │   └── parser.ts           ← OCDS releases → Contrato[]
+│   └── caba/
+│       ├── index.ts            ← CABA 2018–presente vía CKAN
+│       ├── fetcher.ts          ← CKAN discovery + CSV download
+│       └── parser.ts           ← CSV flexible (multiples versiones de cols)
+├── engine/
+│   ├── signals.ts              ← 15 detectores de riesgo
+│   └── signals.test.ts         ← 103 tests vitest
 ├── lib/
-│   ├── claude.ts               ← generarExpediente() + prompt
-│   └── afip.ts                 ← CUIT lookup best-effort
-└── types/index.ts
+│   ├── db.ts                   ← DuckDB: contratos, señales_cache, empresas,
+│   │                              directores, igj_*, reportes, fuentes_datos,
+│   │                              opensanctions_matches
+│   ├── graph.ts                ← Neo4j: empresas + directores + getRedCytoscape
+│   ├── claude.ts               ← generarExpediente() + prompt periodístico
+│   ├── afip.ts                 ← CUIT lookup best-effort
+│   ├── opensanctions.ts        ← Sprint 4: search + match endpoints
+│   ├── ckan.ts                 ← Post-MVP: cliente CKAN genérico (4 portales AR)
+│   └── denuncia-pdf.tsx        ← Sprint 3: @react-pdf/renderer (jsx: react-jsx)
+├── scripts/
+│   ├── seed-cordoba.ts         ← Carga contratos Córdoba Capital en DuckDB
+│   ├── seed-nacion.ts          ← Carga contratos Estado nacional (OCDS)
+│   ├── seed-caba.ts            ← Carga contratos CABA (CKAN CSV)
+│   ├── seed-afip.ts            ← Enriquece empresas con AFIP
+│   ├── seed-igj.ts             ← Carga IGJ entidades + autoridades
+│   ├── seed-neo4j.ts           ← Carga grafo Neo4j desde DuckDB
+│   ├── seed-opensanctions.ts   ← Cachea matches OS por CUIT (TTL 30d)
+│   ├── ckan-explore.ts         ← CLI: lista datasets en portal CKAN
+│   └── analyze.ts              ← Calcula señales en todos los municipios
+└── types/index.ts              ← Contrato, Señal, Expediente, FuenteMetadata,
+                                   ConnectorTipo, NivelConfianza, OSMatch
 
 frontend/src/
-├── pages/Landing.tsx           ← Selector + barra de progreso
-├── pages/Report.tsx            ← Expediente + ShareButton
-└── lib/api.ts                  ← API client + tipos TS
+├── App.tsx                     ← Routes + AppShell layout
+├── main.tsx                    ← QueryClientProvider + AuthProvider + Toaster
+├── pages/
+│   ├── Dashboard.tsx           ← KPIs + top entidades + señales activas
+│   ├── Entidad.tsx             ← Tabs (Resumen/Contratos/Timeline/Señales)
+│   ├── Contrato.tsx            ← Ficha individual + cadena de custodia
+│   ├── Red.tsx                 ← Cytoscape grafo empresa↔directores
+│   ├── Fuentes.tsx             ← Procedencia de datos (Sprint 4)
+│   ├── Login.tsx               ← Magic-link Supabase
+│   ├── Casos.tsx               ← Lista de casos + crear
+│   ├── Caso.tsx                ← Workspace tabs + sidebar notas autosave
+│   └── Denuncia.tsx            ← Wizard 5 pasos + PDF download
+├── components/
+│   ├── layout/AppShell.tsx     ← Topbar + nav + cmd+k + dropdown user
+│   ├── search/CommandPalette.tsx ← cmdk + useEntidadSearch
+│   ├── caso/AddToCase.tsx      ← Dropdown reutilizable
+│   └── ui/                     ← shadcn/ui (50 componentes)
+├── lib/
+│   ├── queries.ts              ← React Query tipado: useDashboard, useEntidad,
+│   │                              useContrato, useRed, useFuentes
+│   ├── api.ts                  ← Legacy: analizarMunicipio, etc.
+│   ├── format.ts               ← fmtARS, fmtCompactARS, fmtFecha, fmtPct
+│   ├── supabase.ts             ← Cliente con stub si no configurado
+│   ├── auth.tsx                ← AuthProvider + useAuth()
+│   └── casoQueries.ts          ← CRUD casos via Supabase + React Query
+└── stores/
+    └── casoStore.ts            ← Zustand bookmarks volátiles (pre-Supabase)
+
+supabase/
+└── migrations/
+    └── 0001_casos.sql          ← Schema casos + RLS por user_id
 ```
 
 ---
@@ -177,6 +318,239 @@ frontend/src/
 - Frontend: barra de progreso 6 pasos en Loading
 - Frontend: botón "Copiar para compartir" en Report
 - Test 5 años 2019–2023: 1390 contratos, 5 señales detectadas
+
+### 2026-04-25 — Claude Code (sesión multi-sprint v3.0)
+
+**PR #3 — `claude/anticorruption-tool-frontend-f0dYN` → `main`**
+
+Sprint 0 — Renombrado completo La Bestia → ARGOS. CLAUDE.md header v3.0,
+frontend (title/og), backend package name → argos-backend@3.0.0, README real,
+borrados LA_BESTIA_CONTEXT.md y frontend/.lovable/. URLs Railway preservadas
+con flag "rename pendiente" (acción manual del usuario).
+
+Sprint 1 — Frontend SPA investigativa entity-centric. Borradas Landing/Report/
+ProviderProfile (793 LOC). Nuevo AppShell con cmd+k global (cmdk + debounce
+200ms vs `/api/entidad/search`), Dashboard cross-municipio con KPIs + top
+entidades + grilla de señales activas, Entidad con tabs (Resumen/Contratos/
+Timeline/Señales) + tabla virtualizada `@tanstack/react-table` con
+sort+filter+paginación + recharts BarChart anual. React Query providers,
+sonner toaster, queries.ts tipadas.
+
+Sprint 2 — Cierre del círculo entity-centric.
+- Backend: `Señal.cuits?: string[]`, `getSeñalesPorCuit(cuit)`, `getContratoPorHash`,
+  `getRedCytoscape(municipio)` que emite { nodes, edges } directo. Routes nuevas
+  `/api/contrato/:hash` (ficha con cadena de custodia hash + URL fuente) y
+  `/api/red/:municipio` (Cytoscape). `analyze.ts` extraerCuits matchea nombres
+  ≥4 chars contra Map empresas para poblar `entidades_cuit`.
+- Frontend: pages/Contrato.tsx (cadena de custodia forense), pages/Red.tsx
+  (Cytoscape + dagre, click empresa → entidad, click arista → directores +
+  marco legal Ley 27.442/LGS art.33), tab Señales en Entidad consume señales
+  cruzadas por CUIT (no más placeholder).
+
+Sprint 3 — Casos persistentes + denuncia formal.
+- `supabase/migrations/0001_casos.sql`: schema casos/caso_entidades/caso_contratos/
+  caso_directores/caso_senales/caso_notas con RLS y triggers de actualizado_en.
+- Frontend: lib/supabase.ts (stub si no configurado), lib/auth.tsx (AuthProvider),
+  lib/casoQueries.ts (CRUD via React Query), stores/casoStore.ts (zustand
+  bookmarks volátiles). Páginas Login (magic-link), Casos (lista + dialog crear),
+  Caso (workspace tabs + sidebar notas markdown autosave 800ms), Denuncia (wizard
+  5 pasos zod + react-hook-form, narrativa auto desde caso). Componente
+  AddToCase reutilizable en Entidad/Contrato.
+- Backend: lib/denuncia-pdf.tsx con `@react-pdf/renderer` (carátula, hechos,
+  señales, anexos numerados con hash + fuente, cadena de custodia formal).
+  Route POST /api/denuncia computa SHA256 + timestamp ISO, expone vía headers
+  X-Document-SHA256 / X-Document-Timestamp / X-Document-ID.
+- tsconfig.json backend: `jsx: "react-jsx"`, +@types/react.
+
+Sprint 4 — Data Foundation base.
+- types: ConnectorTipo, FuenteMetadata, NivelConfianza. MunicipioConnector
+  +tipo +fuente opcionales (backwards compat).
+- DuckDB: tabla `fuentes_datos` con metadata trazable (CLAUDE.md §4 cumplido).
+- Conectores: cordoba-capital declara FuenteMetadata oficial.
+- OpenSanctions: lib/opensanctions.ts (search + match endpoints, esRiesgoAlto
+  helper para clasificar PEP/sancionado/offshore/crimen). Routes /api/cruce/
+  fuentes|persona|empresa.
+- Frontend: pages/Fuentes.tsx (transparencia de procedencia), useFuentes(),
+  link en footer.
+
+Pendiente para post-MVP:
+- Connector CKAN genérico para datos.gob.ar / CABA / provincias.
+- Scraper Playwright + health monitoring.
+- Pipeline OCR Claude Vision (boletines pre-2015, costo estimado ~$7K para
+  Córdoba 2010–2018 a $0.02/página).
+- Bulk download ICIJ Offshore Leaks → tablas internacional_personas/entidades.
+- Señal `aparicion_offshore` integrada al engine (cache de matches por CUIT
+  para evitar 1 round-trip API por señal).
+- Setup Supabase del usuario: crear proyecto, aplicar migración 0001_casos.sql,
+  setear VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY.
+- Rename servicio Railway bestia-backend → argos-backend (manual).
+
+Métricas finales sesión:
+- 5 commits pusheados a `claude/anticorruption-tool-frontend-f0dYN`
+- 89 tests vitest siguen verde
+- backend tsc + build OK, frontend tsc + build OK (1.65MB → 491KB gzip)
+- ~5500 LOC netas agregadas (frontend ~3500 + backend ~2000)
+
+### 2026-04-25 (cont) — Claude Code (post-MVP round 1+2)
+
+**Round 1 — CI + perf:**
+- `.github/workflows/ci.yml`: 3 jobs (backend, frontend, naming-check) con
+  cache npm. Trigger en push a main + PRs. naming-check falla si aparece
+  "bestia" fuera de URLs Railway permitidas (auto-excluye ci.yml).
+- Frontend code splitting: React.lazy() en todas las rutas excepto
+  Dashboard (eager para LCP). Suspense con PageLoader. vite.config.ts
+  manualChunks separa cytoscape/recharts/supabase/react-vendor/react-query/radix.
+  **Initial load: 491KB gzip → 185KB gzip (-62%)**. Cytoscape (175KB gzip)
+  solo se descarga al ir a /red.
+
+**Round 2 — Señal #15 + CKAN scaffolding:**
+- Señal `aparicion_offshore`: cruza CUITs ARGOS con cache OpenSanctions/ICIJ.
+  Solo dispara cuando riesgo es offshore/sancionado/crimen (PEP solo NO).
+  Severidad grave; score 95/92/88. Marco legal Ley 25.246, 27.401, OCDE.
+  Denunciar ante UIF + Procuración del Tesoro.
+- types: `OSMatch` (cuit, matched, riesgo, dataset, cached metadata).
+- db.ts: tabla `opensanctions_matches` keyed por CUIT, helpers
+  upsertOSMatch/getOSMatch/getOSMatchesAll/getOSMatchesCount, TTL 30 días.
+- engine/signals.ts: `detectarAparicionOffshore` + `calcularSeñales` acepta
+  4to param `osMatches?` (backwards compat).
+- scripts/seed-opensanctions.ts: recorre empresas con CUIT, query OS rate
+  limited 350ms (~3 req/seg), cachea. Soporta --force.
+- scripts/analyze.ts: carga osMatches antes de calcularSeñales.
+- 14 tests nuevos para la señal: **89 → 103 tests verde**.
+- lib/ckan.ts: CKANClient genérico (searchDatasets/getDataset/listOrgs)
+  + registry PORTALES_CKAN_AR (Nación / CABA / Santa Fe / Rosario).
+- scripts/ckan-explore.ts: CLI `npm run ckan:explore [<portal>] [<query>]`
+  para descubrir datasets en cualquier portal CKAN argentino. No descarga
+  datos, solo lista metadata para decidir qué connector implementar próximo.
+
+Métricas round post-MVP:
+- 3 commits adicionales (CI+perf, offshore+CKAN, docs)
+- 103 tests vitest verde
+- Frontend bundle inicial -62%
+- 1 nueva señal (15 totales)
+- 2 nuevos scripts npm (seed:opensanctions, ckan:explore)
+
+### 2026-04-25 (cont) — Claude Code (post-MVP round 3: connectors multi-jurisdicción)
+
+**Round 3 — Argentina Compra + CABA connectors:**
+
+Contexto: la rama `feat/e1-backend-debt` referenciada por un agente paralelo no
+existía en el repositorio (worktree temporal limpiado). Sin conflictos.
+
+Connectors nuevos implementados:
+- `connectors/argentina-compra/`: Estado nacional (ONC) vía API REST OCDS v1.1.
+  Cobertura 2016–presente (Resolución ONC 59/2016). Paginación de hasta 50K
+  registros/año con 250ms de pausa (~4 req/seg). Parser OCDS → Contrato[] con
+  fallbacks en cadena para proveedor/monto/tipo/fecha. FuenteMetadata completa.
+  `npm run seed:nacion [anioDesde] [anioHasta] [--force]`
+
+- `connectors/caba/`: CABA vía CKAN (data.buenosaires.gob.ar). Descubre el
+  dataset de compras automáticamente con 3 queries de fallback. Parser CSV
+  flexible contra múltiples versiones de nombres de columnas (el portal las
+  cambia). FuenteMetadata completa.
+  `npm run seed:caba [anioDesde] [anioHasta] [--force]`
+
+Ambos registrados en `connectors/interface.ts` y en `src/index.ts` (fuentes +
+endpoint GET /municipios). `analyze.ts` actualizado para incluir
+`argentina-compra` en el array de municipios a analizar.
+
+`seed:all` ahora ejecuta 6 seeds en secuencia:
+  seed:cordoba → seed:nacion → seed:igj → seed:afip → seed:neo4j → seed:opensanctions
+
+103 tests siguen verde. tsc --noEmit OK. Sin cambios en frontend.
+
+### 2026-04-25 (cont) — Claude Code (post-MVP round 4: ICIJ bulk)
+
+**Round 4 — ICIJ Offshore Leaks integración offline:**
+
+- `lib/db.ts`: tabla `icij_entidades` (node_id, nombre, nombre_norm, tipo,
+  jurisdiccion, countries, country_codes, fuente, estado, incorporacion).
+  Índice en `nombre_norm` para búsqueda eficiente. Helpers:
+  `insertICIJBatch`, `buscarICIJPorNombre`, `getICIJCount`, `normalizeICIJ`.
+
+- `lib/icij.ts`: parser streaming CSV (readline line-by-line — los archivos
+  pueden ser >1GB). `parsearEntidades(Entities.csv)` + `parsearOfficers(Officers.csv)`.
+  `encontrarArchivosICIJ(dir)` busca los CSVs recursivamente sin importar
+  estructura interna del ZIP. Divisor CSV respeta comillas dobles + escape `""`.
+
+- `scripts/seed-icij.ts`: acepta `/ruta/al/directorio` como argumento.
+  Soporte `--force` y `--solo-ar` (filtra por country_codes=ARG, más rápido).
+  Al finalizar carga, cruza automáticamente contra tabla `empresas` (por nombre
+  normalizado) y popula `opensanctions_matches` con riesgo='offshore' + URL
+  `offshoreleaks.icij.org/nodes/:node_id`. Esto hace que `npm run analyze`
+  detecte offshore sin API on-demand y sin rate limit.
+
+- `routes/cruce.ts`: nuevo endpoint `GET /api/cruce/icij?nombre=...` que
+  consulta la base local. Retorna `baseCargada: bool + totalEnBase + fuentes`
+  para que el frontend sepa si el dataset está disponible.
+
+Cobertura ICIJ: Panama Papers (~800K entidades), Pandora Papers (~330K),
+Paradise Papers (~25K), Offshore Leaks (~540K), Bahamas Leaks (~175K).
+Con `--solo-ar` carga solo los registros vinculados a Argentina (~pocos miles),
+útil para ambientes con menos disco/RAM.
+
+103 tests siguen verde. tsc --noEmit OK.
+
+### 2026-04-25 (cont) — Claude Code (post-MVP round 5: scrapers + Santa Fe + comparativo)
+
+**Round 5 — Infraestructura scrapers + jurisdicción 4 + UI comparativa:**
+
+Backend:
+- `lib/scraper.ts`: `BaseScraper` abstract class con `run()` que registra
+  salud en DuckDB. `fetchHTML()` + `parsearTablaHTML()` para scrapers HTML.
+  Patrón documentado para extender con Playwright cuando el portal requiera JS.
+- `db.ts`: tabla `scrapers_health` (id, ejecutado_en, ok, contratos_count,
+  duracion_ms, error_msg, url_chequeada). Helpers `registrarScraperRun` +
+  `getScrapersHealth` (última run por scraper).
+- `routes/scrapers.ts`: `GET /api/scrapers/health` — estado + clasificación
+  ok/warning/error de todos los scrapers conocidos.
+- `connectors/santa-fe/`: 4ta jurisdicción — Santa Fe Province via CKAN
+  (`datosabiertos.santafe.gob.ar`). Parser CSV flexible igual que CABA.
+  `npm run seed:santafe [año] [--force]`. FuenteMetadata completa.
+- Interface.ts / index.ts actualizados con Santa Fe.
+
+Frontend:
+- `pages/Municipios.tsx`: vista comparativa entre jurisdicciones. Bar chart
+  (recharts) de monto por jurisdicción, cards individuales con KPIs (contratos,
+  monto, señales, % del total, progress bar, link a señales filtradas).
+  Sección de scraper health (CheckCircle/XCircle por estado). Lazy-loaded.
+- `AppShell.tsx`: nuevo nav item "Jurisdicciones" → /municipios (Building2).
+- `lib/queries.ts`: `useScrapersHealth` + `ScraperHealth` + `ScrapersHealthResponse`.
+- `App.tsx`: ruta `/municipios` lazy.
+
+103 tests siguen verde. tsc --noEmit OK (backend + frontend).
+
+### 2026-04-25 (cont) — Claude Code (post-MVP round 6: alertas automáticas)
+
+**Round 6 — Sistema de alertas event-driven:**
+
+Backend:
+- `db.ts`: tabla `alertas` (id PK, tipo, severidad, titulo, detalle, fuente_id,
+  detectado_en, leida, leida_en) + `alerta_snapshots` (snapshot de counts para
+  detectar deltas). Helpers `upsertAlerta`/`getAlertas`/`marcarAlertaLeida`/
+  `marcarTodasLeidas`/`countAlertasNoLeidas`.
+- `lib/alertas.ts`: `detectarAlertas()` corre 3 chequeos:
+  1. **Scrapers rotos**: itera `scrapers_health` última run, si !ok → critical.
+  2. **Fuentes desactualizadas**: compara `ultimo_crawl` vs frecuencia esperada
+     (diaria=2d, semanal=10d, mensual=45d, anual=400d). >2x el umbral = critical.
+  3. **Datos nuevos**: compara contratos count actual vs snapshot anterior.
+     Delta positivo → alerta info "N contratos nuevos en municipio X".
+  IDs estables → idempotente (UPSERT, no duplicados).
+- `routes/alertas.ts`: GET / (lista + count), GET /count (badge liviano),
+  POST /:id/leer, POST /leer-todas, POST /detectar (manual trigger).
+- `scripts/check-alertas.ts`: cron-friendly. Ejemplo crontab al docstring.
+  Nuevo script npm: `npm run alertas:check`.
+
+Frontend:
+- `lib/queries.ts`: `useAlertas` (lista) + `useAlertasCount` (badge, refetch 5min)
+  + helpers `marcarAlertaLeida` / `marcarTodasAlertasLeidas`.
+- `pages/Alertas.tsx`: lista con icono por tipo, color por severidad, filtro
+  "solo no leídas", botones "marcar leída" / "marcar todas leídas".
+- `AppShell.tsx`: badge Bell con count en topbar (rojo=critical, amarillo=warning,
+  link a /alertas). 99+ cap visual.
+- `App.tsx`: ruta `/alertas` lazy.
+
+103 tests siguen verde. tsc --noEmit OK (backend + frontend).
 
 
 NO BORRAR//INSTRUCCIONES

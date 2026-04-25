@@ -9,6 +9,12 @@ export interface Contrato {
   numeroExpediente?: string   // "EXP-2022-001234" si el dataset lo tiene
   numeroContrato?: string     // número de resolución/decreto
   fechaContrato?: string      // "2022-03-15"
+
+  // ── Trazabilidad de extracción (CLAUDE.md §4) ──────────────────────────────
+  // Defaultea a alto/api_estructurada al insertarse si no se especifica.
+  nivelConfianza?: NivelConfianza        // 'alto' (API), 'medio' (OCR), 'bajo' (scraper)
+  metodoExtraccion?: ConnectorTipo       // tipo de connector que lo produjo
+  paginaPdf?: number                     // página origen si vino de OCR
 }
 
 export interface Señal {
@@ -22,6 +28,9 @@ export interface Señal {
     severidad: 'grave' | 'moderada' | 'leve'
     denunciarAnte: string[]
   }
+  // CUITs de las entidades implicadas en la señal (poblado en analyze.ts).
+  // Permite asociar señal↔entidad sin string matching frágil.
+  cuits?: string[]
 }
 
 export interface ComoVerificar {
@@ -73,9 +82,53 @@ export interface EmpresaEnriquecida {
   fuenteUrl: string
 }
 
+// Match cacheado contra OpenSanctions / ICIJ / OFAC.
+// Se cachea en DuckDB.opensanctions_matches para evitar 1 round-trip API por
+// cada análisis. TTL típico 30 días.
+export interface OSMatch {
+  cuit: string                                    // CUIT consultado
+  nombre: string                                  // razón social ARGOS
+  matched: boolean                                // ¿hubo match?
+  riesgo: 'sancionado' | 'pep' | 'offshore' | 'crimen' | null
+  datasetPrincipal: string | null                 // 'icij_offshore_leaks', etc.
+  entidadId: string | null                        // OSEntidad.id
+  entidadCaption: string | null                   // nombre legible del match
+  entidadUrl: string | null                       // URL pública en OS
+  consultadoEn: string                            // ISO timestamp
+}
+
 export interface MunicipioConnector {
   id: string
   nombre: string
   aniosDisponibles: number[]
   getContratos(anioDesde: number, anioHasta: number): Promise<Contrato[]>
+
+  // ── Sprint 4 (Data Foundation) — metadata trazable ────────────────────────
+  // Estos campos son opcionales por backwards compat con conectores existentes
+  // pero conectores nuevos DEBERÍAN proveerlos para cumplir CLAUDE.md sección 4
+  // (toda fuente debe registrarse con origen, fecha, método, formato y nivel
+  // de confianza).
+  tipo?: ConnectorTipo
+  fuente?: FuenteMetadata
+}
+
+export type ConnectorTipo =
+  | 'api_estructurada'    // CKAN, JSON, XLSX directo desde API oficial
+  | 'scraper_html'        // Playwright sobre portal sin API
+  | 'ocr_pdf'             // Vision API sobre boletines escaneados
+  | 'dataset_internacional' // OpenSanctions, ICIJ, OFAC, etc.
+
+export type NivelConfianza = 'alto' | 'medio' | 'bajo'
+
+export interface FuenteMetadata {
+  // Identificador estable para FK desde contratos.fuente_id
+  id: string
+  jurisdiccion: string             // 'Córdoba Capital', 'Nación', etc.
+  url: string                      // URL pública del dataset/portal
+  formato: string                  // 'XLSX', 'JSON', 'PDF', 'CSV', etc.
+  oficial: boolean                 // ¿es fuente oficial (gobierno)?
+  licencia?: string                // CC-BY-4.0, etc. cuando corresponda
+  frecuenciaActualizacion?: string // 'anual', 'mensual', 'eventual'
+  nivelConfianza: NivelConfianza
+  notas?: string
 }

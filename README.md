@@ -1,73 +1,61 @@
-# Welcome to your Lovable project
+# ARGOS — Argentina Transparente
 
-## Project info
+Motor anticorrupción ciudadano. Análisis automatizado del gasto público argentino.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## ¿Qué hace ARGOS?
 
-## How can I edit this code?
+ARGOS descarga, normaliza y analiza datos de compras y contrataciones públicas para detectar señales de riesgo (prórrogas excesivas, concentración de proveedores, contrataciones directas sospechosas, redes de empresas con directores compartidos, entre otras) y generar **expedientes ciudadanos verificables** que pueden presentarse ante Tribunal de Cuentas, Fiscalía, CNDC, ARCA o Defensoría.
 
-There are several ways of editing your application.
+## Stack
 
-**Use Lovable**
+| Capa | Tecnología |
+|------|-----------|
+| Frontend | React 18 + TypeScript + Tailwind + Vite |
+| Backend | Node.js + TypeScript + Express |
+| Datos | DuckDB (analítica) + Neo4j (red de directores) |
+| LLM | Claude Sonnet 4 (Anthropic SDK) |
+| Auth + persistencia de casos | Supabase |
+| Deploy | Railway |
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Arquitectura
 
-Changes made via Lovable will be committed automatically to this repo.
+Ver [`CLAUDE.md`](./CLAUDE.md) para el detalle del estado técnico, arquitectura, señales implementadas, fuentes de datos verificadas y roadmap.
 
-**Use your preferred IDE**
+## Desarrollo local
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+Requisitos: Node.js 20+, npm.
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+# Backend
+cd backend
+npm install
+cp .env.example .env  # configurar ANTHROPIC_API_KEY
+npm run dev           # http://localhost:3001
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+# Frontend (en otra terminal)
+cd frontend
+npm install
+npm run dev           # http://localhost:5173
 ```
 
-**Edit a file directly in GitHub**
+## Tests
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```sh
+cd backend
+npm run test:connector              # descarga + parseo
+npm run test:signals 2019 2023      # 5 años de Córdoba Capital
+npm run test:e2e                    # E2E contra localhost:3001
+```
 
-**Use GitHub Codespaces**
+## Principios
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+- Cero alucinaciones. Toda salida importante debe ser verificable.
+- Toda señal o hallazgo debe poder reconstruirse desde la fuente original.
+- Trazabilidad de datos: origen, fecha, método, formato, nivel de confianza.
+- Diseñado para escalar de un municipio a nivel nacional.
 
-## What technologies are used for this project?
+Ver [`CLAUDE.md`](./CLAUDE.md) sección "Instrucciones fijas" para el detalle completo.
 
-This project is built with:
+## Licencia
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Por definir.

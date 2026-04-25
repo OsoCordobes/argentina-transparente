@@ -4,7 +4,23 @@ import analizarRouter from './routes/analizar'
 import historialRouter from './routes/historial'
 import dashboardRouter from './routes/dashboard'
 import entidadRouter from './routes/entidad'
+import contratoRouter from './routes/contrato'
+import redRouter from './routes/red'
+import denunciaRouter from './routes/denuncia'
+import cruceRouter from './routes/cruce'
+import scrapersRouter from './routes/scrapers'
+import alertasRouter from './routes/alertas'
+import chatRouter from './routes/chat'
+import { registrarFuente } from './lib/db'
+import { fuenteCordobaCapital } from './connectors/cordoba-capital'
+import { fuenteArgentinaCompra } from './connectors/argentina-compra'
+import { fuenteCABA } from './connectors/caba'
+import { fuenteSantaFe } from './connectors/santa-fe'
+import { fuenteOpenSanctions } from './lib/opensanctions'
 import { cordobaCapitalConnector } from './connectors/cordoba-capital'
+import { argentinaCompraConnector } from './connectors/argentina-compra'
+import { cabaConnector } from './connectors/caba'
+import { santaFeConnector } from './connectors/santa-fe'
 import { initDb, getReporte } from './lib/db'
 import { initGraph } from './lib/graph'
 
@@ -24,23 +40,30 @@ app.use(express.json())
 
 // GET /health
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, version: '2.0.0' })
+  res.json({ ok: true, version: '3.0.0' })
 })
 
 // GET /municipios
 app.get('/municipios', (_req, res) => {
-  res.json([
-    {
-      id: cordobaCapitalConnector.id,
-      nombre: cordobaCapitalConnector.nombre,
-      aniosDisponibles: cordobaCapitalConnector.aniosDisponibles,
-    },
-  ])
+  const connectors = [cordobaCapitalConnector, argentinaCompraConnector, cabaConnector, santaFeConnector]
+  res.json(connectors.map(c => ({
+    id: c.id,
+    nombre: c.nombre,
+    aniosDisponibles: c.aniosDisponibles,
+    tipo: c.tipo,
+  })))
 })
 
 // New entity-centric API
 app.use('/api/dashboard', dashboardRouter)
 app.use('/api/entidad', entidadRouter)
+app.use('/api/contrato', contratoRouter)
+app.use('/api/red', redRouter)
+app.use('/api/denuncia', denunciaRouter)
+app.use('/api/cruce', cruceRouter)
+app.use('/api/scrapers', scrapersRouter)
+app.use('/api/alertas', alertasRouter)
+app.use('/api/chat', chatRouter)
 
 // Legacy routes (still used by current frontend)
 app.use('/analizar', analizarRouter)
@@ -60,9 +83,20 @@ app.get('/reporte/:id', async (req, res) => {
 
 // Inicializar DB + grafo y arrancar servidor
 Promise.all([initDb(), initGraph()])
-  .then(() => {
+  .then(async () => {
+    // Sprint 4: registrar fuentes conocidas en fuentes_datos (idempotente)
+    try {
+      await registrarFuente(fuenteCordobaCapital)
+      await registrarFuente(fuenteArgentinaCompra)
+      await registrarFuente(fuenteCABA)
+      await registrarFuente(fuenteSantaFe)
+      await registrarFuente(fuenteOpenSanctions)
+    } catch (err) {
+      console.warn('[fuentes] Error registrando fuentes iniciales:', err)
+    }
+
     app.listen(PORT, () => {
-      console.log(`ARGOS v2 corriendo en http://localhost:${PORT}`)
+      console.log(`ARGOS v3 corriendo en http://localhost:${PORT}`)
     })
   })
   .catch(err => {

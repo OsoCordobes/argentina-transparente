@@ -1,4 +1,4 @@
-import { MunicipioConnector, Contrato } from '../../types'
+import { MunicipioConnector, Contrato, FuenteMetadata } from '../../types'
 import { fetchRawRows } from './fetcher'
 import { parseRows } from './parser'
 
@@ -13,10 +13,24 @@ function getAniosDisponibles(): number[] {
   return anios
 }
 
+export const fuenteCordobaCapital: FuenteMetadata = {
+  id: 'cordoba-capital-gobiernoabierto',
+  jurisdiccion: 'Córdoba Capital',
+  url: 'https://gobiernoabierto.cordoba.gob.ar/data/datos-abiertos/categoria/economia-y-finanzas/compras-y-contrataciones/2',
+  formato: 'XLSX',
+  oficial: true,
+  licencia: 'CC-BY-4.0',
+  frecuenciaActualizacion: 'anual',
+  nivelConfianza: 'alto',
+  notas: 'Portal oficial Gobierno Abierto Córdoba. Dataset estructurado con expedientes y montos. Cobertura 2019–presente.',
+}
+
 export const cordobaCapitalConnector: MunicipioConnector = {
   id: 'cordoba-capital',
   nombre: 'Córdoba Capital',
   aniosDisponibles: getAniosDisponibles(),
+  tipo: 'api_estructurada',
+  fuente: fuenteCordobaCapital,
 
   async getContratos(anioDesde: number, anioHasta: number): Promise<Contrato[]> {
     const todos: Contrato[] = []

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express'
 import {
-  searchEntidades, getContratosPorProveedor, dbAll,
+  searchEntidades, getContratosPorProveedor, getSeñalesPorCuit,
+  dbAll, type EntidadContrato, type SeñalCacheRow,
 } from '../lib/db'
 
 const router = Router()
@@ -20,6 +21,36 @@ router.get('/search', async (req: Request, res: Response) => {
     res.status(500).json({ ok: false, error: String(err) })
   }
 })
+
+function mapContrato(c: EntidadContrato) {
+  return {
+    hash: c.hash,
+    tipo: c.tipo,
+    proveedor: c.proveedor,
+    area: c.area,
+    descripcion: c.descripcion,
+    monto: c.monto,
+    anio: c.anio,
+    municipio: c.municipio,
+    fuenteUrl: c.fuente_url,
+  }
+}
+
+function mapSeñal(s: SeñalCacheRow) {
+  return {
+    id: s.id,
+    municipio: s.municipio,
+    tipologia: s.tipologia,
+    titulo: s.titulo,
+    resumen: s.resumen,
+    score: s.score,
+    severidad: s.severidad,
+    evidencia: JSON.parse(s.evidencia_json),
+    legal: JSON.parse(s.legal_json),
+    cuits: s.entidades_cuit ? (JSON.parse(s.entidades_cuit) as string[]) : [],
+    computadoEn: s.computado_en,
+  }
+}
 
 // GET /api/entidad/:nombre — full profile for a provider
 router.get('/:nombre', async (req: Request, res: Response) => {
@@ -56,10 +87,15 @@ router.get('/:nombre', async (req: Request, res: Response) => {
       .map(([tipo, data]) => ({ tipo, ...data }))
       .sort((a, b) => b.monto - a.monto)
 
-    // Check if we have AFIP data
-    const empresaRows = await dbAll<any>(
-      `SELECT * FROM empresas WHERE UPPER(nombre) = ? LIMIT 1`, [nombre]
-    )
+    // AFIP enrichment
+    const empresaRows = await dbAll<{
+      cuit: string
+      nombre: string
+      es_empleador: boolean
+      inicio_actividades: string | null
+      estado: string | null
+      actividad_principal: string | null
+    }>(`SELECT * FROM empresas WHERE UPPER(nombre) = ? LIMIT 1`, [nombre])
     const afip = empresaRows[0] ? {
       cuit: empresaRows[0].cuit,
       esEmpleador: empresaRows[0].es_empleador,
@@ -67,6 +103,11 @@ router.get('/:nombre', async (req: Request, res: Response) => {
       estado: empresaRows[0].estado,
       actividadPrincipal: empresaRows[0].actividad_principal,
     } : null
+
+    // Señales asociadas vía entidades_cuit (Sprint 2)
+    const señales = afip?.cuit
+      ? (await getSeñalesPorCuit(afip.cuit)).map(mapSeñal)
+      : []
 
     res.json({
       ok: true,
@@ -80,7 +121,8 @@ router.get('/:nombre', async (req: Request, res: Response) => {
         afip,
         timeline,
         tipos,
-        contratos: contratos.slice(0, 100), // limit for response size
+        contratos: contratos.slice(0, 100).map(mapContrato),
+        señales,
       },
     })
   } catch (err) {
