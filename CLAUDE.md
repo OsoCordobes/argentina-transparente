@@ -121,8 +121,10 @@ con TTL 30 días. Solo dispara si el riesgo es offshore/sancionado/crimen
 | Fuente | URL | Años | Formato |
 |--------|-----|------|---------|
 | Córdoba Capital | gobiernoabierto.cordoba.gob.ar/.../compras-y-contrataciones/2 | 2019–2023 | XLSX via API REST |
+| Nación (Argentina Compra) | api.contrataciones.argentina.gob.ar/v1 | 2016–presente | JSON OCDS v1.1 |
+| CABA | data.buenosaires.gob.ar (CKAN) | 2018–presente | CSV via discovery CKAN |
 
-Dataset IDs: 2019→`2`, 2020→`5977`, 2021→`5978`, 2022→`6466`, 2023→`6467`
+Dataset IDs Córdoba: 2019→`2`, 2020→`5977`, 2021→`5978`, 2022→`6466`, 2023→`6467`
 
 ---
 
@@ -171,13 +173,15 @@ VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos
 | `npm run test:e2e` | backend/ | E2E contra localhost:3001 |
 | `npx ts-node src/test-production.ts` | backend/ | E2E contra Railway producción |
 | `npm run ckan:explore -- nacion` | backend/ | Lista datasets de compras en datos.gob.ar |
+| `npm run seed:nacion -- 2022` | backend/ | Descarga contratos nacionales 2022 |
+| `npm run seed:caba -- 2023` | backend/ | Descarga contratos CABA 2023 |
 | CI (GitHub Actions) | `.github/workflows/ci.yml` | typecheck + tests + build en push/PR |
 
 ---
 
 ## Roadmap
 
-**Hecho en v3.0 (PR #3, Sprints 0-4 + post-MVP round 1-2):**
+**Hecho en v3.0 (PR #3, Sprints 0-4 + post-MVP round 1-3):**
 - ✅ Verificación AFIP best-effort
 - ✅ Exportar expediente a PDF (Denuncia formal con cadena de custodia)
 - ✅ Frontend SPA investigativa entity-centric
@@ -189,9 +193,10 @@ VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos
 - ✅ **CI GitHub Actions** (typecheck + tests + build + naming-check)
 - ✅ **Frontend code splitting** (lazy routes + manualChunks; bundle inicial 491KB → 185KB gzip)
 - ✅ **CKAN client + `npm run ckan:explore`** (Nación / CABA / Santa Fe / Rosario)
+- ✅ **Connector Argentina Compra** (Estado nacional OCDS, 2016–presente, `npm run seed:nacion`)
+- ✅ **Connector CABA** (CKAN + CSV discovery, 2018–presente, `npm run seed:caba`)
 
 **Pendiente post-MVP:**
-- Connectors CKAN específicos (parsers para datos.gob.ar / CABA / provincias)
 - Scraper Playwright + health monitoring
 - Pipeline OCR Claude Vision para boletines pre-2015
 - Bulk download ICIJ Offshore Leaks → tablas locales (vs query on-demand actual)
@@ -217,14 +222,22 @@ backend/src/
 │   ├── denuncia.ts             ← POST /api/denuncia (PDF + SHA256)
 │   └── cruce.ts                ← /api/cruce/{fuentes,persona,empresa}
 ├── connectors/
-│   ├── interface.ts            ← Registry + getConnector()
-│   └── cordoba-capital/
-│       ├── index.ts            ← MunicipioConnector + FuenteMetadata
-│       ├── fetcher.ts          ← API REST + XLSX + timeouts
-│       └── parser.ts           ← XLSX → Contrato[]
+│   ├── interface.ts            ← Registry + getConnector() (3 connectores)
+│   ├── cordoba-capital/
+│   │   ├── index.ts            ← MunicipioConnector + FuenteMetadata (XLSX)
+│   │   ├── fetcher.ts          ← API REST + XLSX + timeouts
+│   │   └── parser.ts           ← XLSX → Contrato[]
+│   ├── argentina-compra/
+│   │   ├── index.ts            ← Estado nacional OCDS 2016–presente
+│   │   ├── fetcher.ts          ← JSON paginado (50K max/año, 250ms delay)
+│   │   └── parser.ts           ← OCDS releases → Contrato[]
+│   └── caba/
+│       ├── index.ts            ← CABA 2018–presente vía CKAN
+│       ├── fetcher.ts          ← CKAN discovery + CSV download
+│       └── parser.ts           ← CSV flexible (multiples versiones de cols)
 ├── engine/
-│   ├── signals.ts              ← 14 detectores de riesgo
-│   └── signals.test.ts         ← 89 tests vitest
+│   ├── signals.ts              ← 15 detectores de riesgo
+│   └── signals.test.ts         ← 103 tests vitest
 ├── lib/
 │   ├── db.ts                   ← DuckDB: contratos, señales_cache, empresas,
 │   │                              directores, igj_*, reportes, fuentes_datos,
@@ -236,13 +249,15 @@ backend/src/
 │   ├── ckan.ts                 ← Post-MVP: cliente CKAN genérico (4 portales AR)
 │   └── denuncia-pdf.tsx        ← Sprint 3: @react-pdf/renderer (jsx: react-jsx)
 ├── scripts/
-│   ├── seed-cordoba.ts         ← Carga contratos en DuckDB
+│   ├── seed-cordoba.ts         ← Carga contratos Córdoba Capital en DuckDB
+│   ├── seed-nacion.ts          ← Carga contratos Estado nacional (OCDS)
+│   ├── seed-caba.ts            ← Carga contratos CABA (CKAN CSV)
 │   ├── seed-afip.ts            ← Enriquece empresas con AFIP
 │   ├── seed-igj.ts             ← Carga IGJ entidades + autoridades
 │   ├── seed-neo4j.ts           ← Carga grafo Neo4j desde DuckDB
 │   ├── seed-opensanctions.ts   ← Cachea matches OS por CUIT (TTL 30d)
 │   ├── ckan-explore.ts         ← CLI: lista datasets en portal CKAN
-│   └── analyze.ts              ← Calcula señales (incluye aparicion_offshore)
+│   └── analyze.ts              ← Calcula señales en todos los municipios
 └── types/index.ts              ← Contrato, Señal, Expediente, FuenteMetadata,
                                    ConnectorTipo, NivelConfianza, OSMatch
 
@@ -405,6 +420,35 @@ Métricas round post-MVP:
 - Frontend bundle inicial -62%
 - 1 nueva señal (15 totales)
 - 2 nuevos scripts npm (seed:opensanctions, ckan:explore)
+
+### 2026-04-25 (cont) — Claude Code (post-MVP round 3: connectors multi-jurisdicción)
+
+**Round 3 — Argentina Compra + CABA connectors:**
+
+Contexto: la rama `feat/e1-backend-debt` referenciada por un agente paralelo no
+existía en el repositorio (worktree temporal limpiado). Sin conflictos.
+
+Connectors nuevos implementados:
+- `connectors/argentina-compra/`: Estado nacional (ONC) vía API REST OCDS v1.1.
+  Cobertura 2016–presente (Resolución ONC 59/2016). Paginación de hasta 50K
+  registros/año con 250ms de pausa (~4 req/seg). Parser OCDS → Contrato[] con
+  fallbacks en cadena para proveedor/monto/tipo/fecha. FuenteMetadata completa.
+  `npm run seed:nacion [anioDesde] [anioHasta] [--force]`
+
+- `connectors/caba/`: CABA vía CKAN (data.buenosaires.gob.ar). Descubre el
+  dataset de compras automáticamente con 3 queries de fallback. Parser CSV
+  flexible contra múltiples versiones de nombres de columnas (el portal las
+  cambia). FuenteMetadata completa.
+  `npm run seed:caba [anioDesde] [anioHasta] [--force]`
+
+Ambos registrados en `connectors/interface.ts` y en `src/index.ts` (fuentes +
+endpoint GET /municipios). `analyze.ts` actualizado para incluir
+`argentina-compra` en el array de municipios a analizar.
+
+`seed:all` ahora ejecuta 6 seeds en secuencia:
+  seed:cordoba → seed:nacion → seed:igj → seed:afip → seed:neo4j → seed:opensanctions
+
+103 tests siguen verde. tsc --noEmit OK. Sin cambios en frontend.
 
 
 NO BORRAR//INSTRUCCIONES

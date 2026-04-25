@@ -1,8 +1,12 @@
 import { MunicipioConnector } from '../types'
 import { cordobaCapitalConnector } from './cordoba-capital'
+import { argentinaCompraConnector } from './argentina-compra'
+import { cabaConnector } from './caba'
 
 export const registry: Record<string, MunicipioConnector> = {
-  'cordoba-capital': cordobaCapitalConnector,
+  'cordoba-capital':  cordobaCapitalConnector,
+  'argentina-compra': argentinaCompraConnector,
+  'caba':             cabaConnector,
 }
 
 export function getConnector(municipioId: string): MunicipioConnector {

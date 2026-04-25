@@ -10,8 +10,12 @@ import denunciaRouter from './routes/denuncia'
 import cruceRouter from './routes/cruce'
 import { registrarFuente } from './lib/db'
 import { fuenteCordobaCapital } from './connectors/cordoba-capital'
+import { fuenteArgentinaCompra } from './connectors/argentina-compra'
+import { fuenteCABA } from './connectors/caba'
 import { fuenteOpenSanctions } from './lib/opensanctions'
 import { cordobaCapitalConnector } from './connectors/cordoba-capital'
+import { argentinaCompraConnector } from './connectors/argentina-compra'
+import { cabaConnector } from './connectors/caba'
 import { initDb, getReporte } from './lib/db'
 import { initGraph } from './lib/graph'
 
@@ -36,13 +40,13 @@ app.get('/health', (_req, res) => {
 
 // GET /municipios
 app.get('/municipios', (_req, res) => {
-  res.json([
-    {
-      id: cordobaCapitalConnector.id,
-      nombre: cordobaCapitalConnector.nombre,
-      aniosDisponibles: cordobaCapitalConnector.aniosDisponibles,
-    },
-  ])
+  const connectors = [cordobaCapitalConnector, argentinaCompraConnector, cabaConnector]
+  res.json(connectors.map(c => ({
+    id: c.id,
+    nombre: c.nombre,
+    aniosDisponibles: c.aniosDisponibles,
+    tipo: c.tipo,
+  })))
 })
 
 // New entity-centric API
@@ -75,6 +79,8 @@ Promise.all([initDb(), initGraph()])
     // Sprint 4: registrar fuentes conocidas en fuentes_datos (idempotente)
     try {
       await registrarFuente(fuenteCordobaCapital)
+      await registrarFuente(fuenteArgentinaCompra)
+      await registrarFuente(fuenteCABA)
       await registrarFuente(fuenteOpenSanctions)
     } catch (err) {
       console.warn('[fuentes] Error registrando fuentes iniciales:', err)

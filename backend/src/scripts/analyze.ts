@@ -36,7 +36,9 @@ function extraerCuits(señal: Señal, empresas: Map<string, EmpresaEnriquecida>)
   return Array.from(cuits)
 }
 
-const MUNICIPIOS = ['cordoba-capital']
+// Municipios habilitados para análisis de señales.
+// Agregar un nuevo ID aquí después de ejecutar su seed script correspondiente.
+const MUNICIPIOS = ['cordoba-capital', 'argentina-compra']
 
 async function main() {
   console.log('=== ARGOS — Analyze ===\n')
