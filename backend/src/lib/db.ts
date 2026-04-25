@@ -591,7 +591,7 @@ export async function getContratosCount(municipio?: string): Promise<number> {
     ? `SELECT COUNT(*) as cnt FROM contratos WHERE municipio = ?`
     : `SELECT COUNT(*) as cnt FROM contratos`
   const rows = await dbAll<{ cnt: number }>(sql, municipio ? [municipio] : [])
-  return rows[0]?.cnt ?? 0
+  return Number(rows[0]?.cnt ?? 0)
 }
 
 export async function clearContratos(municipio?: string): Promise<void> {
@@ -812,7 +812,7 @@ export async function getSeñalesPorCuit(cuit: string): Promise<SeñalCacheRow[]
 
 export async function getSeñalesCacheCount(): Promise<number> {
   const rows = await dbAll<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM señales_cache`)
-  return rows[0]?.cnt ?? 0
+  return Number(rows[0]?.cnt ?? 0)
 }
 
 // ─── Reportes ─────────────────────────────────────────────────────────────────
@@ -1075,7 +1075,7 @@ export async function getProveedoresPadronCount(jurisdiccion?: string): Promise<
     ? `SELECT COUNT(*) as cnt FROM proveedores_padron WHERE jurisdiccion = ?`
     : `SELECT COUNT(*) as cnt FROM proveedores_padron`
   const rows = await dbAll<{ cnt: number }>(sql, jurisdiccion ? [jurisdiccion] : [])
-  return rows[0]?.cnt ?? 0
+  return Number(rows[0]?.cnt ?? 0)
 }
 
 // ─── OCR jobs (resumability del crawler) ──────────────────────────────────────
@@ -1120,10 +1120,10 @@ export async function getOCRJobsResumen(municipio: string): Promise<{
     [municipio]
   )
   return {
-    totalJobs: rows[0]?.total ?? 0,
-    totalContratos: rows[0]?.contratos ?? 0,
-    totalCostoUSD: rows[0]?.costo ?? 0,
-    totalPaginas: rows[0]?.paginas ?? 0,
+    totalJobs: Number(rows[0]?.total ?? 0),
+    totalContratos: Number(rows[0]?.contratos ?? 0),
+    totalCostoUSD: Number(rows[0]?.costo ?? 0),
+    totalPaginas: Number(rows[0]?.paginas ?? 0),
   }
 }
 

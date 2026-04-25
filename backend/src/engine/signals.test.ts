@@ -414,12 +414,47 @@ describe('detectarConcentracionTemporal', () => {
     expect(detectarConcentracionTemporal([])).toBeNull()
   })
 
-  it('returns null when data spans multiple years', () => {
+  it('returns null when no year exceeds 30% nor has ≥3 ampliaciones (multi-year)', () => {
     const contratos = [
+      // Año 2022: 0% prórrogas, 0 ampliaciones → no dispara
       c({ anio: 2022, proveedor: 'A', monto: 40_000_000 }),
-      c({ tipo: 'PRÓRROGA', anio: 2023, proveedor: 'B', monto: 40_000_000 }),
+      c({ anio: 2022, proveedor: 'B', monto: 40_000_000 }),
+      // Año 2023: 0% prórrogas, 0 ampliaciones → no dispara
+      c({ anio: 2023, proveedor: 'C', monto: 40_000_000 }),
+      c({ anio: 2023, proveedor: 'D', monto: 40_000_000 }),
     ]
     expect(detectarConcentracionTemporal(contratos)).toBeNull()
+  })
+
+  it('fires for multi-year dataset on the worst year', () => {
+    const contratos = [
+      // Año 2022: 0% prórrogas → no dispara solo
+      c({ anio: 2022, proveedor: 'A', monto: 100_000_000 }),
+      // Año 2023: 50% prórrogas → dispara y debe ser elegido
+      c({ anio: 2023, proveedor: 'B', monto: 50_000_000 }),
+      c({ tipo: 'PRÓRROGA', anio: 2023, proveedor: 'C', monto: 50_000_000 }),
+    ]
+    const señal = detectarConcentracionTemporal(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.tipologia).toBe('gasto_fin_ejercicio')
+    // Debe mencionar el año peor en evidencia/título
+    expect(señal!.titulo).toContain('2023')
+    expect(señal!.evidencia[0].descripcion).toContain('2023')
+  })
+
+  it('picks worst year when multiple exceed threshold', () => {
+    const contratos = [
+      // 2022: 35% prórrogas
+      c({ anio: 2022, proveedor: 'A', monto: 65_000_000 }),
+      c({ tipo: 'PRÓRROGA', anio: 2022, proveedor: 'B', monto: 35_000_000 }),
+      // 2023: 60% prórrogas (peor)
+      c({ anio: 2023, proveedor: 'C', monto: 40_000_000 }),
+      c({ tipo: 'PRÓRROGA', anio: 2023, proveedor: 'D', monto: 60_000_000 }),
+    ]
+    const señal = detectarConcentracionTemporal(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.titulo).toContain('2023')
+    expect(señal!.legal.severidad).toBe('grave') // ≥40%
   })
 
   it('returns null for single year with < 30% prórrogas and < 3 ampliaciones', () => {

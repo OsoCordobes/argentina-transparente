@@ -1,7 +1,9 @@
 // seed-cordoba.ts — Carga TODOS los contratos de Córdoba Capital en DuckDB
 //
-// Descarga XLSX de gobiernoabierto.cordoba.gob.ar (2019-2023)
-// Deduplica por hash y almacena permanentemente
+// Descarga XLSX de gobiernoabierto.cordoba.gob.ar (2019 → año actual).
+// Años posteriores al último publicado son intentados con discovery dinámico
+// (fetcher.ts L52-63); si la API responde 400, el seed continúa con los demás.
+// Deduplica por hash y almacena permanentemente.
 //
 // Ejecutar: npm run seed:cordoba
 // Con --force: recarga desde cero
@@ -10,9 +12,9 @@ import 'dotenv/config'
 import { initDb, getContratosCount, clearContratos, insertContratoBatch } from '../lib/db'
 import { fetchRawRows } from '../connectors/cordoba-capital/fetcher'
 import { parseRows } from '../connectors/cordoba-capital/parser'
+import { cordobaCapitalConnector } from '../connectors/cordoba-capital'
 
 const MUNICIPIO = 'cordoba-capital'
-const AÑOS_DISPONIBLES = [2019, 2020, 2021, 2022, 2023]
 
 async function main() {
   console.log('=== ARGOS — Seed Córdoba Capital ===\n')
@@ -36,7 +38,11 @@ async function main() {
   let totalInserted = 0
   const seenHashes = new Set<string>()
 
-  for (const anio of AÑOS_DISPONIBLES) {
+  const aniosDisponibles = cordobaCapitalConnector.aniosDisponibles
+  console.log(`Años a descargar: ${aniosDisponibles.join(', ')}`)
+  console.log(`(Años no publicados aún en el portal serán saltados con warning.)\n`)
+
+  for (const anio of aniosDisponibles) {
     try {
       console.log(`[${anio}] Descargando XLSX...`)
       const rawRows = await fetchRawRows(anio)

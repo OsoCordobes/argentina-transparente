@@ -251,40 +251,69 @@ export function detectarFraccionamientoAvanzado(contratos: Contrato[]): Señal |
 }
 
 export function detectarConcentracionTemporal(contratos: Contrato[]): Señal | null {
-  const años = new Set(contratos.map(c => c.anio))
-  if (años.size !== 1) return null
+  if (contratos.length === 0) return null
 
-  const TIPOS_FIN_ANIO = ['PRÓRROGA', 'PRORROGA', 'COMPLEMENTARIOS', 'AMPLIACIÓN']
-  const contratosFinAnio = contratos.filter(c =>
-    TIPOS_FIN_ANIO.some(t => c.tipo.toUpperCase().includes(t))
-  )
+  // Agrupar por año fiscal y elegir el peor año (mayor concentración en
+  // prórrogas/ampliaciones). Esto permite operar sobre datasets multiyear
+  // sin perder señales en años problemáticos individuales.
+  const porAnio = new Map<number, Contrato[]>()
+  for (const c of contratos) {
+    if (!porAnio.has(c.anio)) porAnio.set(c.anio, [])
+    porAnio.get(c.anio)!.push(c)
+  }
 
-  const total = contratos.reduce((s, c) => s + c.monto, 0)
-  const montoFinAnio = contratosFinAnio.reduce((s, c) => s + c.monto, 0)
-  const pct = (montoFinAnio / total) * 100
+  const TIPOS_FIN_ANIO = ['PRÓRROGA', 'PRORROGA', 'COMPLEMENTARIOS', 'AMPLIACIÓN', 'AMPLIACION']
 
-  const ampliaciones = contratos.filter(c =>
-    c.tipo.toUpperCase().includes('AMPLIACI') ||
-    c.tipo.toUpperCase().includes('COMPLEMENT')
-  )
+  type AnioStats = {
+    anio: number
+    pct: number
+    montoFinAnio: number
+    total: number
+    contratosFinAnio: Contrato[]
+    contratosDelAnio: Contrato[]
+    ampliaciones: number
+  }
 
-  if (pct < 30 && ampliaciones.length < 3) return null
+  let peor: AnioStats | null = null
+
+  for (const [anio, cs] of porAnio) {
+    const contratosFinAnio = cs.filter(c =>
+      TIPOS_FIN_ANIO.some(t => c.tipo.toUpperCase().includes(t))
+    )
+    const total = cs.reduce((s, c) => s + c.monto, 0)
+    const montoFinAnio = contratosFinAnio.reduce((s, c) => s + c.monto, 0)
+    const pct = total > 0 ? (montoFinAnio / total) * 100 : 0
+
+    const ampliaciones = cs.filter(c =>
+      c.tipo.toUpperCase().includes('AMPLIACI') ||
+      c.tipo.toUpperCase().includes('COMPLEMENT')
+    ).length
+
+    // Umbral: ≥30% del gasto vía prórroga/ampliación, o ≥3 ampliaciones (señal débil).
+    if (pct < 30 && ampliaciones < 3) continue
+
+    if (!peor || pct > peor.pct) {
+      peor = { anio, pct, montoFinAnio, total, contratosFinAnio, contratosDelAnio: cs, ampliaciones }
+    }
+  }
+
+  if (!peor) return null
 
   return {
     tipologia: 'gasto_fin_ejercicio',
-    score: Math.min(70, Math.round(45 + pct * 0.4)),
-    titulo: `${pct.toFixed(1)}% del gasto vía prórrogas y ampliaciones — patrón de cierre de ejercicio`,
-    resumen: `El ${pct.toFixed(1)}% del gasto analizado (${ars(montoFinAnio)}) se realizó a través de prórrogas y ampliaciones de contratos existentes. Este patrón es consistente con el "gasto de fin de ejercicio", práctica donde los fondos presupuestarios no ejecutados se comprometen en contratos de urgencia o ampliaciones antes del cierre del año fiscal, eludiendo procesos competitivos.`,
+    score: Math.min(70, Math.round(45 + peor.pct * 0.4)),
+    titulo: `${peor.pct.toFixed(1)}% del gasto del año ${peor.anio} vía prórrogas y ampliaciones — patrón de cierre de ejercicio`,
+    resumen: `En el ejercicio fiscal ${peor.anio}, el ${peor.pct.toFixed(1)}% del gasto (${ars(peor.montoFinAnio)} de ${ars(peor.total)} total) se realizó a través de prórrogas y ampliaciones de contratos existentes. Este patrón es consistente con el "gasto de fin de ejercicio", práctica donde los fondos presupuestarios no ejecutados se comprometen en contratos de urgencia o ampliaciones antes del cierre del año fiscal, eludiendo procesos competitivos.`,
     evidencia: [{
-      descripcion: `${contratosFinAnio.length} contratos vía prórroga/ampliación: ${ars(montoFinAnio)} de ${ars(total)} total`,
-      fuenteUrl: contratos[0].fuenteUrl,
+      descripcion: `Año ${peor.anio}: ${peor.contratosFinAnio.length} contratos vía prórroga/ampliación, ${ars(peor.montoFinAnio)} de ${ars(peor.total)} total`,
+      fuenteUrl: peor.contratosFinAnio[0]?.fuenteUrl ?? peor.contratosDelAnio[0].fuenteUrl,
     }],
     legal: {
       articulos: [
         'Ley Provincial 8614 art. 14 (principio de licitación)',
         'Ley de Administración Financiera — cierre de ejercicio',
       ],
-      severidad: pct >= 40 ? 'grave' : 'moderada',
+      severidad: peor.pct >= 40 ? 'grave' : 'moderada',
       denunciarAnte: ['Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)'],
     },
   }
