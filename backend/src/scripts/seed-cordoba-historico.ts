@@ -123,6 +123,8 @@ async function procesarFuente(
   console.log(`\nExtrayendo contratos de ${fuenteNombre} (${aProcesar.length} normas)...`)
 
   const resultado = await extraerContratosDeNormas(aProcesar, {
+    maxCostUSD: args.maxCostUSD ?? undefined,
+    costoAcumInicial: costoAcumuladoInicial,
     onProgress: (procesadas, total, contratos, costo) => {
       const costoTotal = costoAcumuladoInicial + costo
       const pct = ((procesadas / total) * 100).toFixed(0)
