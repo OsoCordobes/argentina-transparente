@@ -83,9 +83,9 @@ POST /api/denuncia ──► renderDenunciaPDF() [@react-pdf/renderer]
 
 ---
 
-## Señales Implementadas (14 total)
+## Señales Implementadas (15 total)
 
-Detectores en `backend/src/engine/signals.ts`. Tests cubren 89 casos.
+Detectores en `backend/src/engine/signals.ts`. Tests cubren 103 casos.
 
 | Señal | Tipología | Origen | Severidad |
 |-------|-----------|--------|-----------|
@@ -103,10 +103,16 @@ Detectores en `backend/src/engine/signals.ts`. Tests cubren 89 casos.
 | Red de empresas | `red_de_empresas` | Neo4j (IGJ, ≥2 dir) | grave |
 | Rotación coordinada | `rotacion_coordinada` | Contratos (timing) | grave |
 | Adenda post-adjudicación | `adenda_postajudicacion` | Contratos | moderada / grave |
+| **Aparición offshore/sanción** | `aparicion_offshore` | AFIP + cache OpenSanctions/ICIJ | grave |
 
 Cada `Señal` lleva opcionalmente `cuits?: string[]` (poblado por `analyze.ts`)
 para asociación señal↔entidad sin string matching frágil. Esa columna se
 escribe a `señales_cache.entidades_cuit` (JSON).
+
+`aparicion_offshore` requiere ejecutar `npm run seed:opensanctions` antes de
+`npm run analyze --force`. Cachea matches en tabla `opensanctions_matches`
+con TTL 30 días. Solo dispara si el riesgo es offshore/sancionado/crimen
+(PEP solo no dispara — es información, no delito).
 
 ---
 
@@ -158,37 +164,41 @@ VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos
 
 | Comando | Desde | Descripción |
 |---------|-------|-------------|
+| `npm run test` | backend/ | 103 unit tests (vitest) |
 | `npm run test:connector` | backend/ | Descarga y parsea 2023 |
 | `npm run test:signals 2022 2023` | backend/ | 2 años, señales detectadas |
 | `npm run test:signals 2019 2023` | backend/ | 5 años — 1390 contratos, 5 señales |
 | `npm run test:e2e` | backend/ | E2E contra localhost:3001 |
 | `npx ts-node src/test-production.ts` | backend/ | E2E contra Railway producción |
+| `npm run ckan:explore -- nacion` | backend/ | Lista datasets de compras en datos.gob.ar |
+| CI (GitHub Actions) | `.github/workflows/ci.yml` | typecheck + tests + build en push/PR |
 
 ---
 
 ## Roadmap
 
-**Hecho en v3.0 (PR #3, Sprints 0-4):**
+**Hecho en v3.0 (PR #3, Sprints 0-4 + post-MVP round 1-2):**
 - ✅ Verificación AFIP best-effort
 - ✅ Exportar expediente a PDF (Denuncia formal con cadena de custodia)
 - ✅ Frontend SPA investigativa entity-centric
 - ✅ Casos persistentes con Supabase + RLS
 - ✅ Red de empresas con Cytoscape + Neo4j
-- ✅ OpenSanctions integration (PEPs/sanciones/offshore)
+- ✅ OpenSanctions client + endpoints `/api/cruce/*`
 - ✅ Connector framework con metadata trazable
+- ✅ **Señal `aparicion_offshore` integrada al engine** (cache OS por CUIT, TTL 30d)
+- ✅ **CI GitHub Actions** (typecheck + tests + build + naming-check)
+- ✅ **Frontend code splitting** (lazy routes + manualChunks; bundle inicial 491KB → 185KB gzip)
+- ✅ **CKAN client + `npm run ckan:explore`** (Nación / CABA / Santa Fe / Rosario)
 
 **Pendiente post-MVP:**
-- Connector CKAN genérico (datos.gob.ar / CABA / provincias)
+- Connectors CKAN específicos (parsers para datos.gob.ar / CABA / provincias)
 - Scraper Playwright + health monitoring
 - Pipeline OCR Claude Vision para boletines pre-2015
-- Bulk download ICIJ Offshore Leaks → tablas locales
-- Señal `aparicion_offshore` integrada al engine (cache de matches por CUIT)
+- Bulk download ICIJ Offshore Leaks → tablas locales (vs query on-demand actual)
 - Análisis obra pública via Boletín Oficial
 - Cruce nómina municipal vs proveedores
 - Modo comparativo entre municipios
 - Alertas automáticas cuando se publican nuevos datos
-- Code splitting frontend (bundle 491KB gzip → reducir con dynamic imports)
-- CI GitHub Actions (typecheck + tests + build)
 
 ---
 
@@ -217,20 +227,24 @@ backend/src/
 │   └── signals.test.ts         ← 89 tests vitest
 ├── lib/
 │   ├── db.ts                   ← DuckDB: contratos, señales_cache, empresas,
-│   │                              directores, igj_*, reportes, fuentes_datos
+│   │                              directores, igj_*, reportes, fuentes_datos,
+│   │                              opensanctions_matches
 │   ├── graph.ts                ← Neo4j: empresas + directores + getRedCytoscape
 │   ├── claude.ts               ← generarExpediente() + prompt periodístico
 │   ├── afip.ts                 ← CUIT lookup best-effort
-│   ├── opensanctions.ts        ← Sprint 4: PEPs/sanciones/offshore
+│   ├── opensanctions.ts        ← Sprint 4: search + match endpoints
+│   ├── ckan.ts                 ← Post-MVP: cliente CKAN genérico (4 portales AR)
 │   └── denuncia-pdf.tsx        ← Sprint 3: @react-pdf/renderer (jsx: react-jsx)
 ├── scripts/
 │   ├── seed-cordoba.ts         ← Carga contratos en DuckDB
 │   ├── seed-afip.ts            ← Enriquece empresas con AFIP
 │   ├── seed-igj.ts             ← Carga IGJ entidades + autoridades
 │   ├── seed-neo4j.ts           ← Carga grafo Neo4j desde DuckDB
-│   └── analyze.ts              ← Calcula señales + extrae cuits
+│   ├── seed-opensanctions.ts   ← Cachea matches OS por CUIT (TTL 30d)
+│   ├── ckan-explore.ts         ← CLI: lista datasets en portal CKAN
+│   └── analyze.ts              ← Calcula señales (incluye aparicion_offshore)
 └── types/index.ts              ← Contrato, Señal, Expediente, FuenteMetadata,
-                                   ConnectorTipo, NivelConfianza
+                                   ConnectorTipo, NivelConfianza, OSMatch
 
 frontend/src/
 ├── App.tsx                     ← Routes + AppShell layout
@@ -352,6 +366,45 @@ Métricas finales sesión:
 - 89 tests vitest siguen verde
 - backend tsc + build OK, frontend tsc + build OK (1.65MB → 491KB gzip)
 - ~5500 LOC netas agregadas (frontend ~3500 + backend ~2000)
+
+### 2026-04-25 (cont) — Claude Code (post-MVP round 1+2)
+
+**Round 1 — CI + perf:**
+- `.github/workflows/ci.yml`: 3 jobs (backend, frontend, naming-check) con
+  cache npm. Trigger en push a main + PRs. naming-check falla si aparece
+  "bestia" fuera de URLs Railway permitidas (auto-excluye ci.yml).
+- Frontend code splitting: React.lazy() en todas las rutas excepto
+  Dashboard (eager para LCP). Suspense con PageLoader. vite.config.ts
+  manualChunks separa cytoscape/recharts/supabase/react-vendor/react-query/radix.
+  **Initial load: 491KB gzip → 185KB gzip (-62%)**. Cytoscape (175KB gzip)
+  solo se descarga al ir a /red.
+
+**Round 2 — Señal #15 + CKAN scaffolding:**
+- Señal `aparicion_offshore`: cruza CUITs ARGOS con cache OpenSanctions/ICIJ.
+  Solo dispara cuando riesgo es offshore/sancionado/crimen (PEP solo NO).
+  Severidad grave; score 95/92/88. Marco legal Ley 25.246, 27.401, OCDE.
+  Denunciar ante UIF + Procuración del Tesoro.
+- types: `OSMatch` (cuit, matched, riesgo, dataset, cached metadata).
+- db.ts: tabla `opensanctions_matches` keyed por CUIT, helpers
+  upsertOSMatch/getOSMatch/getOSMatchesAll/getOSMatchesCount, TTL 30 días.
+- engine/signals.ts: `detectarAparicionOffshore` + `calcularSeñales` acepta
+  4to param `osMatches?` (backwards compat).
+- scripts/seed-opensanctions.ts: recorre empresas con CUIT, query OS rate
+  limited 350ms (~3 req/seg), cachea. Soporta --force.
+- scripts/analyze.ts: carga osMatches antes de calcularSeñales.
+- 14 tests nuevos para la señal: **89 → 103 tests verde**.
+- lib/ckan.ts: CKANClient genérico (searchDatasets/getDataset/listOrgs)
+  + registry PORTALES_CKAN_AR (Nación / CABA / Santa Fe / Rosario).
+- scripts/ckan-explore.ts: CLI `npm run ckan:explore [<portal>] [<query>]`
+  para descubrir datasets en cualquier portal CKAN argentino. No descarga
+  datos, solo lista metadata para decidir qué connector implementar próximo.
+
+Métricas round post-MVP:
+- 3 commits adicionales (CI+perf, offshore+CKAN, docs)
+- 103 tests vitest verde
+- Frontend bundle inicial -62%
+- 1 nueva señal (15 totales)
+- 2 nuevos scripts npm (seed:opensanctions, ckan:explore)
 
 
 NO BORRAR//INSTRUCCIONES
