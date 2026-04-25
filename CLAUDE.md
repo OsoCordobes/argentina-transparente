@@ -683,12 +683,30 @@ Nuevos seeds: `seed:cordoba-sueldos` (datasets 131+201+5+3292),
 - Schema `auditorias_tribunal_cuentas` ya existe en DuckDB (Round 8), listo
   cuando se levante el bloqueo.
 
-Seed histórico ejecutado con `--max-cost-usd 6`: en progreso al cierre de la
-sesión. Métricas parciales: [520/6,925 CSV normas], $0.76 acumulado.
-API phase (488 normas) se ejecutará si el presupuesto lo permite.
+Seed histórico completado con `--max-cost-usd 6`. La cuenta Anthropic se agotó
+en la norma 2,920/6,925 ($4.21). Las normas 2,920-6,925 fallaron con 400
+"credit balance too low" — sin costo adicional pero con verbose de errores.
+API phase (488 normas) también falló completa por el mismo motivo.
+
+Métricas finales seed:
+- 1,089 contratos insertados (4,011 descartados por guardrails)
+- Cache hit: 0% (TTL 5 min del cache de Anthropic se agotó entre batches)
+- Costo: $4.2117 USD. Total cordoba-capital en DB: 2,405 contratos.
+
+`analyze --force` post-seed detectó 7 señales en cordoba-capital:
+- [83 grave] PINTURAS CAVAZZON S.R.L. monopolio 92.8% del gasto en Cultura
+- [80 grave] 588 contrataciones directas por $4.113.400.908
+- [80 grave] Rotación coordinada en 6 áreas (proveedores que se alternan)
+- [75 grave] 65 proveedores sin historial: $18.222.550.899
+- [70 moderada] Fraccionamiento avanzado en 3 proveedores
+- [59 moderada] 1 contrato con adenda >50% post-adjudicación
+- [54 moderada] 1 proveedor crónico multi-año: $166M
+
+Bug detectado: el extractor no aborta al recibir "credit balance too low" —
+continúa intentando todos los batches restantes (sin costo, pero ~200 errores
+innecesarios). Fix pendiente: detectar este error específico y cortar de inmediato.
 
 163 tests verde (103 + 25 + 35 nuevos). tsc OK (backend).
-Commit pendiente al finalizar seed + analyze.
 
 
 NO BORRAR//INSTRUCCIONES

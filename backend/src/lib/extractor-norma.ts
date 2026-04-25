@@ -338,6 +338,7 @@ export async function extraerContratosDeNormas(
   let cacheReadTotal = 0
   let erroresTotal = 0
   let cortadoPorCosto = false
+  let cortadoPorCredito = false
 
   for (let i = 0; i < publicaciones.length; i += batchSize) {
     // Corte por costo: verificar antes de cada batch si ya superamos el límite.
@@ -367,12 +368,25 @@ export async function extraerContratosDeNormas(
         costoTotal,
       )
     } catch (err) {
-      console.warn(`[extractor-norma] Batch ${i}-${i + batchSize} falló: ${(err as Error).message.slice(0, 100)}`)
+      const msg = (err as Error).message ?? ''
+      // Abortar inmediatamente si la cuenta no tiene créditos — seguir intentando
+      // es inútil y genera cientos de errores en el log sin ningún beneficio.
+      if (msg.includes('credit balance is too low') || msg.includes('Your credit balance')) {
+        console.warn(`\n⚠ [extractor-norma] Saldo Anthropic agotado. Abortando en norma ${i}/${publicaciones.length}.`)
+        console.warn(`  Recargar créditos en console.anthropic.com y volver a correr desde --max-normas ${i}`)
+        cortadoPorCredito = true
+        erroresTotal += publicaciones.length - i
+        break
+      }
+      console.warn(`[extractor-norma] Batch ${i}-${i + batchSize} falló: ${msg.slice(0, 100)}`)
       erroresTotal += batch.length
     }
   }
   if (cortadoPorCosto) {
     console.warn(`  (${todos.length} contratos extraídos de la porción procesada)`)
+  }
+  if (cortadoPorCredito) {
+    console.warn(`  (${todos.length} contratos extraídos antes del agotamiento de créditos)`)
   }
 
   return {
