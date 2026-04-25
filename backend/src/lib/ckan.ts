@@ -170,6 +170,11 @@ export const PORTALES_CKAN_AR = {
     nombre: 'Rosario',
     baseUrl: 'https://datos.rosario.gob.ar',
   },
+  cordoba_provincia: {
+    id: 'cordoba-provincia',
+    nombre: 'Provincia de Córdoba (datosgestionabierta.cba.gov.ar)',
+    baseUrl: 'https://datosgestionabierta.cba.gov.ar',
+  },
 } as const
 
 export type PortalCKANId = keyof typeof PORTALES_CKAN_AR

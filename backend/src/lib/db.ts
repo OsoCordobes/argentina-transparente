@@ -237,6 +237,25 @@ export async function initDb(): Promise<void> {
     )
   `)
 
+  // ─── Índice de PDFs del Boletín Oficial Provincia Córdoba ──────────────────
+  // 40,539 PDFs indexados via WP REST API en boletinoficial.cba.gov.ar.
+  // Esta tabla es solo el ÍNDICE (no el contenido extraído). El OCR de cada PDF
+  // va a `contratos`/`auditorias_tribunal_cuentas` según corresponda.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS boe_cba_pdfs (
+      wp_id           INTEGER PRIMARY KEY,
+      url             TEXT NOT NULL,
+      filename        TEXT NOT NULL,
+      fecha_edicion   TEXT,                        -- YYYY-MM-DD parseado del filename
+      anio            INTEGER,
+      seccion         INTEGER,                      -- 1=Legislativa, 2=Administrativa, 3=Judicial, 4-5=Anexos
+      fecha_upload    TEXT NOT NULL,
+      tamano_bytes    INTEGER,
+      ocr_procesado   BOOLEAN DEFAULT false,
+      indexado_en     TEXT NOT NULL
+    )
+  `)
+
   // ─── OCR jobs (resumability del crawler de boletines) ──────────────────────
   // Track de qué PDFs ya fueron procesados por seed:boletin-cordoba para
   // permitir interrumpir/retomar corridas largas (16 años de boletines puede
@@ -250,6 +269,158 @@ export async function initDb(): Promise<void> {
       paginas         INTEGER,
       costo_usd       DOUBLE,
       observaciones   TEXT
+    )
+  `)
+
+  // ─── Padrón oficial de proveedores / contratistas ──────────────────────────
+  // Lista de empresas habilitadas como proveedores del estado (no son
+  // movimientos de gasto, pero enriquecen los cruces: CUIT verificado por
+  // fuente oficial → cruzar con OpenSanctions/ICIJ y empresas IGJ).
+  // Fuentes típicas:
+  //   - Dataset 281 (Contratistas Obra Pública 2019-2022)
+  //   - Dataset 162 (Registro Proveedores 01/2017)
+  //   - Padrones provinciales / nacionales
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS proveedores_padron (
+      id              TEXT PRIMARY KEY,           -- hash(jurisdiccion + cuit + anio)
+      jurisdiccion    TEXT NOT NULL,              -- 'cordoba-capital', 'cordoba-provincia', etc.
+      cuit            TEXT,                        -- formato XX-XXXXXXXX-X
+      cuit_norm       TEXT,                        -- solo dígitos, para joins
+      nombre          TEXT NOT NULL,
+      nombre_norm     TEXT NOT NULL,              -- uppercase, sin acentos, sin S.A./S.R.L.
+      categoria       TEXT,                        -- 'obra_publica' | 'bienes_servicios' | etc.
+      anio_padron     INTEGER NOT NULL,           -- año del snapshot
+      estado          TEXT,                        -- 'habilitado' | 'suspendido' | 'baja'
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+
+  // Auditorías y observaciones del Tribunal de Cuentas (provincial o municipal).
+  // Fuente de validación externa CRÍTICA para una herramienta anti-corrupción:
+  // si un contrato/obra fue observado o impugnado por el TC, eso es señal grave.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS auditorias_tribunal_cuentas (
+      id              TEXT PRIMARY KEY,
+      jurisdiccion    TEXT NOT NULL,              -- 'cordoba-capital' | 'cordoba-provincia'
+      organo          TEXT NOT NULL,              -- 'Tribunal de Cuentas Municipal' | 'Provincial' | etc.
+      tipo            TEXT NOT NULL,              -- 'fallo_absolutorio' | 'fallo_condenatorio' | 'observacion' | 'informe'
+      numero          TEXT,
+      fecha           TEXT NOT NULL,              -- YYYY-MM-DD
+      anio            INTEGER NOT NULL,
+      asunto          TEXT NOT NULL,
+      involucrados    TEXT,                        -- nombres/cuits mencionados (CSV)
+      resultado       TEXT,                        -- 'absolutorio' | 'condenatorio' | 'observado' | etc.
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+
+  // Ejecución presupuestaria — partidas, montos, evolución por trimestre/año.
+  // Dimensión MACRO del gasto público (vs micro = contratos individuales).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS presupuesto_ejecucion (
+      id              TEXT PRIMARY KEY,
+      jurisdiccion    TEXT NOT NULL,
+      anio            INTEGER NOT NULL,
+      trimestre       INTEGER,                     -- 1-4 si reporta trimestralmente, NULL si anual
+      jurisdiccion_codigo TEXT,                    -- código de jurisdicción presupuestaria (gobierno, organismo)
+      jurisdiccion_nombre TEXT,
+      programa        TEXT,                        -- nombre del programa presupuestario
+      partida         TEXT,                        -- código de partida (ej: 1.1.1 personal)
+      partida_nombre  TEXT,
+      credito_inicial DOUBLE,                      -- presupuesto sancionado
+      credito_vigente DOUBLE,                      -- presupuesto modificado
+      devengado       DOUBLE,                      -- gasto efectivamente comprometido
+      pagado          DOUBLE,                      -- gasto efectivamente pagado
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+
+  // Obras públicas — registro independiente de contratos individuales.
+  // Una obra puede tener múltiples contratos (proyecto + ejecución + ampliaciones).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS obras_publicas (
+      id              TEXT PRIMARY KEY,
+      jurisdiccion    TEXT NOT NULL,
+      anio            INTEGER NOT NULL,
+      nombre          TEXT NOT NULL,
+      tipo            TEXT,                        -- 'vialidad' | 'edificio' | 'sanitaria' | etc.
+      ubicacion       TEXT,                        -- localidad, barrio, dirección
+      monto_inicial   DOUBLE,
+      monto_actual    DOUBLE,                      -- con redeterminaciones de precio
+      avance_pct      INTEGER,                      -- 0-100
+      estado          TEXT,                        -- 'iniciada' | 'paralizada' | 'finalizada' | etc.
+      adjudicatario   TEXT,                        -- empresa contratista
+      adjudicatario_cuit TEXT,
+      expediente      TEXT,
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+
+  // Salarios / planta del estado — agentes públicos, funcionarios, concejales.
+  // Granularidad: una fila por persona × período (mes/año).
+  // Datasets fuente: 131, 201, 5, 3292 del portal Córdoba Capital + similares.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS agentes_publicos (
+      id              TEXT PRIMARY KEY,
+      jurisdiccion    TEXT NOT NULL,
+      anio            INTEGER NOT NULL,
+      mes             INTEGER,                      -- 1-12 si granularidad mensual
+      categoria       TEXT,                          -- 'funcionario' | 'agente' | 'concejal' | 'docente' | etc.
+      reparticion     TEXT,                          -- secretaría / ministerio / dependencia
+      cargo           TEXT,
+      apellido_nombre TEXT,                          -- nombre completo si público (algunas jurisdicciones lo omiten)
+      cuit            TEXT,                          -- raro pero algunas fuentes lo publican
+      bruto           DOUBLE,                        -- haber bruto
+      neto            DOUBLE,                        -- haber neto
+      categoria_escala TEXT,                         -- agrupador escala salarial
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+
+  // Subsidios y transferencias — gastos a personas/entidades sin contraprestación
+  // contractual directa (planes sociales, becas, ayudas, transferencias a OSC).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS transferencias (
+      id              TEXT PRIMARY KEY,
+      jurisdiccion    TEXT NOT NULL,
+      anio            INTEGER NOT NULL,
+      tipo            TEXT NOT NULL,              -- 'subsidio' | 'beca' | 'transferencia' | 'plan_social'
+      programa        TEXT,
+      beneficiario    TEXT,                        -- persona/entidad receptora (puede ser anónima/agregada)
+      beneficiario_cuit TEXT,
+      monto           DOUBLE NOT NULL,
+      fecha           TEXT,
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+
+  // Catálogo MAESTRO de fuentes públicas descubiertas — implementadas y pendientes.
+  // Permite mostrar al usuario QUÉ datos hay disponibles, cuáles ya cargamos,
+  // y cuáles faltan + razón. Crítico para una herramienta que se presenta
+  // como "control integral del gasto público".
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS fuentes_publicas_catalogo (
+      id                TEXT PRIMARY KEY,         -- slug único
+      jurisdiccion      TEXT NOT NULL,            -- 'cordoba-capital' | 'cordoba-provincia' | etc.
+      organismo         TEXT NOT NULL,            -- entidad que publica (ministerio, agencia, etc.)
+      dimension         TEXT NOT NULL,            -- 'contratos'|'presupuesto'|'salarios'|'obras'|'subsidios'|'auditoria'|'otro'
+      nombre            TEXT NOT NULL,
+      descripcion       TEXT,
+      url_oficial       TEXT,                      -- URL al portal/dataset
+      formato           TEXT,                      -- 'XLSX'|'CSV'|'JSON'|'API REST'|'PDF'|'HTML'|'mixto'
+      cobertura_desde   INTEGER,                   -- año mínimo
+      cobertura_hasta   INTEGER,                   -- año máximo (NULL si en curso)
+      volumen_estimado  TEXT,                      -- '~30k filas', '~500 PDFs', etc.
+      estado_implementacion TEXT NOT NULL,        -- 'implementado'|'pendiente'|'bloqueado'|'descartado'
+      razon_bloqueo     TEXT,                      -- si bloqueado: por qué (login, caído, sin formato, etc.)
+      conector_id       TEXT,                      -- id del connector si está implementado
+      registrado_en     TEXT NOT NULL
     )
   `)
 
@@ -803,6 +974,108 @@ export async function getOSMatchesCount(): Promise<{ total: number; matched: num
     `SELECT COUNT(*) as cnt FROM opensanctions_matches WHERE matched = true`
   )
   return { total: total[0]?.cnt ?? 0, matched: matched[0]?.cnt ?? 0 }
+}
+
+// ─── Catálogo de fuentes públicas (implementadas y pendientes) ───────────────
+
+export interface FuenteCatalogoEntry {
+  id: string
+  jurisdiccion: string
+  organismo: string
+  dimension: 'contratos' | 'presupuesto' | 'salarios' | 'obras' | 'subsidios' | 'auditoria' | 'normas' | 'proveedores' | 'otro'
+  nombre: string
+  descripcion: string | null
+  urlOficial: string | null
+  formato: string | null
+  coberturaDesde: number | null
+  coberturaHasta: number | null
+  volumenEstimado: string | null
+  estadoImplementacion: 'implementado' | 'pendiente' | 'bloqueado' | 'descartado'
+  razonBloqueo: string | null
+  conectorId: string | null
+}
+
+export async function registrarFuenteCatalogo(f: FuenteCatalogoEntry): Promise<void> {
+  await dbRun(
+    `INSERT OR REPLACE INTO fuentes_publicas_catalogo VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      f.id, f.jurisdiccion, f.organismo, f.dimension, f.nombre, f.descripcion,
+      f.urlOficial, f.formato, f.coberturaDesde, f.coberturaHasta,
+      f.volumenEstimado, f.estadoImplementacion, f.razonBloqueo,
+      f.conectorId, new Date().toISOString(),
+    ]
+  )
+}
+
+export async function listarFuentesCatalogo(): Promise<FuenteCatalogoEntry[]> {
+  const rows = await dbAll<{
+    id: string; jurisdiccion: string; organismo: string; dimension: string
+    nombre: string; descripcion: string | null; url_oficial: string | null
+    formato: string | null; cobertura_desde: number | null; cobertura_hasta: number | null
+    volumen_estimado: string | null; estado_implementacion: string; razon_bloqueo: string | null
+    conector_id: string | null
+  }>(`SELECT * FROM fuentes_publicas_catalogo ORDER BY jurisdiccion, organismo, nombre`)
+  return rows.map(r => ({
+    id: r.id, jurisdiccion: r.jurisdiccion, organismo: r.organismo,
+    dimension: r.dimension as FuenteCatalogoEntry['dimension'],
+    nombre: r.nombre, descripcion: r.descripcion, urlOficial: r.url_oficial,
+    formato: r.formato, coberturaDesde: r.cobertura_desde, coberturaHasta: r.cobertura_hasta,
+    volumenEstimado: r.volumen_estimado,
+    estadoImplementacion: r.estado_implementacion as FuenteCatalogoEntry['estadoImplementacion'],
+    razonBloqueo: r.razon_bloqueo, conectorId: r.conector_id,
+  }))
+}
+
+// ─── Padrón de proveedores ────────────────────────────────────────────────────
+
+export interface ProveedorPadron {
+  jurisdiccion: string
+  cuit: string | null
+  nombre: string
+  categoria: string | null
+  anioPadron: number
+  estado: string | null
+  fuenteUrl: string
+}
+
+function normalizarCuit(c: string | null): string | null {
+  if (!c) return null
+  return c.replace(/\D/g, '')
+}
+
+function normalizarNombreEmpresa(n: string): string {
+  return n.toUpperCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ').trim()
+    .replace(/\s+(S\.?A\.?S?\.?|S\.?R\.?L\.?|SOCIEDAD\s+ANONIMA|COOPERATIVA)\s*$/, '')
+    .trim()
+}
+
+export async function insertProveedorPadron(p: ProveedorPadron): Promise<boolean> {
+  const cuitNorm = normalizarCuit(p.cuit)
+  const id = crypto.createHash('sha256')
+    .update(`${p.jurisdiccion}|${cuitNorm ?? p.nombre}|${p.anioPadron}`)
+    .digest('hex').slice(0, 16)
+  try {
+    await dbRun(
+      `INSERT OR IGNORE INTO proveedores_padron VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id, p.jurisdiccion, p.cuit, cuitNorm, p.nombre, normalizarNombreEmpresa(p.nombre),
+        p.categoria, p.anioPadron, p.estado, p.fuenteUrl,
+      ]
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function getProveedoresPadronCount(jurisdiccion?: string): Promise<number> {
+  const sql = jurisdiccion
+    ? `SELECT COUNT(*) as cnt FROM proveedores_padron WHERE jurisdiccion = ?`
+    : `SELECT COUNT(*) as cnt FROM proveedores_padron`
+  const rows = await dbAll<{ cnt: number }>(sql, jurisdiccion ? [jurisdiccion] : [])
+  return rows[0]?.cnt ?? 0
 }
 
 // ─── OCR jobs (resumability del crawler) ──────────────────────────────────────
