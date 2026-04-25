@@ -12,6 +12,7 @@ import {
   LogOut,
   LogIn,
   User,
+  Telescope,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -58,6 +59,9 @@ export function AppShell() {
           <nav className="hidden md:flex items-center gap-1 ml-4">
             <NavItem to="/" icon={<LayoutDashboard className="h-4 w-4" />}>
               Dashboard
+            </NavItem>
+            <NavItem to="/explorar" icon={<Telescope className="h-4 w-4" />}>
+              Explorar
             </NavItem>
             <NavItem to="/red" icon={<Network className="h-4 w-4" />}>
               Red

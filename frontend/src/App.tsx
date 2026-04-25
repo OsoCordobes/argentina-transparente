@@ -18,6 +18,7 @@ const Login = lazy(() => import('./pages/Login'))
 const Casos = lazy(() => import('./pages/Casos'))
 const Caso = lazy(() => import('./pages/Caso'))
 const Denuncia = lazy(() => import('./pages/Denuncia'))
+const Explorar = lazy(() => import('./pages/Explorar'))
 
 function PageLoader() {
   return (
@@ -110,6 +111,14 @@ export default function App() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <Denuncia />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/explorar"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <Explorar />
               </Suspense>
             }
           />

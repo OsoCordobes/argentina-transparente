@@ -24,6 +24,7 @@ export default defineConfig(({ mode }) => ({
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
           'react-query': ['@tanstack/react-query', '@tanstack/react-table'],
           cytoscape: ['cytoscape', 'cytoscape-dagre', 'react-cytoscapejs', 'dagre'],
+          'd3-force': ['d3-force', 'd3-quadtree', 'd3-dispatch', 'd3-timer'],
           recharts: ['recharts'],
           supabase: ['@supabase/supabase-js'],
           radix: [
