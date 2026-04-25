@@ -25,53 +25,88 @@
 
 ---
 
-## Arquitectura — Flujo de datos
+## Arquitectura — Flujo de datos (v3.0)
+
+**Frontend SPA** (entity-centric, post Sprint 1-3):
 
 ```
 Usuario
   │
-  ▼
-Landing.tsx ──POST /analizar──► Express (index.ts)
-  │                                   │
-  │                          getConnector(municipioId)
-  │                                   │
-  │                     cordobaCapitalConnector
-  │                        .getContratos(desde, hasta)
-  │                                   │
-  │                          fetcher.ts → API REST + timeout
-  │                          parser.ts  → XLSX parse
-  │                                   │
-  │                          calcularSeñales(contratos)
-  │                          [8 detectores en signals.ts]
-  │                                   │
-  │                          enriquecerProveedores() ← afip.ts (best-effort)
-  │                                   │
-  │                          generarExpediente()
-  │                          [Claude Sonnet — prompt periodístico]
-  │                                   │
-  │◄──── { ok: true, expediente } ────┘
-  │
-  ▼
-sessionStorage.setItem('expediente', ...)
-  │
-  ▼
-Report.tsx — señales expandibles, top proveedores, guía denuncia, botón Compartir
+  ├─►  /              Dashboard          GET /api/dashboard
+  ├─►  /entidad/:n    Ficha entidad      GET /api/entidad/:nombre
+  ├─►  /contrato/:h   Ficha contrato     GET /api/contrato/:hash
+  ├─►  /red           Grafo Cytoscape    GET /api/red/:municipio
+  ├─►  /fuentes       Procedencia datos  GET /api/cruce/fuentes
+  ├─►  /casos         Lista de casos     Supabase (RLS)
+  ├─►  /caso/:id      Workspace caso     Supabase (RLS)
+  └─►  /caso/:id/denuncia                POST /api/denuncia → PDF + SHA256
+
+Búsqueda global (⌘K):  GET /api/entidad/search?q=...
+
+Stack frontend: React 18 + TS + Tailwind + Vite + React Query +
+react-router-dom v6 + Cytoscape + react-pdf consumo (PDF llega
+del backend) + Supabase JS + zustand.
+```
+
+**Backend pipeline** (seed → signals → cache → API):
+
+```
+seed:cordoba ──► cordobaCapitalConnector
+                    .getContratos(desde, hasta)
+                       │
+                       ▼
+                fetcher.ts → API REST + timeout
+                parser.ts  → XLSX parse
+                       │
+                       ▼
+                DuckDB (contratos table)
+                       │
+                       ▼
+seed:afip ────► afip.ts → empresas table (CUIT, esEmpleador, etc.)
+seed:igj  ────► igj_entidades + igj_autoridades (CSV bulk load)
+seed:neo4j ──► upsertEmpresaGrafo + upsertDirectoresGrafo (Neo4j)
+                       │
+                       ▼
+analyze.ts ──► calcularSeñales(contratos, empresas, municipio)
+                  [14 detectores en signals.ts]
+                       │
+                       ├─► extraerCuits(señal, empresas) → cuits[]
+                       ▼
+                señales_cache (con entidades_cuit JSON array)
+                       │
+                       ▼
+              GET /api/dashboard / /api/entidad / /api/contrato / etc.
+
+POST /api/denuncia ──► renderDenunciaPDF() [@react-pdf/renderer]
+                       └─► PDF buffer + SHA256 + ISO timestamp + UUID
 ```
 
 ---
 
-## Señales Implementadas (8 total)
+## Señales Implementadas (14 total)
 
-| Señal | Tipología | Umbral | Severidad |
+Detectores en `backend/src/engine/signals.ts`. Tests cubren 89 casos.
+
+| Señal | Tipología | Origen | Severidad |
 |-------|-----------|--------|-----------|
-| Prórrogas excesivas | `prorrogas_excesivas` | ≥20% del gasto via prórroga | grave si ≥40% |
-| Concentración proveedor | `concentracion_proveedor` | ≥35% gasto en 1 proveedor | grave si ≥60% |
-| Contrataciones directas | `contrataciones_directas` | ≥5 contratos directos y ≥8% gasto | grave si >20 contratos |
-| Monopolio por rubro | `monopolio_rubro` | ≥60% del gasto de un área en 1 proveedor | grave si ≥80% |
-| Servicios sin historial | `servicio_sin_historial` | Servicios MO >$50M en ≤2 años | grave |
-| Fraccionamiento avanzado | `fraccionamiento_avanzado` | ≥3 contratos directos, total >$20M, ninguno >40% | moderada |
-| Gasto fin de ejercicio | `gasto_fin_ejercicio` | ≥30% via prórroga/ampliación en año único | grave si ≥40% |
-| Proveedor crónico | `proveedor_cronico` | Presencia en ≥60% años, total >$50M (multi-año) | moderada |
+| Prórrogas excesivas | `prorrogas_excesivas` | Contratos | moderada / grave |
+| Concentración proveedor | `concentracion_proveedor` | Contratos | moderada / grave |
+| Contrataciones directas | `contrataciones_directas` | Contratos | moderada / grave |
+| Monopolio por rubro | `monopolio_rubro` | Contratos | moderada / grave |
+| Servicios sin historial | `servicio_sin_historial` | Contratos | grave |
+| Fraccionamiento avanzado | `fraccionamiento_avanzado` | Contratos | moderada |
+| Gasto fin de ejercicio | `gasto_fin_ejercicio` | Contratos | moderada / grave |
+| Proveedor crónico | `proveedor_cronico` | Contratos multi-año | moderada |
+| Empresa nueva | `empresa_nueva` | Contratos + AFIP | moderada |
+| Empresa sin empleados | `empresa_sin_empleados` | Contratos + AFIP | grave |
+| Directores compartidos | `directores_compartidos` | Neo4j (IGJ) | grave |
+| Red de empresas | `red_de_empresas` | Neo4j (IGJ, ≥2 dir) | grave |
+| Rotación coordinada | `rotacion_coordinada` | Contratos (timing) | grave |
+| Adenda post-adjudicación | `adenda_postajudicacion` | Contratos | moderada / grave |
+
+Cada `Señal` lleva opcionalmente `cuits?: string[]` (poblado por `analyze.ts`)
+para asociación señal↔entidad sin string matching frágil. Esa columna se
+escribe a `señales_cache.entidades_cuit` (JSON).
 
 ---
 
@@ -133,36 +168,102 @@ VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos
 
 ## Roadmap
 
-- Verificación AFIP completa (CUIT + empleadores + incumplimientos)
-- Exportar expediente a PDF
+**Hecho en v3.0 (PR #3, Sprints 0-4):**
+- ✅ Verificación AFIP best-effort
+- ✅ Exportar expediente a PDF (Denuncia formal con cadena de custodia)
+- ✅ Frontend SPA investigativa entity-centric
+- ✅ Casos persistentes con Supabase + RLS
+- ✅ Red de empresas con Cytoscape + Neo4j
+- ✅ OpenSanctions integration (PEPs/sanciones/offshore)
+- ✅ Connector framework con metadata trazable
+
+**Pendiente post-MVP:**
+- Connector CKAN genérico (datos.gob.ar / CABA / provincias)
+- Scraper Playwright + health monitoring
+- Pipeline OCR Claude Vision para boletines pre-2015
+- Bulk download ICIJ Offshore Leaks → tablas locales
+- Señal `aparicion_offshore` integrada al engine (cache de matches por CUIT)
 - Análisis obra pública via Boletín Oficial
 - Cruce nómina municipal vs proveedores
 - Modo comparativo entre municipios
 - Alertas automáticas cuando se publican nuevos datos
+- Code splitting frontend (bundle 491KB gzip → reducir con dynamic imports)
+- CI GitHub Actions (typecheck + tests + build)
 
 ---
 
-## Estructura de Archivos Clave
+## Estructura de Archivos Clave (v3.0)
 
 ```
 backend/src/
-├── index.ts                    ← Express, /health /municipios /analizar
-├── routes/analizar.ts          ← Validaciones + pipeline
+├── index.ts                    ← Express + monta /api/* + registra fuentes
+├── routes/
+│   ├── analizar.ts             ← Legacy: POST /analizar (flujo antiguo)
+│   ├── historial.ts            ← Legacy: GET /historial
+│   ├── dashboard.ts            ← GET /api/dashboard
+│   ├── entidad.ts              ← GET /api/entidad/search + /:nombre
+│   ├── contrato.ts             ← GET /api/contrato/:hash (Sprint 2)
+│   ├── red.ts                  ← GET /api/red/:municipio (Cytoscape)
+│   ├── denuncia.ts             ← POST /api/denuncia (PDF + SHA256)
+│   └── cruce.ts                ← /api/cruce/{fuentes,persona,empresa}
 ├── connectors/
 │   ├── interface.ts            ← Registry + getConnector()
 │   └── cordoba-capital/
+│       ├── index.ts            ← MunicipioConnector + FuenteMetadata
 │       ├── fetcher.ts          ← API REST + XLSX + timeouts
 │       └── parser.ts           ← XLSX → Contrato[]
-├── engine/signals.ts           ← 8 detectores de riesgo
+├── engine/
+│   ├── signals.ts              ← 14 detectores de riesgo
+│   └── signals.test.ts         ← 89 tests vitest
 ├── lib/
-│   ├── claude.ts               ← generarExpediente() + prompt
-│   └── afip.ts                 ← CUIT lookup best-effort
-└── types/index.ts
+│   ├── db.ts                   ← DuckDB: contratos, señales_cache, empresas,
+│   │                              directores, igj_*, reportes, fuentes_datos
+│   ├── graph.ts                ← Neo4j: empresas + directores + getRedCytoscape
+│   ├── claude.ts               ← generarExpediente() + prompt periodístico
+│   ├── afip.ts                 ← CUIT lookup best-effort
+│   ├── opensanctions.ts        ← Sprint 4: PEPs/sanciones/offshore
+│   └── denuncia-pdf.tsx        ← Sprint 3: @react-pdf/renderer (jsx: react-jsx)
+├── scripts/
+│   ├── seed-cordoba.ts         ← Carga contratos en DuckDB
+│   ├── seed-afip.ts            ← Enriquece empresas con AFIP
+│   ├── seed-igj.ts             ← Carga IGJ entidades + autoridades
+│   ├── seed-neo4j.ts           ← Carga grafo Neo4j desde DuckDB
+│   └── analyze.ts              ← Calcula señales + extrae cuits
+└── types/index.ts              ← Contrato, Señal, Expediente, FuenteMetadata,
+                                   ConnectorTipo, NivelConfianza
 
 frontend/src/
-├── pages/Landing.tsx           ← Selector + barra de progreso
-├── pages/Report.tsx            ← Expediente + ShareButton
-└── lib/api.ts                  ← API client + tipos TS
+├── App.tsx                     ← Routes + AppShell layout
+├── main.tsx                    ← QueryClientProvider + AuthProvider + Toaster
+├── pages/
+│   ├── Dashboard.tsx           ← KPIs + top entidades + señales activas
+│   ├── Entidad.tsx             ← Tabs (Resumen/Contratos/Timeline/Señales)
+│   ├── Contrato.tsx            ← Ficha individual + cadena de custodia
+│   ├── Red.tsx                 ← Cytoscape grafo empresa↔directores
+│   ├── Fuentes.tsx             ← Procedencia de datos (Sprint 4)
+│   ├── Login.tsx               ← Magic-link Supabase
+│   ├── Casos.tsx               ← Lista de casos + crear
+│   ├── Caso.tsx                ← Workspace tabs + sidebar notas autosave
+│   └── Denuncia.tsx            ← Wizard 5 pasos + PDF download
+├── components/
+│   ├── layout/AppShell.tsx     ← Topbar + nav + cmd+k + dropdown user
+│   ├── search/CommandPalette.tsx ← cmdk + useEntidadSearch
+│   ├── caso/AddToCase.tsx      ← Dropdown reutilizable
+│   └── ui/                     ← shadcn/ui (50 componentes)
+├── lib/
+│   ├── queries.ts              ← React Query tipado: useDashboard, useEntidad,
+│   │                              useContrato, useRed, useFuentes
+│   ├── api.ts                  ← Legacy: analizarMunicipio, etc.
+│   ├── format.ts               ← fmtARS, fmtCompactARS, fmtFecha, fmtPct
+│   ├── supabase.ts             ← Cliente con stub si no configurado
+│   ├── auth.tsx                ← AuthProvider + useAuth()
+│   └── casoQueries.ts          ← CRUD casos via Supabase + React Query
+└── stores/
+    └── casoStore.ts            ← Zustand bookmarks volátiles (pre-Supabase)
+
+supabase/
+└── migrations/
+    └── 0001_casos.sql          ← Schema casos + RLS por user_id
 ```
 
 ---
