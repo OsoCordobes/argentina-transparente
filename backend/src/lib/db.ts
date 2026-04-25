@@ -252,6 +252,34 @@ export async function initDb(): Promise<void> {
       observaciones   TEXT
     )
   `)
+
+  // ─── Licitaciones (llamados sin adjudicación documentada) ───────────────────
+  // Distinta de `contratos`: estos son LLAMADOS A LICITACIÓN con presupuesto
+  // oficial estimado, sin proveedor adjudicatario conocido. No entran al motor
+  // de señales que mide concentración por proveedor (no hay proveedor).
+  // Cubre Córdoba Capital 2005-2018 desde dataset 2 versión 4747.
+  // Utilidad: cruce por expediente con normas de adjudicación → señal de
+  // diferencia presupuesto vs monto adjudicado.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS licitaciones_llamado (
+      id                   TEXT PRIMARY KEY,           -- hash(municipio + expediente + numero)
+      municipio            TEXT NOT NULL,
+      anio                 INTEGER NOT NULL,
+      tipo                 TEXT NOT NULL,              -- 'Licitación Pública' | 'Concurso de Precios' | etc.
+      categoria            TEXT,
+      numero               TEXT,                        -- '28/18'
+      expediente           TEXT,                        -- '008.072/18' — clave de cruce con contratos
+      titulo               TEXT NOT NULL,
+      descripcion          TEXT,
+      requiriente          TEXT NOT NULL,              -- área que pide la contratación
+      presupuesto_oficial  DOUBLE,
+      precio_pliego        DOUBLE,
+      apertura             TEXT,                        -- ISO timestamp de apertura de sobres
+      ir_externo           TEXT,                        -- ID interno del portal (para cruzar con archivo de PDFs)
+      fuente_url           TEXT NOT NULL,
+      cargado_en           TEXT NOT NULL
+    )
+  `)
 }
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
