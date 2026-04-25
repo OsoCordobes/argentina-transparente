@@ -15,4 +15,30 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    // Vendor chunks separados para mejor cache cross-deploy.
+    // Cytoscape va en su propio chunk y sólo se descarga al navegar a /red.
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'react-query': ['@tanstack/react-query', '@tanstack/react-table'],
+          cytoscape: ['cytoscape', 'cytoscape-dagre', 'react-cytoscapejs', 'dagre'],
+          recharts: ['recharts'],
+          supabase: ['@supabase/supabase-js'],
+          radix: [
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-dropdown-menu',
+            '@radix-ui/react-popover',
+            '@radix-ui/react-tabs',
+            '@radix-ui/react-tooltip',
+          ],
+        },
+      },
+    },
+    // Ya hicimos code splitting por ruta + manualChunks; subimos el warning
+    // limit para reflejar el nuevo target real.
+    chunkSizeWarningLimit: 600,
+  },
 }));
+

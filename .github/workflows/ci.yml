@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend (typecheck + tests + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Tests (vitest)
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+  frontend:
+    name: Frontend (typecheck + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+        env:
+          # Stub vars para que el build pase sin requerir Supabase real en CI
+          VITE_API_URL: 'http://localhost:3001'
+
+  naming-check:
+    name: Naming sanity (no "bestia" leaks fuera de URLs Railway)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify no stale "bestia" references in source
+        run: |
+          # Permitidas: URLs Railway en CLAUDE.md, .env.production, test-production.ts
+          # (todos con flag "rename pendiente"). El propio workflow se autoexcluye
+          # porque busca el string para validar.
+          UNEXPECTED=$(grep -ril 'bestia' \
+            --exclude-dir=node_modules \
+            --exclude-dir=.git \
+            --exclude-dir=dist \
+            --exclude-dir=build \
+            --exclude='CLAUDE.md' \
+            --exclude='*.env.production' \
+            --exclude='test-production.ts' \
+            --exclude='package-lock.json' \
+            --exclude='ci.yml' \
+            . || true)
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::Referencias inesperadas a 'bestia' (deberían ser solo URLs Railway):"
+            echo "$UNEXPECTED"
+            exit 1
+          fi
+          echo "OK — solo referencias intencionales a URLs Railway pendientes de rename"
