@@ -309,6 +309,10 @@ export interface ExtraerNormasOptions {
   fuenteUrlPorPublicacion?: (p: PublicacionPlana) => string  // default: RutaDocFinal o boletinPdfUrl
   batchSize?: number                                          // default 20
   onProgress?: (i: number, total: number, contratosCount: number, costoAcum: number) => void
+  // Costo máximo acumulado (incluyendo costoAcumInicial). Si el costo supera este
+  // valor al terminar un batch, el loop se corta y se retorna lo procesado hasta ahora.
+  maxCostUSD?: number
+  costoAcumInicial?: number  // costo ya gastado en fases anteriores (p.ej. CSV antes de API)
 }
 
 export async function extraerContratosDeNormas(
@@ -333,8 +337,19 @@ export async function extraerContratosDeNormas(
   let outputTotal = 0
   let cacheReadTotal = 0
   let erroresTotal = 0
+  let cortadoPorCosto = false
 
   for (let i = 0; i < publicaciones.length; i += batchSize) {
+    // Corte por costo: verificar antes de cada batch si ya superamos el límite.
+    if (opts.maxCostUSD != null) {
+      const costoAcum = (opts.costoAcumInicial ?? 0) + costoTotal
+      if (costoAcum >= opts.maxCostUSD) {
+        console.warn(`\n⚠ [extractor-norma] Límite de costo alcanzado ($${costoAcum.toFixed(4)} >= $${opts.maxCostUSD}). Cortando a norma ${i}/${publicaciones.length}.`)
+        cortadoPorCosto = true
+        break
+      }
+    }
+
     const batch = publicaciones.slice(i, i + batchSize)
     try {
       const r = await extraerBatch(batch, fuenteUrlFn)
@@ -355,6 +370,9 @@ export async function extraerContratosDeNormas(
       console.warn(`[extractor-norma] Batch ${i}-${i + batchSize} falló: ${(err as Error).message.slice(0, 100)}`)
       erroresTotal += batch.length
     }
+  }
+  if (cortadoPorCosto) {
+    console.warn(`  (${todos.length} contratos extraídos de la porción procesada)`)
   }
 
   return {
