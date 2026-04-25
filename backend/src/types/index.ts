@@ -76,6 +76,21 @@ export interface EmpresaEnriquecida {
   fuenteUrl: string
 }
 
+// Match cacheado contra OpenSanctions / ICIJ / OFAC.
+// Se cachea en DuckDB.opensanctions_matches para evitar 1 round-trip API por
+// cada análisis. TTL típico 30 días.
+export interface OSMatch {
+  cuit: string                                    // CUIT consultado
+  nombre: string                                  // razón social ARGOS
+  matched: boolean                                // ¿hubo match?
+  riesgo: 'sancionado' | 'pep' | 'offshore' | 'crimen' | null
+  datasetPrincipal: string | null                 // 'icij_offshore_leaks', etc.
+  entidadId: string | null                        // OSEntidad.id
+  entidadCaption: string | null                   // nombre legible del match
+  entidadUrl: string | null                       // URL pública en OS
+  consultadoEn: string                            // ISO timestamp
+}
+
 export interface MunicipioConnector {
   id: string
   nombre: string

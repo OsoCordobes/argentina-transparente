@@ -15,8 +15,9 @@ import {
   detectarRotacionCoordinada,
   detectarAdendaPostAdjudicacion,
   detectarRedDeEmpresas,
+  detectarAparicionOffshore,
 } from './signals'
-import type { Contrato, EmpresaEnriquecida } from '../types'
+import type { Contrato, EmpresaEnriquecida, OSMatch } from '../types'
 
 // ─── Fixture helpers ────────────────────────────────────────────────────────
 
@@ -831,5 +832,154 @@ describe('detectarRedDeEmpresas', () => {
   it('has score of 88', () => {
     const pares = [{ empresa1: 'A', empresa2: 'B', cuit1: '1', cuit2: '2', directoresCompartidos: ['X', 'Y'] }]
     expect(detectarRedDeEmpresas(pares)!.score).toBe(88)
+  })
+})
+
+// ─── detectarAparicionOffshore ───────────────────────────────────────────────
+
+function osMatch(overrides: Partial<OSMatch> & Pick<OSMatch, 'cuit'>): OSMatch {
+  return {
+    cuit: overrides.cuit,
+    nombre: overrides.nombre ?? 'TEST EMPRESA',
+    matched: overrides.matched ?? true,
+    riesgo: overrides.riesgo ?? 'offshore',
+    datasetPrincipal: overrides.datasetPrincipal ?? 'icij_offshore_leaks',
+    entidadId: overrides.entidadId ?? 'test-id',
+    entidadCaption: overrides.entidadCaption ?? 'TEST EMPRESA OFFSHORE',
+    entidadUrl: overrides.entidadUrl ?? 'https://www.opensanctions.org/entities/test-id/',
+    consultadoEn: overrides.consultadoEn ?? '2026-04-25T12:00:00Z',
+  }
+}
+
+describe('detectarAparicionOffshore', () => {
+  it('returns null when osMatches is empty', () => {
+    const emp = new Map([['EMPRESA SA', empresa()]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 50_000_000 })]
+    expect(detectarAparicionOffshore(contratos, emp, new Map())).toBeNull()
+  })
+
+  it('returns null when empresas is empty', () => {
+    const matches = new Map([['30123456789', osMatch({ cuit: '30123456789' })]])
+    expect(detectarAparicionOffshore([c({ proveedor: 'X', monto: 1 })], new Map(), matches)).toBeNull()
+  })
+
+  it('returns null when contratos is empty', () => {
+    expect(detectarAparicionOffshore([], new Map(), new Map())).toBeNull()
+  })
+
+  it('returns null when match.matched is false', () => {
+    const emp = new Map([['EMPRESA SA', empresa({ cuit: '30123456789' })]])
+    const matches = new Map([['30123456789', osMatch({ cuit: '30123456789', matched: false, riesgo: null })]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 50_000_000 })]
+    expect(detectarAparicionOffshore(contratos, emp, matches)).toBeNull()
+  })
+
+  it('returns null when riesgo is solo PEP (no dispara solo)', () => {
+    // PEP = información, no necesariamente delito. Solo dispara con
+    // offshore/sancionado/crimen.
+    const emp = new Map([['EMPRESA SA', empresa({ cuit: '30123456789' })]])
+    const matches = new Map([['30123456789', osMatch({ cuit: '30123456789', riesgo: 'pep' })]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 50_000_000 })]
+    expect(detectarAparicionOffshore(contratos, emp, matches)).toBeNull()
+  })
+
+  it('returns null when proveedor sin CUIT', () => {
+    const emp = new Map([['EMPRESA SA', empresa({ cuit: null })]])
+    const matches = new Map([['30123456789', osMatch({ cuit: '30123456789' })]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 50_000_000 })]
+    expect(detectarAparicionOffshore(contratos, emp, matches)).toBeNull()
+  })
+
+  it('fires when proveedor matches offshore (ICIJ Offshore Leaks)', () => {
+    const emp = new Map([['EMPRESA SA', empresa({ cuit: '30123456789' })]])
+    const matches = new Map([['30123456789', osMatch({ cuit: '30123456789', riesgo: 'offshore' })]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 50_000_000 })]
+    const señal = detectarAparicionOffshore(contratos, emp, matches)
+    expect(señal).not.toBeNull()
+    expect(señal!.tipologia).toBe('aparicion_offshore')
+    expect(señal!.legal.severidad).toBe('grave')
+  })
+
+  it('fires when proveedor matches sancionado (score más alto que offshore)', () => {
+    const emp = new Map([['SANCIONADA SA', empresa({ cuit: '30999999999' })]])
+    const matches = new Map([['30999999999', osMatch({ cuit: '30999999999', riesgo: 'sancionado' })]])
+    const contratos = [c({ proveedor: 'SANCIONADA SA', monto: 10_000_000 })]
+    const señal = detectarAparicionOffshore(contratos, emp, matches)!
+    expect(señal.score).toBe(95)
+  })
+
+  it('fires when proveedor matches crimen', () => {
+    const emp = new Map([['DELITO SA', empresa({ cuit: '30444444444' })]])
+    const matches = new Map([['30444444444', osMatch({ cuit: '30444444444', riesgo: 'crimen' })]])
+    const contratos = [c({ proveedor: 'DELITO SA', monto: 10_000_000 })]
+    const señal = detectarAparicionOffshore(contratos, emp, matches)!
+    expect(señal.score).toBe(88)
+    expect(señal.legal.severidad).toBe('grave')
+  })
+
+  it('lista todas las empresas matched (ordenadas por monto desc)', () => {
+    const emp = new Map([
+      ['CHICA SA', empresa({ cuit: '30111111111' })],
+      ['GRANDE SRL', empresa({ cuit: '30222222222' })],
+    ])
+    const matches = new Map([
+      ['30111111111', osMatch({ cuit: '30111111111', riesgo: 'offshore', entidadCaption: 'CHICA OFFSHORE' })],
+      ['30222222222', osMatch({ cuit: '30222222222', riesgo: 'offshore', entidadCaption: 'GRANDE OFFSHORE' })],
+    ])
+    const contratos = [
+      c({ proveedor: 'CHICA SA', monto: 5_000_000 }),
+      c({ proveedor: 'GRANDE SRL', monto: 100_000_000 }),
+    ]
+    const señal = detectarAparicionOffshore(contratos, emp, matches)!
+    expect(señal.titulo).toContain('2 proveedor')
+    // primero el de mayor monto
+    expect(señal.evidencia[0].descripcion).toContain('GRANDE SRL')
+    expect(señal.evidencia[0].descripcion).toContain('100')
+  })
+
+  it('incluye los CUITs implicados en la señal (cuits[])', () => {
+    const emp = new Map([['EMPRESA SA', empresa({ cuit: '30123456789' })]])
+    const matches = new Map([['30123456789', osMatch({ cuit: '30123456789', riesgo: 'offshore' })]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 50_000_000 })]
+    const señal = detectarAparicionOffshore(contratos, emp, matches)!
+    expect(señal.cuits).toEqual(['30123456789'])
+  })
+
+  it('incluye organismos federales (UIF + Procuración) en denunciarAnte', () => {
+    const emp = new Map([['EMPRESA SA', empresa({ cuit: '30123456789' })]])
+    const matches = new Map([['30123456789', osMatch({ cuit: '30123456789', riesgo: 'offshore' })]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 50_000_000 })]
+    const señal = detectarAparicionOffshore(contratos, emp, matches)!
+    const denunciar = señal.legal.denunciarAnte.join('\n')
+    expect(denunciar).toContain('UIF')
+    expect(denunciar).toContain('Procuración del Tesoro')
+  })
+
+  it('cita Ley 25.246 (lavado) y Ley 27.401 en marco legal', () => {
+    const emp = new Map([['EMPRESA SA', empresa({ cuit: '30123456789' })]])
+    const matches = new Map([['30123456789', osMatch({ cuit: '30123456789', riesgo: 'offshore' })]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 50_000_000 })]
+    const señal = detectarAparicionOffshore(contratos, emp, matches)!
+    const articulos = señal.legal.articulos.join('\n')
+    expect(articulos).toContain('25.246')
+    expect(articulos).toContain('27.401')
+  })
+
+  it('ignora proveedores con match pero sin riesgo en RIESGOS_OFFSHORE', () => {
+    const emp = new Map([
+      ['SOSPECHOSA SA', empresa({ cuit: '30111111111' })],
+      ['SOLO PEP SA', empresa({ cuit: '30222222222' })],
+    ])
+    const matches = new Map([
+      ['30111111111', osMatch({ cuit: '30111111111', riesgo: 'offshore' })],
+      ['30222222222', osMatch({ cuit: '30222222222', riesgo: 'pep' })],
+    ])
+    const contratos = [
+      c({ proveedor: 'SOSPECHOSA SA', monto: 10_000_000 }),
+      c({ proveedor: 'SOLO PEP SA', monto: 100_000_000 }),
+    ]
+    const señal = detectarAparicionOffshore(contratos, emp, matches)!
+    expect(señal.titulo).toContain('1 proveedor')
+    expect(señal.cuits).toEqual(['30111111111'])
   })
 })

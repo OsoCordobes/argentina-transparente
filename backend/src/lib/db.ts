@@ -2,7 +2,7 @@ import DuckDB from 'duckdb'
 import crypto from 'crypto'
 import path from 'path'
 import fs from 'fs'
-import type { Contrato, Señal, Expediente, FuenteMetadata } from '../types/index'
+import type { Contrato, Señal, Expediente, FuenteMetadata, OSMatch } from '../types/index'
 
 const DATA_DIR = path.join(process.cwd(), 'data')
 const DB_PATH = path.join(DATA_DIR, 'argos.duckdb')
@@ -144,6 +144,24 @@ export async function initDb(): Promise<void> {
       notas             TEXT,
       registrado_en     TEXT NOT NULL,
       ultimo_crawl      TEXT
+    )
+  `)
+
+  // ─── Cache OpenSanctions / ICIJ (post-MVP) ────────────────────────────────
+  // Resultado cacheado de querys a opensanctions.org keyed por CUIT. Evita
+  // 1 round-trip API por análisis. TTL típico 30 días — refrescar via
+  // npm run seed:opensanctions.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS opensanctions_matches (
+      cuit                TEXT PRIMARY KEY,
+      nombre              TEXT NOT NULL,
+      matched             BOOLEAN NOT NULL,
+      riesgo              TEXT,            -- 'sancionado'|'pep'|'offshore'|'crimen'|null
+      dataset_principal   TEXT,
+      entidad_id          TEXT,
+      entidad_caption     TEXT,
+      entidad_url         TEXT,
+      consultado_en       TEXT NOT NULL
     )
   `)
 }
@@ -587,6 +605,80 @@ export async function marcarUltimoCrawl(fuenteId: string): Promise<void> {
     new Date().toISOString(),
     fuenteId,
   ])
+}
+
+// ─── Cache OpenSanctions ──────────────────────────────────────────────────────
+
+export async function upsertOSMatch(m: OSMatch): Promise<void> {
+  await dbRun(
+    `INSERT OR REPLACE INTO opensanctions_matches VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      m.cuit,
+      m.nombre,
+      m.matched,
+      m.riesgo,
+      m.datasetPrincipal,
+      m.entidadId,
+      m.entidadCaption,
+      m.entidadUrl,
+      m.consultadoEn,
+    ]
+  )
+}
+
+interface OSMatchRow {
+  cuit: string
+  nombre: string
+  matched: boolean
+  riesgo: string | null
+  dataset_principal: string | null
+  entidad_id: string | null
+  entidad_caption: string | null
+  entidad_url: string | null
+  consultado_en: string
+}
+
+function rowToOSMatch(r: OSMatchRow): OSMatch {
+  return {
+    cuit: r.cuit,
+    nombre: r.nombre,
+    matched: r.matched,
+    riesgo: r.riesgo as OSMatch['riesgo'],
+    datasetPrincipal: r.dataset_principal,
+    entidadId: r.entidad_id,
+    entidadCaption: r.entidad_caption,
+    entidadUrl: r.entidad_url,
+    consultadoEn: r.consultado_en,
+  }
+}
+
+export async function getOSMatch(cuit: string): Promise<OSMatch | null> {
+  const rows = await dbAll<OSMatchRow>(
+    `SELECT * FROM opensanctions_matches WHERE cuit = ? LIMIT 1`,
+    [cuit]
+  )
+  return rows[0] ? rowToOSMatch(rows[0]) : null
+}
+
+// Devuelve un Map<cuit, OSMatch> para todos los CUITs consultados (incluye
+// matches negativos — saber que ya buscamos y no encontramos también es útil).
+export async function getOSMatchesAll(): Promise<Map<string, OSMatch>> {
+  const rows = await dbAll<OSMatchRow>(`SELECT * FROM opensanctions_matches`)
+  const map = new Map<string, OSMatch>()
+  for (const r of rows) {
+    map.set(r.cuit, rowToOSMatch(r))
+  }
+  return map
+}
+
+export async function getOSMatchesCount(): Promise<{ total: number; matched: number }> {
+  const total = await dbAll<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM opensanctions_matches`
+  )
+  const matched = await dbAll<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM opensanctions_matches WHERE matched = true`
+  )
+  return { total: total[0]?.cnt ?? 0, matched: matched[0]?.cnt ?? 0 }
 }
 
 export async function getReporte(id: string): Promise<ReporteCompleto | null> {

@@ -9,6 +9,7 @@ import 'dotenv/config'
 import {
   initDb, getAllContratos, getContratosCount, dbAll,
   clearSeñalesCache, insertSeñalCache, getSeñalesCacheCount,
+  getOSMatchesAll,
 } from '../lib/db'
 import { initGraph } from '../lib/graph'
 import { calcularSeñales } from '../engine/signals'
@@ -97,7 +98,14 @@ async function main() {
       console.log(`[${municipio}] ${empresas.size} empresas con enriquecimiento AFIP`)
     }
 
-    const señales = await calcularSeñales(contratos, empresas, municipio)
+    // Carga matches OpenSanctions desde cache (popular vía npm run seed:opensanctions)
+    const osMatches = await getOSMatchesAll()
+    if (osMatches.size > 0) {
+      const matched = Array.from(osMatches.values()).filter(m => m.matched).length
+      console.log(`[${municipio}] ${osMatches.size} CUITs en cache OpenSanctions (${matched} con match)`)
+    }
+
+    const señales = await calcularSeñales(contratos, empresas, municipio, osMatches)
 
     for (const s of señales) {
       const cuits = extraerCuits(s, empresas)
