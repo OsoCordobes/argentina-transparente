@@ -236,6 +236,22 @@ export async function initDb(): Promise<void> {
       leida_en        TEXT
     )
   `)
+
+  // ─── OCR jobs (resumability del crawler de boletines) ──────────────────────
+  // Track de qué PDFs ya fueron procesados por seed:boletin-cordoba para
+  // permitir interrumpir/retomar corridas largas (16 años de boletines puede
+  // tardar varias horas).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS ocr_jobs (
+      url             TEXT PRIMARY KEY,
+      municipio       TEXT NOT NULL,
+      procesado_en    TEXT NOT NULL,
+      contratos_count INTEGER NOT NULL,
+      paginas         INTEGER,
+      costo_usd       DOUBLE,
+      observaciones   TEXT
+    )
+  `)
 }
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
@@ -759,6 +775,55 @@ export async function getOSMatchesCount(): Promise<{ total: number; matched: num
     `SELECT COUNT(*) as cnt FROM opensanctions_matches WHERE matched = true`
   )
   return { total: total[0]?.cnt ?? 0, matched: matched[0]?.cnt ?? 0 }
+}
+
+// ─── OCR jobs (resumability del crawler) ──────────────────────────────────────
+
+export interface OCRJob {
+  url: string
+  municipio: string
+  procesadoEn: string
+  contratosCount: number
+  paginas: number | null
+  costoUSD: number | null
+  observaciones: string | null
+}
+
+export async function registrarOCRJob(job: OCRJob): Promise<void> {
+  await dbRun(
+    `INSERT OR REPLACE INTO ocr_jobs VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [job.url, job.municipio, job.procesadoEn, job.contratosCount,
+     job.paginas, job.costoUSD, job.observaciones]
+  )
+}
+
+export async function ocrJobYaProcesado(url: string): Promise<boolean> {
+  const rows = await dbAll<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM ocr_jobs WHERE url = ?`, [url]
+  )
+  return (rows[0]?.cnt ?? 0) > 0
+}
+
+export async function getOCRJobsResumen(municipio: string): Promise<{
+  totalJobs: number; totalContratos: number; totalCostoUSD: number; totalPaginas: number
+}> {
+  const rows = await dbAll<{
+    total: number; contratos: number; costo: number; paginas: number
+  }>(
+    `SELECT
+        COUNT(*) as total,
+        COALESCE(SUM(contratos_count), 0) as contratos,
+        COALESCE(SUM(costo_usd), 0) as costo,
+        COALESCE(SUM(paginas), 0) as paginas
+     FROM ocr_jobs WHERE municipio = ?`,
+    [municipio]
+  )
+  return {
+    totalJobs: rows[0]?.total ?? 0,
+    totalContratos: rows[0]?.contratos ?? 0,
+    totalCostoUSD: rows[0]?.costo ?? 0,
+    totalPaginas: rows[0]?.paginas ?? 0,
+  }
 }
 
 // ─── Alertas helpers ──────────────────────────────────────────────────────────

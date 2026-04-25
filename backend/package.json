@@ -23,6 +23,7 @@
     "seed:santafe": "npx ts-node src/scripts/seed-santafe.ts",
     "seed:icij": "npx ts-node src/scripts/seed-icij.ts",
     "seed:boletin": "npx ts-node src/scripts/seed-boletin-ocr.ts",
+    "seed:boletin-cordoba": "npx ts-node src/scripts/seed-boletin-cordoba.ts",
     "seed:all": "npm run seed:cordoba && npm run seed:nacion && npm run seed:igj && npm run seed:afip && npm run seed:neo4j && npm run seed:opensanctions",
     "analyze": "npx ts-node src/scripts/analyze.ts",
     "alertas:check": "npx ts-node src/scripts/check-alertas.ts",
