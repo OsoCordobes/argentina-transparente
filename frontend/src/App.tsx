@@ -12,6 +12,7 @@ const Entidad = lazy(() => import('./pages/Entidad'))
 const Contrato = lazy(() => import('./pages/Contrato'))
 const Red = lazy(() => import('./pages/Red'))
 const Fuentes = lazy(() => import('./pages/Fuentes'))
+const Municipios = lazy(() => import('./pages/Municipios'))
 const Login = lazy(() => import('./pages/Login'))
 const Casos = lazy(() => import('./pages/Casos'))
 const Caso = lazy(() => import('./pages/Caso'))
@@ -60,6 +61,14 @@ export default function App() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <Fuentes />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/municipios"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <Municipios />
               </Suspense>
             }
           />

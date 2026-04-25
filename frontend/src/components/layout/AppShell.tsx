@@ -7,6 +7,7 @@ import {
   Network,
   ExternalLink,
   FolderOpen,
+  Building2,
   LogOut,
   LogIn,
   User,
@@ -57,6 +58,9 @@ export function AppShell() {
             </NavItem>
             <NavItem to="/red" icon={<Network className="h-4 w-4" />}>
               Red
+            </NavItem>
+            <NavItem to="/municipios" icon={<Building2 className="h-4 w-4" />}>
+              Jurisdicciones
             </NavItem>
             <NavItem to="/casos" icon={<FolderOpen className="h-4 w-4" />}>
               Casos

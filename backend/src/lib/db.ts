@@ -190,6 +190,23 @@ export async function initDb(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_icij_nombre_norm
     ON icij_entidades(nombre_norm)
   `)
+
+  // ─── Scraper health monitoring ─────────────────────────────────────────────
+  // Registra cada ejecución de un scraper: cuándo corrió, cuántos contratos
+  // extrajo, si falló y por qué. Alimenta el endpoint /api/scrapers/health
+  // y permite detectar scrapers rotos (portal cambió estructura HTML).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS scrapers_health (
+      id               TEXT NOT NULL,
+      ejecutado_en     TEXT NOT NULL,
+      ok               BOOLEAN NOT NULL,
+      contratos_count  INTEGER,
+      duracion_ms      INTEGER,
+      error_msg        TEXT,
+      url_chequeada    TEXT,
+      PRIMARY KEY (id, ejecutado_en)
+    )
+  `)
 }
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
@@ -705,6 +722,50 @@ export async function getOSMatchesCount(): Promise<{ total: number; matched: num
     `SELECT COUNT(*) as cnt FROM opensanctions_matches WHERE matched = true`
   )
   return { total: total[0]?.cnt ?? 0, matched: matched[0]?.cnt ?? 0 }
+}
+
+// ─── Scraper health helpers ───────────────────────────────────────────────────
+
+export interface ScraperRun {
+  id: string
+  ejecutadoEn: string
+  ok: boolean
+  contratosCount: number | null
+  duracionMs: number | null
+  errorMsg: string | null
+  urlChequeada: string | null
+}
+
+export async function registrarScraperRun(run: ScraperRun): Promise<void> {
+  await dbRun(
+    `INSERT OR REPLACE INTO scrapers_health VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [run.id, run.ejecutadoEn, run.ok, run.contratosCount, run.duracionMs, run.errorMsg, run.urlChequeada]
+  )
+}
+
+export async function getScrapersHealth(): Promise<ScraperRun[]> {
+  const rows = await dbAll<{
+    id: string; ejecutado_en: string; ok: boolean
+    contratos_count: number | null; duracion_ms: number | null
+    error_msg: string | null; url_chequeada: string | null
+  }>(`
+    SELECT s.*
+    FROM scrapers_health s
+    INNER JOIN (
+      SELECT id, MAX(ejecutado_en) as last
+      FROM scrapers_health GROUP BY id
+    ) m ON s.id = m.id AND s.ejecutado_en = m.last
+    ORDER BY s.id
+  `)
+  return rows.map(r => ({
+    id: r.id,
+    ejecutadoEn: r.ejecutado_en,
+    ok: r.ok,
+    contratosCount: r.contratos_count,
+    duracionMs: r.duracion_ms,
+    errorMsg: r.error_msg,
+    urlChequeada: r.url_chequeada,
+  }))
 }
 
 // ─── ICIJ Offline Leaks helpers ───────────────────────────────────────────────

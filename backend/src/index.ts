@@ -8,14 +8,17 @@ import contratoRouter from './routes/contrato'
 import redRouter from './routes/red'
 import denunciaRouter from './routes/denuncia'
 import cruceRouter from './routes/cruce'
+import scrapersRouter from './routes/scrapers'
 import { registrarFuente } from './lib/db'
 import { fuenteCordobaCapital } from './connectors/cordoba-capital'
 import { fuenteArgentinaCompra } from './connectors/argentina-compra'
 import { fuenteCABA } from './connectors/caba'
+import { fuenteSantaFe } from './connectors/santa-fe'
 import { fuenteOpenSanctions } from './lib/opensanctions'
 import { cordobaCapitalConnector } from './connectors/cordoba-capital'
 import { argentinaCompraConnector } from './connectors/argentina-compra'
 import { cabaConnector } from './connectors/caba'
+import { santaFeConnector } from './connectors/santa-fe'
 import { initDb, getReporte } from './lib/db'
 import { initGraph } from './lib/graph'
 
@@ -40,7 +43,7 @@ app.get('/health', (_req, res) => {
 
 // GET /municipios
 app.get('/municipios', (_req, res) => {
-  const connectors = [cordobaCapitalConnector, argentinaCompraConnector, cabaConnector]
+  const connectors = [cordobaCapitalConnector, argentinaCompraConnector, cabaConnector, santaFeConnector]
   res.json(connectors.map(c => ({
     id: c.id,
     nombre: c.nombre,
@@ -56,6 +59,7 @@ app.use('/api/contrato', contratoRouter)
 app.use('/api/red', redRouter)
 app.use('/api/denuncia', denunciaRouter)
 app.use('/api/cruce', cruceRouter)
+app.use('/api/scrapers', scrapersRouter)
 
 // Legacy routes (still used by current frontend)
 app.use('/analizar', analizarRouter)
@@ -81,6 +85,7 @@ Promise.all([initDb(), initGraph()])
       await registrarFuente(fuenteCordobaCapital)
       await registrarFuente(fuenteArgentinaCompra)
       await registrarFuente(fuenteCABA)
+      await registrarFuente(fuenteSantaFe)
       await registrarFuente(fuenteOpenSanctions)
     } catch (err) {
       console.warn('[fuentes] Error registrando fuentes iniciales:', err)

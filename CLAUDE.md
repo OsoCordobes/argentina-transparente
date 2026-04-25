@@ -176,6 +176,8 @@ VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos
 | `npm run seed:nacion -- 2022` | backend/ | Descarga contratos nacionales 2022 |
 | `npm run seed:caba -- 2023` | backend/ | Descarga contratos CABA 2023 |
 | `npm run seed:icij -- /ruta/csvs` | backend/ | Carga ICIJ Offshore Leaks en DuckDB |
+| `npm run seed:santafe` | backend/ | Carga contratos Santa Fe (CKAN) |
+| `GET /api/scrapers/health` | backend/ | Estado de scrapers registrados |
 | CI (GitHub Actions) | `.github/workflows/ci.yml` | typecheck + tests + build en push/PR |
 
 ---
@@ -197,9 +199,11 @@ VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos
 - ✅ **Connector Argentina Compra** (Estado nacional OCDS, 2016–presente, `npm run seed:nacion`)
 - ✅ **Connector CABA** (CKAN + CSV discovery, 2018–presente, `npm run seed:caba`)
 - ✅ **ICIJ Offshore Leaks bulk** (Panama Papers + Pandora + Paradise + Bahamas; `npm run seed:icij -- /ruta`; auto-cruza contra `empresas` y popula `opensanctions_matches`)
+- ✅ **Scraper base + health monitoring** (`lib/scraper.ts` + `scrapers_health` DuckDB + `GET /api/scrapers/health`)
+- ✅ **Connector Santa Fe** (CKAN + CSV, `npm run seed:santafe`)
+- ✅ **Modo comparativo jurisdicciones** (`/municipios` — bar chart + cards per jurisdicción + scraper health)
 
 **Pendiente post-MVP:**
-- Scraper Playwright + health monitoring
 - Pipeline OCR Claude Vision para boletines pre-2015
 - Análisis obra pública via Boletín Oficial
 - Cruce nómina municipal vs proveedores
@@ -482,6 +486,35 @@ Con `--solo-ar` carga solo los registros vinculados a Argentina (~pocos miles),
 útil para ambientes con menos disco/RAM.
 
 103 tests siguen verde. tsc --noEmit OK.
+
+### 2026-04-25 (cont) — Claude Code (post-MVP round 5: scrapers + Santa Fe + comparativo)
+
+**Round 5 — Infraestructura scrapers + jurisdicción 4 + UI comparativa:**
+
+Backend:
+- `lib/scraper.ts`: `BaseScraper` abstract class con `run()` que registra
+  salud en DuckDB. `fetchHTML()` + `parsearTablaHTML()` para scrapers HTML.
+  Patrón documentado para extender con Playwright cuando el portal requiera JS.
+- `db.ts`: tabla `scrapers_health` (id, ejecutado_en, ok, contratos_count,
+  duracion_ms, error_msg, url_chequeada). Helpers `registrarScraperRun` +
+  `getScrapersHealth` (última run por scraper).
+- `routes/scrapers.ts`: `GET /api/scrapers/health` — estado + clasificación
+  ok/warning/error de todos los scrapers conocidos.
+- `connectors/santa-fe/`: 4ta jurisdicción — Santa Fe Province via CKAN
+  (`datosabiertos.santafe.gob.ar`). Parser CSV flexible igual que CABA.
+  `npm run seed:santafe [año] [--force]`. FuenteMetadata completa.
+- Interface.ts / index.ts actualizados con Santa Fe.
+
+Frontend:
+- `pages/Municipios.tsx`: vista comparativa entre jurisdicciones. Bar chart
+  (recharts) de monto por jurisdicción, cards individuales con KPIs (contratos,
+  monto, señales, % del total, progress bar, link a señales filtradas).
+  Sección de scraper health (CheckCircle/XCircle por estado). Lazy-loaded.
+- `AppShell.tsx`: nuevo nav item "Jurisdicciones" → /municipios (Building2).
+- `lib/queries.ts`: `useScrapersHealth` + `ScraperHealth` + `ScrapersHealthResponse`.
+- `App.tsx`: ruta `/municipios` lazy.
+
+103 tests siguen verde. tsc --noEmit OK (backend + frontend).
 
 
 NO BORRAR//INSTRUCCIONES

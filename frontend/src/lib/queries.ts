@@ -234,3 +234,29 @@ export function useFuentes() {
     staleTime: 5 * 60_000,
   })
 }
+
+export interface ScraperHealth {
+  id: string
+  ejecutadoEn: string
+  ok: boolean
+  contratosCount: number | null
+  duracionMs: number | null
+  errorMsg: string | null
+  urlChequeada: string | null
+  status: 'ok' | 'warning' | 'error'
+}
+
+export interface ScrapersHealthResponse {
+  ok: true
+  resumen: { total: number; ok: number; warning: number; error: number }
+  scrapers: ScraperHealth[]
+}
+
+export function useScrapersHealth() {
+  return useQuery({
+    queryKey: ['scrapers', 'health'],
+    queryFn: () => fetchJSON<ScrapersHealthResponse>('/api/scrapers/health'),
+    staleTime: 60_000,
+    retry: 0,
+  })
+}
