@@ -1,15 +1,17 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import Landing from './pages/Landing'
-import Report from './pages/Report'
-import ProviderProfile from './pages/ProviderProfile'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { AppShell } from '@/components/layout/AppShell'
+import Dashboard from './pages/Dashboard'
+import Entidad from './pages/Entidad'
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Landing />} />
-        <Route path="/report" element={<Report />} />
-        <Route path="/provider/:nombre" element={<ProviderProfile />} />
+        <Route element={<AppShell />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/entidad/:nombre" element={<Entidad />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
       </Routes>
     </BrowserRouter>
   )
