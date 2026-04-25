@@ -1,77 +1,69 @@
-# Pendientes — Backend para modo Explorar
+# Backend para modo Explorar — IMPLEMENTADO
+
+> Este archivo documenta el endpoint de chat con LLM que originalmente era un
+> pendiente. Ahora está implementado en `backend/src/routes/chat.ts`.
 
 ## POST /api/chat (streaming SSE)
 
-El modo Explorar actualmente usa `chatResolver.ts` (respuestas locales basadas
-en el grafo en memoria, sin LLM). Para habilitar el chat con IA real se necesita:
+### Request
 
-### Endpoint
-
-```
+```json
 POST /api/chat
 Content-Type: application/json
 
 {
   "message": "¿Qué señales tiene Empresa ABC?",
-  "context": {
-    "focusNodeId": "empresa abc",
-    "graph": { "nodes": [...], "edges": [...] }
-  }
+  "focusNodeId": "empresa abc"
 }
 ```
 
-### Respuesta (SSE / chunked)
+### Response (SSE)
 
 ```
 data: {"delta": "Empresa ABC tiene "}
-data: {"delta": "3 señales de riesgo:"}
-data: {"entidades": [{"id": "empresa abc", "type": "proveedor", "label": "Empresa ABC"}]}
-data: {"focus": {"nodeId": "empresa abc"}}
+data: {"delta": "3 señales graves..."}
 data: {"done": true}
 ```
 
-### Implementación sugerida
+Errores se envían como un evento final `data: {"error": "...", "done": true}`.
 
-```typescript
-// backend/src/routes/chat.ts
-router.post('/chat', async (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream')
-  res.setHeader('Cache-Control', 'no-cache')
-  res.setHeader('Connection', 'keep-alive')
+### Cómo funciona
 
-  const { message, context } = req.body
-  const stream = await anthropic.messages.stream({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    system: buildArgosSystemPrompt(context),
-    messages: [{ role: 'user', content: message }],
-  })
+El endpoint usa **tool use** de Claude Sonnet 4.5 con 5 tools que consultan
+DuckDB en vivo. El LLM no recibe los datos del grafo en el prompt — los pide
+on-demand. Esto previene alucinaciones: si la tool no devuelve nada, el modelo
+responde "no tengo ese dato".
 
-  for await (const chunk of stream) {
-    if (chunk.type === 'content_block_delta') {
-      res.write(`data: ${JSON.stringify({ delta: chunk.delta.text })}\n\n`)
-    }
-  }
+Tools disponibles:
 
-  res.write(`data: ${JSON.stringify({ done: true })}\n\n`)
-  res.end()
-})
+| Tool | Descripción |
+|------|-------------|
+| `get_dashboard` | Totales + top 15 entidades + señales graves |
+| `search_entidad(query)` | Búsqueda parcial por nombre |
+| `get_entidad(nombre)` | Detalle (montos, timeline, AFIP, señales) |
+| `get_señales_municipio(municipio)` | Señales de una jurisdicción |
+| `get_señales_graves(limit)` | Top N señales graves globales |
+
+### Activación en el frontend
+
+```bash
+# .env.development o .env.production
+VITE_CHAT_LLM=true
 ```
 
-### Cuándo migrar
+Si la variable no está seteada o el endpoint falla (network, 429, 503), el
+frontend cae automáticamente al resolver local (`chatResolver.ts`) sin
+perder UX.
 
-1. Implementar el endpoint en backend
-2. En `chatResolver.ts`, reemplazar `resolveChat()` por un fetch() SSE
-3. El formato de chunks es idéntico — el frontend no necesita cambios
+### Rate limit
 
-## GET /api/explorar/grafo (opcional)
+10 requests / minuto / IP (in-memory). Para producción cambiar a Redis o
+middleware dedicado (`express-rate-limit`).
 
-Para un grafo más rico (directores, contratos individuales, señales cruzadas
-por CUIT) se puede agregar un endpoint dedicado:
+### Variables de entorno (backend)
 
 ```
-GET /api/explorar/grafo?municipio=cordoba-capital&limit=100
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Hoy el frontend usa `GET /api/dashboard` como fuente y construye el grafo
-localmente en `graphFromData.ts`. Funciona correctamente para el MVP.
+Si no está seteada, el endpoint responde 503 y el frontend cae al fallback.

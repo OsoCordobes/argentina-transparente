@@ -20,6 +20,7 @@ import { GraphCanvas } from './GraphCanvas'
 import { NodeDetailPanel } from './NodeDetailPanel'
 import { ChatThread } from './ChatThread'
 import { resolveChat, getContextChips } from '@/lib/argos/chatResolver'
+import { streamChat, CHAT_LLM_ENABLED } from '@/lib/argos/chatStream'
 import { nodeDetailFromNode } from '@/lib/argos/graphFromData'
 import type { ArgosGraph, ArgosNode, ChatMessage, ChatChunk, NodeDetail, ChatContext } from '@/lib/argos/types'
 
@@ -146,7 +147,7 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
   // ─── Enviar mensaje ─────────────────────────────────────────────────────────
 
   const sendMessage = useCallback(
-    (text: string) => {
+    async (text: string) => {
       const trimmed = text.trim()
       if (!trimmed || isStreaming) return
 
@@ -155,10 +156,34 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
         { role: 'user', content: trimmed, ts: Date.now() },
       ])
 
-      const responseChunks = resolveChat(trimmed, chatCtx)
-      simulateStream(responseChunks)
+      // Si el LLM está habilitado, intentamos streaming real. En caso de fallo
+      // (network, 503, sin API key) caemos al resolver local sin perder UX.
+      if (CHAT_LLM_ENABLED) {
+        setIsStreaming(true)
+        setStreamingContent('')
+        setHighlightedIds(new Set())
+
+        try {
+          await streamChat({
+            message: trimmed,
+            focusNodeId: focusedNodeId,
+            onChunk: (chunk) => {
+              pendingChunksRef.current.push(chunk)
+              if (streamRafRef.current) cancelAnimationFrame(streamRafRef.current)
+              streamRafRef.current = requestAnimationFrame(dispatchStream)
+            },
+          })
+        } catch (err) {
+          console.warn('[chat] LLM falló, usando resolver local:', err)
+          const fallback = resolveChat(trimmed, chatCtx)
+          simulateStream(fallback)
+        }
+      } else {
+        const responseChunks = resolveChat(trimmed, chatCtx)
+        simulateStream(responseChunks)
+      }
     },
-    [isStreaming, chatCtx, simulateStream]
+    [isStreaming, chatCtx, focusedNodeId, simulateStream, dispatchStream]
   )
 
   // ─── Manejo del form ────────────────────────────────────────────────────────
