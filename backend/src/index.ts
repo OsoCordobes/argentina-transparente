@@ -6,6 +6,7 @@ import dashboardRouter from './routes/dashboard'
 import entidadRouter from './routes/entidad'
 import contratoRouter from './routes/contrato'
 import redRouter from './routes/red'
+import denunciaRouter from './routes/denuncia'
 import { cordobaCapitalConnector } from './connectors/cordoba-capital'
 import { initDb, getReporte } from './lib/db'
 import { initGraph } from './lib/graph'
@@ -45,6 +46,7 @@ app.use('/api/dashboard', dashboardRouter)
 app.use('/api/entidad', entidadRouter)
 app.use('/api/contrato', contratoRouter)
 app.use('/api/red', redRouter)
+app.use('/api/denuncia', denunciaRouter)
 
 // Legacy routes (still used by current frontend)
 app.use('/analizar', analizarRouter)

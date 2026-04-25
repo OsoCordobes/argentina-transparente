@@ -16,6 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useContrato, type SeñalAsociada } from '@/lib/queries'
 import { fmtARS } from '@/lib/format'
+import { AddToCase } from '@/components/caso/AddToCase'
 
 export default function Contrato() {
   const { hash } = useParams<{ hash: string }>()
@@ -49,12 +50,30 @@ export default function Contrato() {
               <span>·</span>
               <span>cadena de custodia</span>
             </div>
-            <h1 className="text-xl md:text-2xl font-semibold tracking-tight">
-              {data.contrato.tipo} · {data.contrato.anio}
-            </h1>
-            <p className="text-base text-muted-foreground line-clamp-3">
-              {data.contrato.descripcion}
-            </p>
+            <div className="flex items-start gap-3 justify-between flex-wrap">
+              <div className="min-w-0 flex-1">
+                <h1 className="text-xl md:text-2xl font-semibold tracking-tight">
+                  {data.contrato.tipo} · {data.contrato.anio}
+                </h1>
+                <p className="text-base text-muted-foreground line-clamp-3 mt-1">
+                  {data.contrato.descripcion}
+                </p>
+              </div>
+              {data.contrato.hash && (
+                <AddToCase
+                  payload={{
+                    tipo: 'contrato',
+                    hash: data.contrato.hash,
+                    proveedor: data.contrato.proveedor,
+                    monto: data.contrato.monto,
+                    anio: data.contrato.anio,
+                    tipo_contrato: data.contrato.tipo,
+                    area: data.contrato.area,
+                    fuenteUrl: data.contrato.fuenteUrl,
+                  }}
+                />
+              )}
+            </div>
           </div>
 
           <section className="grid grid-cols-1 md:grid-cols-3 gap-4">

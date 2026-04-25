@@ -1,13 +1,33 @@
 import { useState, useEffect } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Search, LayoutDashboard, FileBarChart2, Network, ExternalLink } from 'lucide-react'
+import {
+  Search,
+  LayoutDashboard,
+  FileBarChart2,
+  Network,
+  ExternalLink,
+  FolderOpen,
+  LogOut,
+  LogIn,
+  User,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { CommandPalette } from '@/components/search/CommandPalette'
+import { useAuth } from '@/lib/auth'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 export function AppShell() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const navigate = useNavigate()
+  const { user, signOut } = useAuth()
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -38,6 +58,9 @@ export function AppShell() {
             <NavItem to="/red" icon={<Network className="h-4 w-4" />}>
               Red
             </NavItem>
+            <NavItem to="/casos" icon={<FolderOpen className="h-4 w-4" />}>
+              Casos
+            </NavItem>
             <a
               href="/reports"
               className="inline-flex items-center gap-1.5 px-3 h-8 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
@@ -63,14 +86,44 @@ export function AppShell() {
             </kbd>
           </button>
 
-          <Button
-            size="sm"
-            variant="default"
-            onClick={() => navigate('/')}
-            className="hidden sm:inline-flex"
-          >
-            Iniciar análisis
-          </Button>
+          {user ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2">
+                  <User className="h-4 w-4" />
+                  <span className="hidden md:inline truncate max-w-[10rem]">
+                    {user.email}
+                  </span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel className="text-xs">{user.email}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => navigate('/casos')}>
+                  <FolderOpen className="h-4 w-4 mr-2" /> Mis casos
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={async () => {
+                    await signOut()
+                    navigate('/')
+                  }}
+                >
+                  <LogOut className="h-4 w-4 mr-2" /> Cerrar sesión
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => navigate('/login')}
+              className="gap-2"
+            >
+              <LogIn className="h-4 w-4" />
+              <span className="hidden sm:inline">Entrar</span>
+            </Button>
+          )}
         </div>
       </header>
 

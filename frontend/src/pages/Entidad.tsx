@@ -40,6 +40,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useEntidad, type ContratoDetalle } from '@/lib/queries'
 import { fmtARS, fmtCompactARS, fmtNumber, fmtFecha } from '@/lib/format'
+import { AddToCase } from '@/components/caso/AddToCase'
 
 export default function Entidad() {
   const { nombre } = useParams<{ nombre: string }>()
@@ -92,6 +93,14 @@ export default function Entidad() {
                   ))}
                 </div>
               </div>
+              <AddToCase
+                payload={{
+                  tipo: 'entidad',
+                  nombre: entidad.nombre,
+                  cuit: entidad.afip?.cuit ?? undefined,
+                  municipio: entidad.municipios[0],
+                }}
+              />
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

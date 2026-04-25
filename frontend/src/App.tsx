@@ -4,6 +4,10 @@ import Dashboard from './pages/Dashboard'
 import Entidad from './pages/Entidad'
 import Contrato from './pages/Contrato'
 import Red from './pages/Red'
+import Login from './pages/Login'
+import Casos from './pages/Casos'
+import Caso from './pages/Caso'
+import Denuncia from './pages/Denuncia'
 
 export default function App() {
   return (
@@ -14,6 +18,10 @@ export default function App() {
           <Route path="/entidad/:nombre" element={<Entidad />} />
           <Route path="/contrato/:hash" element={<Contrato />} />
           <Route path="/red" element={<Red />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/casos" element={<Casos />} />
+          <Route path="/caso/:id" element={<Caso />} />
+          <Route path="/caso/:id/denuncia" element={<Denuncia />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
