@@ -166,7 +166,7 @@ VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos
 
 | Comando | Desde | Descripción |
 |---------|-------|-------------|
-| `npm run test` | backend/ | 103 unit tests (vitest) |
+| `npm run test` | backend/ | 163 unit tests (vitest) |
 | `npm run test:connector` | backend/ | Descarga y parsea 2023 |
 | `npm run test:signals 2022 2023` | backend/ | 2 años, señales detectadas |
 | `npm run test:signals 2019 2023` | backend/ | 5 años — 1390 contratos, 5 señales |
@@ -181,6 +181,14 @@ VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos
 | `npm run alertas:check` | backend/ | Detector de alertas (cron-friendly) |
 | `GET /api/alertas` | backend/ | Lista alertas (?soloNoLeidas=true) |
 | `npm run seed:boletin -- --url <PDF>` | backend/ | OCR Vision API sobre Boletín Oficial |
+| `npm run seed:cordoba-historico` | backend/ | Pipeline CSV 2013-2018 + API 2020+ (LLM extractor) |
+| `npm run seed:licitaciones-historicas` | backend/ | Dataset licitaciones 2005-2018 (sin LLM) |
+| `npm run seed:cordoba-sueldos` | backend/ | Nómina y sueldos municipales (datasets CKAN) |
+| `npm run seed:cordoba-presupuesto` | backend/ | Ejecución presupuestaria 2007-2026 |
+| `npm run seed:cordoba-provincia` | backend/ | Catálogo 145+ datasets provinciales |
+| `npm run seed:proveedores-padron` | backend/ | Padrón oficial de proveedores con CUIT |
+| `npm run seed:boe-cba` | backend/ | Índice 40K PDFs Boletín Oficial Provincia |
+| `npm run seed:upc` | backend/ | Licitaciones UPC (WP REST API, sin geo-bloqueo) |
 | CI (GitHub Actions) | `.github/workflows/ci.yml` | typecheck + tests + build en push/PR |
 
 ---
@@ -551,6 +559,136 @@ Frontend:
 - `App.tsx`: ruta `/alertas` lazy.
 
 103 tests siguen verde. tsc --noEmit OK (backend + frontend).
+
+### 2026-04-25 (cont) — Claude Code (post-MVP round 7: pipeline histórico boletines)
+
+**Round 7 — Boletín Municipal Córdoba 2013–2018 (CSV + API REST):**
+
+- `lib/boletin-cordoba-csv.ts`: lector del dataset histórico 5493 (XLSX 8.1 MB,
+  32,895 filas) desde portal CKAN. `mapearAPublicacion()` convierte filas al
+  mismo shape `PublicacionPlana` del API REST — reutiliza el extractor texto-only
+  sin cambios. `excelSerialToISO()` acepta serial dates Excel, DD/MM/YYYY e ISO;
+  rechaza valores fuera de 2000–2030 (traceability absoluta, CLAUDE.md §2).
+
+- `scripts/seed-cordoba-historico.ts`: orquestador que combina CSV (fase 1,
+  6,925 normas) + API REST (fase 2, 488 normas relevantes). Procesa CSV primero
+  para calentar cache del system prompt y reutilizarlo en la fase API.
+  Flags: `--solo-csv` / `--solo-api` / `--max-cost-usd` / `--max-normas` / `--dry-run`.
+
+- `lib/extractor-norma.test.ts`: 17 tests para guardrails anti-hallucination
+  (`apareceLiteralmente`, `montoApareceEnAsunto`). Tests puros, sin HTTP.
+
+- `lib/boletin-cordoba-csv.test.ts`: 8 tests para el manejo de fechas
+  (serial Excel válido, DD/MM/YYYY, ISO, rangos inválidos).
+
+128 tests verde (103 + 25 nuevos). tsc OK.
+
+### 2026-04-25 (cont) — Claude Code (post-MVP round 7.5: licitaciones 2005-2018)
+
+**Round 7.5 — Dataset licitaciones históricas (2005–2018) sin OCR:**
+
+Hallazgo: el dataset 2 versión 4747 del portal CKAN contiene 2,777 llamados
+a licitación 2005–2018 con presupuesto oficial total $9.26 mil millones ARS,
+100% verbatim — sin LLM ni OCR.
+
+Distinción crítica: son LLAMADOS, no adjudicaciones (tienen presupuesto estimado
+pero NO proveedor adjudicatario). Van a tabla separada para no contaminar el
+motor de señales que mide concentración por proveedor.
+
+- `db.ts`: nueva tabla `licitaciones_llamado` (id por hash expediente+numero,
+  municipio, anio, tipo, expediente, presupuesto_oficial, apertura, requiriente,
+  ir_externo, fuente_url).
+
+- `lib/licitaciones-cordoba-2005-2018.ts`: cliente para dataset 2 v4747.
+  `parsearXLSX()` maneja serial dates Excel + ISO + DD/MM/YYYY, valida rango
+  2000–2030, normaliza montos AR. `insertarLlamados()` con upsert por id_hash.
+
+- `scripts/seed-licitaciones-historicas.ts`: `npm run seed:licitaciones-historicas`.
+  Soporta `--force`. Reporta total insertado vs duplicados.
+
+128 tests siguen verde. tsc OK.
+
+### 2026-04-25 (cont) — Claude Code (post-MVP round 8: cobertura integral gasto público)
+
+**Round 8 — 6 nuevas dimensiones de gasto público Córdoba:**
+
+Investigación profunda (5 agentes paralelos) sobre fuentes de datos públicos
+de Córdoba: 47 datasets relevantes / 774 escaneados; 7 implementados; 40+
+catalogados.
+
+Hallazgos clave:
+- `compraspublicas.cba.gov.ar` centraliza 4 poderes provinciales
+- TriDi (Tribunal Cuentas Provincial) expone fallos — *geo-bloqueado desde fuera de AR*
+- Tribunal Cuentas Municipal: opaco (gap crítico sin datos públicos)
+- UPC: WP REST API limpio, sin geo-restricción
+- EPEC / Bancor / Aguas Cordobesas: sin datos públicos de contratos
+
+Nuevos schemas DuckDB en `lib/db.ts`:
+- `agentes_publicos`: nómina + sueldos por persona×mes/año
+- `presupuesto_ejecucion`: partidas, crédito vs devengado vs pagado
+- `obras_publicas`: registro obras con avance %, redeterminaciones
+- `transferencias`: subsidios, becas, planes sociales, OSC
+- `auditorias_tribunal_cuentas`: fallos, observaciones, condenas TC
+- `proveedores_padron`: padrón oficial con CUIT verificado
+- `fuentes_publicas_catalogo`: catálogo maestro (impl + pendientes + bloqueadas)
+- `boe_cba_pdfs`: índice 40K+ PDFs Boletín Oficial Provincia 2006+
+
+Clientes genéricos:
+- `lib/cordoba-portal.ts`: CKAN `gobiernoabierto.cordoba.gob.ar`
+- `lib/boe-cba.ts`: WP REST `boletinoficial.cba.gov.ar` (40K PDFs, 3 épocas)
+- `lib/ckan.ts`: +registro `datosgestionabierta.cba.gov.ar` (Provincia)
+
+Nuevos seeds: `seed:cordoba-sueldos` (datasets 131+201+5+3292),
+`seed:cordoba-presupuesto` (datasets 14+65+12, 2007–2026),
+`seed:cordoba-provincia` (cataloga 145+ packages), `seed:proveedores-padron`,
+`seed:boe-cba` (indexa 40K PDFs Boletín Oficial Provincia).
+
+128 tests verde. tsc OK. 11 archivos, 1,495 LOC netas.
+
+### 2026-04-25 (cont) — Claude Code (post-MVP round 9: UPC connector + extractor fix + TC investigation)
+
+**Round 9 — Connector UPC + fix cost-limit extractor + bloqueo TC documentado:**
+
+**Connector UPC (Universidad Provincial de Córdoba):**
+- `lib/upc.ts`: cliente WP REST API v2 de `www.upc.edu.ar/wp-json/wp/v2/posts`.
+  Multi-búsqueda (licitacion, compra directa, concurso de precios, contratacion
+  directa) con dedup por post ID. Sin geo-restricción.
+  Funciones exportadas para testabilidad: `TITULO_RE`, `extraerTipo`,
+  `extraerNumero`, `extraerMonto`, `extraerProveedor`.
+  Limitación declarada: la mayoría de adjudicatarios están en PDFs adjuntos
+  — solo se inserta lo que aparece literalmente en el HTML (CLAUDE.md §2).
+  Proveedor vacío → almacena como "SIN ADJUDICAR" con flag explícito.
+
+- `lib/upc.test.ts`: 35 tests puros (sin HTTP). Cubre TITULO_RE, extraerTipo
+  (tilde/sin tilde), extraerNumero (N°/Nro./N.°), extraerMonto ($ explícito vs
+  estimaciones vagas), extraerProveedor (adjudicación vs anuncio de apertura).
+
+- `scripts/seed-upc.ts`: `npm run seed:upc`. FuenteMetadata completa,
+  `nivelConfianza: 'medio'`, `metodoExtraccion: 'scraper_html'`.
+
+**Fix: límite de costo en extractor (`lib/extractor-norma.ts`):**
+- Bug: `--max-cost-usd` en el seed histórico solo prevenía que la 2da fase
+  (API) se ejecutara, pero NO abortaba la 1ra fase (CSV) a mitad de proceso.
+  El costo proyectado era ~$10 vs el límite $6.
+- Fix: `ExtraerNormasOptions` extendida con `maxCostUSD?` y `costoAcumInicial?`.
+  El batch loop chequea `(costoAcumInicial + costoTotal) >= maxCostUSD` ANTES de
+  cada batch de 20 normas y corta con `cortadoPorCosto = true`.
+- `scripts/seed-cordoba-historico.ts` actualizado para pasar los nuevos params.
+
+**Bloqueo TC documentado:**
+- `tribunaldecuentas.cba.gov.ar`: NXDOMAIN desde fuera de Argentina.
+- Todos los subdominios `*.cba.gov.ar`: CloudFront geo-restricción 403.
+- No hay dataset estructurado de TC en el portal provincial CKAN.
+- Path de unbloqueo: ejecutar desde IP argentina (VPN/proxy/VPS en Córdoba).
+- Schema `auditorias_tribunal_cuentas` ya existe en DuckDB (Round 8), listo
+  cuando se levante el bloqueo.
+
+Seed histórico ejecutado con `--max-cost-usd 6`: en progreso al cierre de la
+sesión. Métricas parciales: [520/6,925 CSV normas], $0.76 acumulado.
+API phase (488 normas) se ejecutará si el presupuesto lo permite.
+
+163 tests verde (103 + 25 + 35 nuevos). tsc OK (backend).
+Commit pendiente al finalizar seed + analyze.
 
 
 NO BORRAR//INSTRUCCIONES
