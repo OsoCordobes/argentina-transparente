@@ -557,8 +557,9 @@ function SidebarHallazgos({ onSelectActor }: { onSelectActor: (id: string) => vo
     border: 'none',
     textAlign: 'left',
     width: '100%',
-    fontSize: 11,
+    fontSize: 10,
     fontFamily: 'var(--font-mono, monospace)',
+    transition: 'color 100ms',
   }
 
   return (
@@ -593,7 +594,7 @@ function SidebarHallazgos({ onSelectActor }: { onSelectActor: (id: string) => vo
               title={`${p.nombre} (DNI ${p.dni}) dirige ${p.empresas} empresas`}
             >
               <span style={{ color: 'var(--ambar, #F5B544)' }}>{p.empresas}×</span>{' '}
-              {p.nombre.slice(0, 28)}
+              {p.nombre.slice(0, 26)}
             </button>
           ))}
         </div>
