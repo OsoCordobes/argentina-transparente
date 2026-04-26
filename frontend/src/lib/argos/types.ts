@@ -130,6 +130,18 @@ export interface Fuente {
   nivelConfianza?: 'alto' | 'medio' | 'bajo'
 }
 
+export interface NodeContrato {
+  hash: string
+  anio: number
+  area: string
+  tipo: string
+  descripcion: string
+  monto: number
+  fuenteUrl: string
+  metodoExtraccion?: string
+  nivelConfianza?: 'alto' | 'medio' | 'bajo'
+}
+
 export interface NodeDetail {
   node: ArgosNode
   kpis: KPI[]
@@ -145,4 +157,12 @@ export interface NodeDetail {
     legal: { articulos: string[]; denunciarAnte: string[] }
   }[]
   fuentes: Fuente[]
+  /** Contratos asociados al nodo — para Feature A "ficha rápida". */
+  contratos?: NodeContrato[]
+  /** Meta de trazabilidad para badge prominente (Feature A). */
+  meta?: {
+    fechaActualizacion: string | null
+    metodoDominante: string
+    topArea?: { area: string; monto: number; pct: number } | null
+  }
 }

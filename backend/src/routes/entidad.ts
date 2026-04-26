@@ -22,7 +22,11 @@ router.get('/search', async (req: Request, res: Response) => {
   }
 })
 
-function mapContrato(c: EntidadContrato) {
+function mapContrato(c: EntidadContrato & {
+  metodo_extraccion?: string
+  nivel_confianza?: string
+  cargado_en?: string
+}) {
   return {
     hash: c.hash,
     tipo: c.tipo,
@@ -33,6 +37,9 @@ function mapContrato(c: EntidadContrato) {
     anio: c.anio,
     municipio: c.municipio,
     fuenteUrl: c.fuente_url,
+    metodoExtraccion: c.metodo_extraccion ?? 'desconocido',
+    nivelConfianza: c.nivel_confianza ?? 'medio',
+    cargadoEn: c.cargado_en,
   }
 }
 
@@ -76,6 +83,28 @@ router.get('/:nombre', async (req: Request, res: Response) => {
     const timeline = Array.from(porAnio.entries())
       .map(([anio, data]) => ({ anio, ...data }))
       .sort((a, b) => a.anio - b.anio)
+
+    // Top área (por monto) — para KPI "Área principal" del panel
+    const porArea = new Map<string, number>()
+    for (const c of contratos) {
+      porArea.set(c.area, (porArea.get(c.area) ?? 0) + c.monto)
+    }
+    const topAreaEntry = [...porArea.entries()].sort((a, b) => b[1] - a[1])[0]
+    const topArea = topAreaEntry
+      ? { area: topAreaEntry[0], monto: topAreaEntry[1], pct: (topAreaEntry[1] / montoTotal) * 100 }
+      : null
+
+    // Trazabilidad: fecha del dato más reciente y método de extracción dominante
+    const fechaActualizacion = contratos
+      .map(c => c.cargado_en).filter((s): s is string => !!s)
+      .sort().pop() ?? null
+    const metodosCount = new Map<string, number>()
+    for (const c of contratos) {
+      const k = c.metodo_extraccion ?? 'desconocido'
+      metodosCount.set(k, (metodosCount.get(k) ?? 0) + 1)
+    }
+    const metodoDominante = [...metodosCount.entries()]
+      .sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'desconocido'
 
     // Distribution by tipo
     const porTipo = new Map<string, { cantidad: number; monto: number }>()
@@ -121,6 +150,9 @@ router.get('/:nombre', async (req: Request, res: Response) => {
         afip,
         timeline,
         tipos,
+        topArea,
+        fechaActualizacion,
+        metodoDominante,
         contratos: contratos.slice(0, 100).map(mapContrato),
         señales,
       },

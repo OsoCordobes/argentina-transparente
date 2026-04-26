@@ -601,7 +601,7 @@ export function hashContrato(municipio: string, c: Contrato): string {
   return crypto.createHash('sha256').update(key).digest('hex').slice(0, 16)
 }
 
-function normProveedor(nombre: string): string {
+export function normProveedor(nombre: string): string {
   return nombre.trim().toUpperCase()
     .replace(/\s+/g, ' ')
     .replace(/\.$/, '')
@@ -779,15 +779,23 @@ export interface EntidadContrato {
   proveedor: string
   municipio: string
   fuente_url: string
+  metodo_extraccion?: string
+  nivel_confianza?: string
+  cargado_en?: string
 }
 
 export async function getContratosPorProveedor(proveedor: string): Promise<EntidadContrato[]> {
+  // Normaliza el query igual que en insertContratoBatch — sino "PINTURAS
+  // CAVAZZON S.R.L." (lo que recibe la API) no matchea "PINTURAS CAVAZZON"
+  // (lo que está en proveedor_norm post-normProveedor).
+  const norm = normProveedor(proveedor)
   return dbAll<EntidadContrato>(`
-    SELECT hash, anio, tipo, area, descripcion, monto, proveedor, municipio, fuente_url
+    SELECT hash, anio, tipo, area, descripcion, monto, proveedor, municipio,
+           fuente_url, metodo_extraccion, nivel_confianza, cargado_en
     FROM contratos
     WHERE proveedor_norm = ?
     ORDER BY anio DESC, monto DESC
-  `, [proveedor.toUpperCase()])
+  `, [norm])
 }
 
 export async function getContratoPorHash(hash: string): Promise<EntidadContrato | null> {

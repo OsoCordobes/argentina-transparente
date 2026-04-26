@@ -294,6 +294,41 @@ export function NodeDetailPanel({
                   )}
                 </div>
               )}
+              {/* Trazabilidad — Feature A: badge prominente con fecha + método */}
+              {detail.meta && (
+                <div
+                  style={{
+                    marginTop: 10,
+                    fontSize: 11,
+                    color: 'var(--text-3)',
+                    lineHeight: 1.5,
+                    borderTop: '1px solid var(--stroke)',
+                    paddingTop: 8,
+                  }}
+                  className="mono"
+                >
+                  <div>
+                    <span style={{ color: 'var(--celeste)' }}>●</span>{' '}
+                    Datos al{' '}
+                    {detail.meta.fechaActualizacion
+                      ? new Date(detail.meta.fechaActualizacion).toLocaleDateString(
+                          'es-AR',
+                          { day: '2-digit', month: '2-digit', year: 'numeric' },
+                        )
+                      : 'fecha no disponible'}
+                  </div>
+                  <div style={{ marginTop: 2 }}>
+                    Fuente:{' '}
+                    <span style={{ color: 'var(--text-2)' }}>
+                      gobiernoabierto.cordoba.gob.ar
+                    </span>
+                    {' · método: '}
+                    <span style={{ color: 'var(--text-2)' }}>
+                      {detail.meta.metodoDominante}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* ── Body ── */}
@@ -336,6 +371,85 @@ export function NodeDetailPanel({
                   )
                 })}
               </div>
+
+              {/* Feature A — Top contratos del proveedor con fuente clickeable */}
+              {detail.contratos && detail.contratos.length > 0 && (
+                <>
+                  <div className="section-title">
+                    Top contratos ({detail.contratos.length})
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                      marginBottom: 14,
+                    }}
+                  >
+                    {detail.contratos.map((c) => (
+                      <a
+                        key={c.hash}
+                        href={c.fuenteUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'block',
+                          padding: '8px 10px',
+                          border: '1px solid var(--stroke)',
+                          borderRadius: 6,
+                          textDecoration: 'none',
+                          color: 'var(--text)',
+                          background: 'var(--bg-panel)',
+                          fontSize: 11,
+                          lineHeight: 1.4,
+                        }}
+                        title={c.descripcion}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            marginBottom: 2,
+                          }}
+                        >
+                          <span
+                            className="mono"
+                            style={{ color: 'var(--celeste)' }}
+                          >
+                            {c.anio} · {c.area || 'sin área'}
+                          </span>
+                          <span
+                            className="mono"
+                            style={{ color: 'var(--text-2)', whiteSpace: 'nowrap' }}
+                          >
+                            ${formatNumberCompact(c.monto)}
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            color: 'var(--text-3)',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {c.descripcion || c.tipo || '(sin descripción)'}
+                        </div>
+                        <div
+                          style={{
+                            marginTop: 4,
+                            fontSize: 10,
+                            color: 'var(--text-3)',
+                          }}
+                        >
+                          ↗ Ver fuente original
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </>
+              )}
 
               {/* Relaciones con filtros */}
               {detail.relaciones.length > 0 &&

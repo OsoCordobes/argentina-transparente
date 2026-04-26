@@ -20,6 +20,7 @@ import type {
   ArgosNodeType,
   ArgosGraph,
   NodeDetail,
+  NodeContrato,
   ChatMessage,
   ChatChunk,
   ChatContext,
@@ -93,12 +94,17 @@ const NO_BACKEND_REASON =
 const NO_LLM_REASON =
   'Chat LLM deshabilitado. Activalo seteando VITE_CHAT_LLM=true en frontend/.env y ANTHROPIC_API_KEY en backend/.env, una vez Fase 4 (POST /api/chat) esté implementada.'
 
-interface BackendEntidadResponse {
+interface BackendEntidadResponseEntidad {
   nombre: string
   cuit?: string
   municipios?: string[]
   totalContratos?: number
   montoTotal?: number
+  anios?: number[]
+  areas?: string[]
+  topArea?: { area: string; monto: number; pct: number } | null
+  fechaActualizacion?: string | null
+  metodoDominante?: string
   señales?: Array<{
     id: string
     titulo: string
@@ -111,12 +117,30 @@ interface BackendEntidadResponse {
   contratos?: Array<{
     hash: string
     municipio: string
+    tipo: string
+    area: string
+    descripcion: string
     anio: number
     monto: number
     proveedor: string
     fuenteUrl: string
+    metodoExtraccion?: string
+    nivelConfianza?: 'alto' | 'medio' | 'bajo'
+    cargadoEn?: string
   }>
-  afip?: { activa?: boolean }
+  afip?: {
+    cuit?: string
+    esEmpleador?: boolean
+    inicioActividades?: string | null
+    estado?: string | null
+    actividadPrincipal?: string | null
+  } | null
+}
+
+interface BackendEntidadResponse {
+  ok: boolean
+  entidad?: BackendEntidadResponseEntidad
+  error?: string
 }
 
 interface BackendSearchResponse {
@@ -131,7 +155,7 @@ interface BackendSearchResponse {
 }
 
 function entidadResponseToDetail(
-  resp: BackendEntidadResponse,
+  resp: BackendEntidadResponseEntidad,
   fallbackNodeType: ArgosNodeType
 ): NodeDetail {
   const node: ArgosNode = {
@@ -139,18 +163,12 @@ function entidadResponseToDetail(
     type: fallbackNodeType,
     label: resp.nombre,
     weight: 0.6,
-    flags: { verificadoAfip: !!resp.afip?.activa },
+    flags: { verificadoAfip: !!resp.afip?.cuit },
     data: resp as unknown as Record<string, unknown>,
   }
 
+  // KPIs Feature A — orden importante (los 4 que importan primero)
   const kpis: NodeDetail['kpis'] = []
-  if (resp.totalContratos != null) {
-    kpis.push({
-      label: 'Contratos',
-      value: resp.totalContratos.toLocaleString('es-AR'),
-      format: 'count',
-    })
-  }
   if (resp.montoTotal != null) {
     kpis.push({
       label: 'Monto total',
@@ -158,15 +176,36 @@ function entidadResponseToDetail(
       format: 'currency',
     })
   }
-  if (resp.municipios && resp.municipios.length > 0) {
+  if (resp.totalContratos != null) {
     kpis.push({
-      label: 'Jurisdicciones',
-      value: resp.municipios.join(', '),
+      label: 'Contratos',
+      value: resp.totalContratos.toLocaleString('es-AR'),
+      sub: resp.anios && resp.anios.length > 0
+        ? `${resp.anios[0]}–${resp.anios[resp.anios.length - 1]}`
+        : undefined,
+      format: 'count',
+    })
+  }
+  if (resp.topArea) {
+    kpis.push({
+      label: 'Área principal',
+      value: resp.topArea.area,
+      sub: `${resp.topArea.pct.toFixed(1)}% del gasto`,
       format: 'text',
     })
   }
-  if (resp.cuit) {
-    kpis.push({ label: 'CUIT', value: resp.cuit, format: 'text' })
+  // KPI "Top señal" — la señal con mayor score asociada
+  const topSenal = (resp.señales ?? []).slice().sort((a, b) => b.score - a.score)[0]
+  if (topSenal) {
+    kpis.push({
+      label: 'Señal más severa',
+      value: `${topSenal.severidad} · score ${topSenal.score}`,
+      sub: topSenal.titulo.length > 60 ? topSenal.titulo.slice(0, 58) + '…' : topSenal.titulo,
+      format: 'text',
+    })
+  }
+  if (resp.afip?.cuit) {
+    kpis.push({ label: 'CUIT', value: resp.afip.cuit, format: 'text' })
   }
 
   const señales: NodeDetail['señales'] = (resp.señales ?? []).map((s) => ({
@@ -181,6 +220,23 @@ function entidadResponseToDetail(
       denunciarAnte: s.legal?.denunciarAnte ?? [],
     },
   }))
+
+  // Top 10 contratos para Feature A (lista clickeable)
+  const contratos: NodeContrato[] = (resp.contratos ?? [])
+    .slice()
+    .sort((a, b) => b.monto - a.monto)
+    .slice(0, 10)
+    .map((c) => ({
+      hash: c.hash,
+      anio: c.anio,
+      area: c.area,
+      tipo: c.tipo,
+      descripcion: c.descripcion,
+      monto: c.monto,
+      fuenteUrl: c.fuenteUrl,
+      metodoExtraccion: c.metodoExtraccion,
+      nivelConfianza: c.nivelConfianza,
+    }))
 
   // Fuentes derivadas de evidencia + URLs de contratos vistos
   const fuenteSet = new Map<string, NodeDetail['fuentes'][number]>()
@@ -202,7 +258,7 @@ function entidadResponseToDetail(
         url: c.fuenteUrl,
         descripcion: `Contrato ${c.anio} — ${c.municipio}`,
         fechaAcceso: new Date().toISOString().slice(0, 10),
-        nivelConfianza: 'alto',
+        nivelConfianza: (c.nivelConfianza ?? 'alto'),
       })
     }
   }
@@ -213,6 +269,12 @@ function entidadResponseToDetail(
     relaciones: [], // se llena con los nodos vecinos del grafo en cliente
     señales,
     fuentes: [...fuenteSet.values()],
+    contratos,
+    meta: {
+      fechaActualizacion: resp.fechaActualizacion ?? null,
+      metodoDominante: resp.metodoDominante ?? 'desconocido',
+      topArea: resp.topArea ?? null,
+    },
   }
 }
 
@@ -230,14 +292,22 @@ const argosApi: ArgosApi = {
   async getNodeDetail(type: ArgosNodeType, id: string): Promise<NodeDetail | null> {
     try {
       if (type === 'proveedor') {
+        // El node id viene normalizado (lowercase). El backend espera el nombre
+        // del proveedor — usamos `label` original cuando está disponible. Como
+        // fallback intentamos el id (puede que sea el nombre exacto en algunos
+        // casos legacy donde no se normalizó).
         const data = await getJson<BackendEntidadResponse>(
           `/api/entidad/${encodeURIComponent(id)}`
         )
-        return entidadResponseToDetail(data, 'proveedor')
+        if (!data.ok || !data.entidad) {
+          warn(`getNodeDetail(proveedor, ${id}): backend devolvió ok=false`)
+          return null
+        }
+        return entidadResponseToDetail(data.entidad, 'proveedor')
       }
       if (type === 'contrato') {
         // /api/contrato/:hash — schema distinto, no implementado todavía
-        warn(`getNodeDetail(contrato, ${id}): mapper backend→NodeDetail pendiente Fase 5.`)
+        warn(`getNodeDetail(contrato, ${id}): mapper backend→NodeDetail pendiente.`)
         return null
       }
       // jurisdiccion / director / señal → sin endpoint dedicado todavía
