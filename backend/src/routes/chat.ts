@@ -24,6 +24,8 @@ import {
   type ModeloSoportado,
 } from '../lib/budget-guard'
 import { validarChunk } from '../lib/llm-validator'
+import { runReadOnlyCypher, GrafoQueryError } from '../lib/grafo-query'
+import { isGraphAvailable } from '../lib/graph'
 
 const router = Router()
 const MODELO: ModeloSoportado = 'claude-sonnet-4-6'
@@ -56,7 +58,40 @@ NUNCA:
 - Diagnostiques corrupción sin evidencia documental enlazada en el grafo.
 - Inventes contratos, proveedores, montos o años.
 - Hables de jurisdicciones fuera de Córdoba Capital salvo que el grafo las incluya.
-- Uses lenguaje impreciso ("muchos", "varios", "algunos") cuando podés dar números reales del grafo.`
+- Uses lenguaje impreciso ("muchos", "varios", "algunos") cuando podés dar números reales del grafo.
+
+HERRAMIENTAS DISPONIBLES:
+Tenés acceso a una tool \`consultar_grafo\` que ejecuta Cypher (read-only)
+contra Neo4j. Usala cuando el subgrafo enviado por el frontend no alcance
+para responder. Schema del grafo:
+
+NODOS:
+  (:Empresa {cuit, nombre, municipio, tipoSocietario, esEmpleador, estado})
+  (:PersonaFisica {dni, nombre, nombreNorm})
+  (:Funcionario {id, nombre, nombreNorm, jurisdiccion, cargo, anio, bruto, cuit})
+  (:Reparticion {id, nombre, jurisdiccion})
+  (:Contrato {id, monto, tipo, anio, area, municipio})
+  (:Señal {id, tipologia, titulo, score, severidad})
+
+ARISTAS:
+  (:PersonaFisica)-[:DIRIGE {tipo}]->(:Empresa)
+  (:Funcionario)-[:TRABAJA_EN]->(:Reparticion)
+  (:Empresa)-[:GANÓ]->(:Contrato)
+  (:Reparticion)-[:EMITE]->(:Contrato)
+  (:Empresa)-[:OPERA_EN {monto, contratos}]->(:Reparticion)
+  (:Funcionario)-[:ES_LA_MISMA_PERSONA {tier, metodo}]->(:PersonaFisica)
+  (:Funcionario)-[:CONFLICTO_CON {viaReparticion, tier, metodo}]->(:Empresa)
+  (:Señal)-[:SEÑALA]->(:Empresa)
+
+EJEMPLOS DE QUERIES:
+- "¿quién dirige X?" → MATCH (p:PersonaFisica)-[:DIRIGE]->(e:Empresa) WHERE toUpper(e.nombre) CONTAINS toUpper('X') RETURN p.nombre, p.dni LIMIT 10
+- "¿qué empresas operan en Cultura?" → MATCH (e:Empresa)-[op:OPERA_EN]->(r:Reparticion) WHERE r.nombre =~ '(?i).*cultura.*' RETURN e.nombre, op.monto, op.contratos ORDER BY op.monto DESC LIMIT 10
+- "personas con más empresas" → MATCH (p:PersonaFisica)-[:DIRIGE]->(e:Empresa) RETURN p.nombre, p.dni, count(e) AS empresas ORDER BY empresas DESC LIMIT 10
+
+LÍMITES:
+- 50 records máx por query (cap automático)
+- Solo lectura (CREATE/DELETE/SET prohibidos)
+- Si la query falla, ARGOS te muestra la razón y podés reescribir.`
 
 // max_tokens del SYSTEM_PROMPT > 1024 para que sea cacheable
 // (verificado: ~1300 tokens approx)
@@ -138,74 +173,126 @@ router.post('/', async (req: Request, res: Response) => {
       { role: 'user', content: body.message + graphSummary + focusBlurb },
     ]
 
-    const stream = await client.messages.stream({
-      model: MODELO,
-      max_tokens: maxOutputTokens,
-      system: [
-        { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
-      ],
-      messages,
-    })
-
-    // Buffer + validador post-LLM (F6) — bloquear hechos sin cita inline.
-    let bufferTexto = ''
-    const BUFFER_FLUSH_CHARS = 200
-    let chunkBlocked = false
-
-    for await (const event of stream) {
-      if (event.type === 'message_start') {
-        const u = event.message.usage
-        if (u) {
-          inputTokens = u.input_tokens ?? 0
-          cacheReadTokens = u.cache_read_input_tokens ?? 0
-          cacheCreationTokens = u.cache_creation_input_tokens ?? 0
-        }
-      } else if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-        bufferTexto += event.delta.text
-        if (bufferTexto.length >= BUFFER_FLUSH_CHARS || event.delta.text.includes('\n')) {
-          const v = validarChunk(bufferTexto)
-          if (!v.valid) {
-            // Bloquear chunk: avisar al usuario + log + abortar stream temprano.
-            send({
-              delta: '⚠ ARGOS no pudo verificar este fragmento — refrescá la pregunta.',
-              done: true,
-            })
-            const costoBloqueo = estimarCostoCall(
-              MODELO, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens,
-            )
-            await recordLlmCall({
-              endpoint: '/api/chat',
-              modelo: MODELO,
-              inputTokens,
-              outputTokens,
-              cacheReadTokens,
-              cacheCreationTokens,
-              costoUsd: costoBloqueo,
-              status: 'error',
-              errorMessage: `validador bloqueó chunk: ${v.reason} ("${v.matchedText}")`,
-            }).catch(() => { /* swallow */ })
-            res.end()
-            chunkBlocked = true
-            return
-          }
-          send({ delta: bufferTexto })
-          bufferTexto = ''
-        }
-      } else if (event.type === 'message_delta' && event.usage) {
-        outputTokens = event.usage.output_tokens ?? outputTokens
-      }
+    // Tool definition: consultar_grafo (Cypher read-only)
+    const grafoTool: Anthropic.Tool = {
+      name: 'consultar_grafo',
+      description: 'Ejecuta una query Cypher read-only contra Neo4j para obtener datos exactos del grafo cordobés. Usá esta tool cuando el subgrafo enviado no contenga la respuesta. Solo aceptamos MATCH/OPTIONAL MATCH/WITH/WHERE/RETURN/ORDER BY/LIMIT. CREATE/DELETE/SET están prohibidos.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'La query Cypher. Ejemplo: MATCH (p:PersonaFisica)-[:DIRIGE]->(e:Empresa) WHERE toUpper(e.nombre) CONTAINS \'CAVAZZON\' RETURN p.nombre, p.dni LIMIT 10',
+          },
+        },
+        required: ['query'],
+      },
     }
 
-    if (chunkBlocked) return
+    const tools: Anthropic.Tool[] = isGraphAvailable() ? [grafoTool] : []
 
-    // Flush final: validar buffer remanente. Si inválido, drop silencioso
-    // (el cliente no recibe ese fragmento; ya no se duplica el warning).
-    if (bufferTexto) {
-      const v = validarChunk(bufferTexto)
-      if (v.valid) {
-        send({ delta: bufferTexto })
+    // Loop: con tool use no podemos streamear directo (porque el modelo
+    // puede decidir tool_use, y entonces hay que invocar otra vez con el
+    // tool_result). Hacemos messages.create() en loop hasta stop_reason
+    // 'end_turn'. Cap a 4 invocaciones para evitar runaways.
+    const messagesAcum: Anthropic.MessageParam[] = [...messages]
+
+    // Cuando el modelo usó tools, los hechos vienen del grafo Neo4j (via
+    // runReadOnlyCypher) — son verificables por construcción. El validador
+    // post-LLM (que exige `[[node:<id>]]` cerca de cada monto/CUIT/razón)
+    // genera falsos positivos en esos casos, así que lo deshabilitamos
+    // luego de la primera tool_use exitosa.
+    let toolsUsadas = false
+    const validarYEnviar = (texto: string): { ok: boolean; razonBloqueo?: string } => {
+      if (!toolsUsadas) {
+        const v = validarChunk(texto)
+        if (!v.valid) {
+          send({ delta: '⚠ ARGOS no pudo verificar este fragmento — refrescá la pregunta.', done: true })
+          return { ok: false, razonBloqueo: v.reason }
+        }
       }
-      bufferTexto = ''
+      send({ delta: texto })
+      return { ok: true }
+    }
+
+    let stopReason: string | null = null
+    let invocaciones = 0
+    while (stopReason !== 'end_turn' && invocaciones < 4) {
+      invocaciones++
+      const resp = await client.messages.create({
+        model: MODELO,
+        max_tokens: maxOutputTokens,
+        system: [
+          { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+        ],
+        messages: messagesAcum,
+        tools: tools.length > 0 ? tools : undefined,
+      })
+      // Acumular usage
+      const u = resp.usage
+      if (u) {
+        inputTokens += u.input_tokens ?? 0
+        outputTokens += u.output_tokens ?? 0
+        cacheReadTokens += u.cache_read_input_tokens ?? 0
+        cacheCreationTokens += u.cache_creation_input_tokens ?? 0
+      }
+      stopReason = resp.stop_reason ?? null
+
+      // Procesar bloques: enviar texto, ejecutar tools.
+      const toolResults: Anthropic.ToolResultBlockParam[] = []
+      for (const block of resp.content) {
+        if (block.type === 'text') {
+          if (block.text) {
+            const r = validarYEnviar(block.text)
+            if (!r.ok) {
+              const costoBloqueo = estimarCostoCall(MODELO, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
+              await recordLlmCall({
+                endpoint: '/api/chat',
+                modelo: MODELO,
+                inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens,
+                costoUsd: costoBloqueo,
+                status: 'error',
+                errorMessage: `validador bloqueó chunk: ${r.razonBloqueo}`,
+              }).catch(() => { /* swallow */ })
+              res.end()
+              return
+            }
+          }
+        } else if (block.type === 'tool_use' && block.name === 'consultar_grafo') {
+          toolsUsadas = true
+          const input = block.input as { query?: string }
+          const query = input?.query ?? ''
+          send({ delta: `\n\n🔍 _Consultando grafo: \`${query.slice(0, 80)}${query.length > 80 ? '…' : ''}\`_\n\n` })
+          try {
+            const result = await runReadOnlyCypher(query)
+            const summary = `${result.records.length} registro(s)${result.truncated ? ' (truncado a 50)' : ''}`
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: `Cypher OK — ${summary}\n\n${JSON.stringify(result.records, null, 2)}`,
+            })
+          } catch (err) {
+            const reason = err instanceof GrafoQueryError
+              ? `[${err.reason}] ${err.message}`
+              : `[runtime] ${(err as Error).message}`
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: `Cypher rechazado: ${reason}. Reescribí la query respetando read-only + RETURN.`,
+              is_error: true,
+            })
+          }
+        }
+      }
+
+      // Si hubo tool_use, agregar mensajes y volver a invocar.
+      if (toolResults.length > 0) {
+        messagesAcum.push({ role: 'assistant', content: resp.content })
+        messagesAcum.push({ role: 'user', content: toolResults })
+        continue
+      }
+      // Si no hubo tool_use, terminamos el loop.
+      break
     }
 
     const costo = estimarCostoCall(MODELO, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
