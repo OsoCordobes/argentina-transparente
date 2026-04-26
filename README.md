@@ -4,7 +4,7 @@ Motor anticorrupción ciudadano. Análisis automatizado del gasto público argen
 
 ## ¿Qué hace ARGOS?
 
-ARGOS descarga, normaliza y analiza datos de compras y contrataciones públicas para detectar señales de riesgo (prórrogas excesivas, concentración de proveedores, contrataciones directas sospechosas, redes de empresas con directores compartidos, entre otras) y generar **expedientes ciudadanos verificables** que pueden presentarse ante Tribunal de Cuentas, Fiscalía, CNDC, ARCA o Defensoría.
+ARGOS descarga, normaliza y analiza datos de compras y contrataciones públicas para detectar señales de riesgo (prórrogas excesivas, concentración de proveedores, contrataciones directas sospechosas, fraccionamiento, gasto fin ejercicio, redes de empresas con directores compartidos, aparición offshore, entre otras) y generar **expedientes ciudadanos verificables** que pueden presentarse ante Tribunal de Cuentas, Fiscalía, CNDC, ARCA o Defensoría del Pueblo.
 
 ## Stack
 
@@ -12,14 +12,40 @@ ARGOS descarga, normaliza y analiza datos de compras y contrataciones públicas 
 |------|-----------|
 | Frontend | React 18 + TypeScript + Tailwind + Vite |
 | Backend | Node.js + TypeScript + Express |
-| Datos | DuckDB (analítica) + Neo4j (red de directores) |
-| LLM | Claude Sonnet 4 (Anthropic SDK) |
-| Auth + persistencia de casos | Supabase |
-| Deploy | Railway |
+| Datos | DuckDB (analítica) + Neo4j (opcional, red de directores) |
+| LLM | Claude Sonnet 4.6 (chat) + Haiku 4.5 (sugerencias), Anthropic SDK |
+| Auth + persistencia | Supabase (opcional para casos) |
+| Deploy | Railway (frontend + backend) |
+
+## Branch del beta
+
+El beta se desarrolla en [`claude/chat-first-ui-design-aWg0V`](https://github.com/OsoCordobes/argentina-transparente/tree/claude/chat-first-ui-design-aWg0V). Cobertura actual: **Córdoba Capital 2015–2025**.
 
 ## Arquitectura
 
-Ver [`CLAUDE.md`](./CLAUDE.md) para el detalle del estado técnico, arquitectura, señales implementadas, fuentes de datos verificadas y roadmap.
+Ver [`CLAUDE.md`](./CLAUDE.md) para el detalle del estado técnico, arquitectura, señales implementadas (16 detectores), fuentes de datos verificadas y roadmap.
+
+## Modo Explorar v2 (Argos visual)
+
+Vista chat-first en `/explorar` con grafo neural d3-force. Cinco features:
+
+- **A** Panel del proveedor con KPIs (monto, contratos, área principal, señal más severa) + top 10 contratos clickeables → fuente original
+- **B** Filtros año/área client-side con re-cálculo de monto en vivo
+- **C** Botón "Copiar sumario (Markdown)" — pega listo en Google Docs / email
+- **D** Descargar PNG del grafo + ficha con watermark "ARGOS · cordoba.gob.ar · [fecha]"
+- **E** Chat history persistente (localStorage) + deeplinks `?focus=&q=` shareables
+
+## LLM + Budget Guard
+
+Tres endpoints respaldados por hard cap de saldo Anthropic:
+
+| Endpoint | Modelo | Uso |
+|---|---|---|
+| `POST /api/chat` (SSE) | Sonnet 4.6 | Chat investigativo con system prompt anti-alucinaciones, cita node IDs `[[node:id]]` |
+| `POST /api/ai/suggestions` | Haiku 4.5 | 0–5 sugerencias accionables (verify/investigate/escalate/cross_check) |
+| `GET /api/ai/usage` | — | Budget operativo + acumulado semanal + costos por endpoint |
+
+Cada call queda registrado en tabla `llm_usage`. `assertBudget()` aborta con 429 si proyectar el call excede `ANTHROPIC_BUDGET_USD` (default 45). Hard limit absoluto: $50.
 
 ## Desarrollo local
 
@@ -29,33 +55,83 @@ Requisitos: Node.js 20+, npm.
 # Backend
 cd backend
 npm install
-cp .env.example .env  # configurar ANTHROPIC_API_KEY
-npm run dev           # http://localhost:3001
+cp .env.example .env             # configurar ANTHROPIC_API_KEY
+npm run dev                      # http://localhost:3001
 
 # Frontend (en otra terminal)
 cd frontend
 npm install
-npm run dev           # http://localhost:5173
+npm run dev                      # http://localhost:8083 (o el primero libre desde 8080)
+```
+
+`.env` mínimo del backend:
+```
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_BUDGET_USD=45.00
+PORT=3001
+```
+
+`.env.development` del frontend:
+```
+VITE_API_URL=http://localhost:3001
+VITE_CHAT_LLM=true               # habilita /api/chat real (sin esto, devuelve mensaje "sin LLM")
+```
+
+## Carga de datos (Córdoba Capital)
+
+```sh
+cd backend
+npm run seed:cordoba                          # contratos 2015–presente vía API REST
+npm run seed:licitaciones-historicas          # 2,343 llamados 2005–2018 (XLSX)
+npm run seed:cordoba-sueldos                  # 33K sueldos 2017–2023
+npm run seed:cordoba-historico --solo-csv     # boletín municipal 2013–2018 (LLM extractor)
+npm run seed:igj                              # 420K entidades + 2.3M autoridades nacional (CSV bulk)
+npm run analyze --force                       # recompute señales sobre todo el dataset
 ```
 
 ## Tests
 
 ```sh
 cd backend
-npm run test:connector              # descarga + parseo
-npm run test:signals 2019 2023      # 5 años de Córdoba Capital
-npm run test:e2e                    # E2E contra localhost:3001
+npm run test                                  # 172 unit tests vitest
+npm run test:e2e                              # E2E contra localhost:3001 (requiere backend corriendo)
+npx ts-node src/scripts/audit-trazabilidad.ts cordoba-capital  # cero gaps fuente_url
+npx ts-node src/scripts/verify-hallazgos.ts                    # cada señal con evidencia + fuente
 ```
+
+CI corre los 4 backends + typecheck + build frontend en cada push/PR.
+
+## Pre-deploy checklist
+
+1. ✅ Tests verde (`npm run test` 172/172)
+2. ✅ Typecheck verde (`npx tsc --noEmit` backend + `npx tsc --noEmit -p tsconfig.app.json` frontend)
+3. ✅ `audit-trazabilidad.ts` pasa (cero gaps de fuente_url)
+4. ✅ `verify-hallazgos.ts` pasa (toda señal con evidencia)
+5. ✅ Smoke browser local en `/explorar` muestra datos reales
+6. 🟡 Anthropic `.env` y `ANTHROPIC_BUDGET_USD` configurados en Railway
+7. 🟡 Si Supabase: aplicar `supabase/migrations/0001_casos.sql` y env vars
+8. 🟡 Rename Railway service `bestia-backend → argos-backend` (acción manual)
 
 ## Principios
 
-- Cero alucinaciones. Toda salida importante debe ser verificable.
-- Toda señal o hallazgo debe poder reconstruirse desde la fuente original.
-- Trazabilidad de datos: origen, fecha, método, formato, nivel de confianza.
+- **Cero alucinaciones.** Toda salida importante debe ser verificable.
+- **Toda señal o hallazgo debe poder reconstruirse desde la fuente original.**
+- Trazabilidad de datos: `origen + fecha + método + formato + nivel_confianza` por fila.
 - Diseñado para escalar de un municipio a nivel nacional.
+- Ver [`CLAUDE.md`](./CLAUDE.md) sección "Instrucciones fijas" para el detalle completo.
 
-Ver [`CLAUDE.md`](./CLAUDE.md) sección "Instrucciones fijas" para el detalle completo.
+## Roadmap post-beta
+
+Propuestas priorizadas con costo estimado en [`~/Desktop/ARGOS-AUDIT-Y-PROPUESTAS.md`](file:///C:/Users/amiun/Desktop/ARGOS-AUDIT-Y-PROPUESTAS.md) (local). Resumen:
+
+- **R1** — Endpoint IGJ + UI directores (~5h, activa 2.7M filas IGJ ya cargadas)
+- **R2** — Detector `conflicto_funcionario_proveedor` (~7h, cruza 32K sueldos con proveedores)
+- **R3** — Parser presupuesto Córdoba (BLOCKED — pivot/títulos heterogéneos, requiere LLM extraction o parsers específicos)
+- **R4** — AFIP padrón empleadores oficial desde datos.gob.ar (~3h)
+- **R5** — Loader obras públicas dataset 262 (~5h)
+
+Multi-jurisdicción (Nación / CABA / Santa Fe) pospuesto a v1 post-beta. Connectors existen pero UI no los expone.
 
 ## Licencia
 
-Por definir.
+Por definir. El proyecto pasará a open source post-validación del beta.
