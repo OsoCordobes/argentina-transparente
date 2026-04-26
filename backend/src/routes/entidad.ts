@@ -3,6 +3,7 @@ import {
   searchEntidades, getContratosPorProveedor, getSeñalesPorCuit,
   dbAll, type EntidadContrato, type SeñalCacheRow,
 } from '../lib/db'
+import { resolverEmpresa } from '../lib/identity-resolver'
 
 const router = Router()
 
@@ -138,6 +139,25 @@ router.get('/:nombre', async (req: Request, res: Response) => {
       ? (await getSeñalesPorCuit(afip.cuit)).map(mapSeñal)
       : []
 
+    // Phase F7 — Identidad con tier explícito.
+    // Si AFIP ya devolvió CUIT (match directo en empresas), Tier 1 implícito.
+    // Si no, llamamos al resolver tiered (puede usar Haiku en Tier 4 — protegido
+    // por budget guard semanal). Si el resolver falla por cualquier razón
+    // (budget agotado, sin API key, etc.) caemos a `null` y NO rompemos el
+    // request principal — el badge simplemente no se renderiza.
+    let identidad: { tier: 1 | 2 | 3 | 4 | 5; score: number } | null = null
+    if (afip?.cuit) {
+      identidad = { tier: 1, score: 100 }
+    } else {
+      try {
+        const match = await resolverEmpresa(nombre)
+        identidad = { tier: match.tier, score: match.score }
+      } catch (err) {
+        console.warn('[entidad] resolverEmpresa falló para', nombre, '—', String(err).slice(0, 200))
+        identidad = null
+      }
+    }
+
     res.json({
       ok: true,
       entidad: {
@@ -153,6 +173,7 @@ router.get('/:nombre', async (req: Request, res: Response) => {
         topArea,
         fechaActualizacion,
         metodoDominante,
+        identidad,
         // Top 500 contratos por monto (suficiente para cualquier proveedor
         // real y permite filtros año/área client-side sin perder datos).
         contratos: contratos

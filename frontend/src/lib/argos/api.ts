@@ -135,6 +135,10 @@ interface BackendEntidadResponseEntidad {
     estado?: string | null
     actividadPrincipal?: string | null
   } | null
+  identidad?: {
+    tier: 1 | 2 | 3 | 4 | 5
+    score?: number
+  } | null
 }
 
 interface BackendEntidadResponse {
@@ -275,6 +279,7 @@ function entidadResponseToDetail(
       metodoDominante: resp.metodoDominante ?? 'desconocido',
       topArea: resp.topArea ?? null,
     },
+    identidad: resp.identidad ?? undefined,
   }
 }
 

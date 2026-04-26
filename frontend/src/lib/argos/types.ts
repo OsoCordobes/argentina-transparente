@@ -163,4 +163,11 @@ export interface NodeDetail {
     metodoDominante: string
     topArea?: { area: string; monto: number; pct: number } | null
   }
+  /** Confianza del match de identidad (Phase F7) — proviene del backend
+   *  via `resolverEmpresa()` cuando aplica. Tier 1 implícito si la entidad
+   *  ya tiene CUIT cargado en empresas.cuit. */
+  identidad?: {
+    tier: 1 | 2 | 3 | 4 | 5
+    score?: number
+  }
 }

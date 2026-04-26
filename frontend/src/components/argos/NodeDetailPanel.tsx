@@ -28,6 +28,7 @@
 import { useEffect, useState } from 'react'
 import type { NodeDetail, KPI, Relacion, ArgosNodeType } from '@/lib/argos/types'
 import { Ico } from '@/components/argos/ArgosIcons'
+import { IdentityBadge } from '@/components/argos/IdentityBadge'
 import { sumarioProveedorMarkdown, copyToClipboard } from '@/lib/argos/sumario'
 import { capturarCanvasWrap } from '@/lib/argos/screenshot'
 
@@ -316,8 +317,23 @@ export function NodeDetailPanel({
               {n.subtitle && (
                 <div
                   className={`panel-sub ${n.type === 'proveedor' ? 'mono' : ''}`}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}
                 >
-                  {n.subtitle}
+                  <span>{n.subtitle}</span>
+                  {detail.identidad && (
+                    <IdentityBadge
+                      tier={detail.identidad.tier}
+                      score={detail.identidad.score}
+                    />
+                  )}
+                </div>
+              )}
+              {!n.subtitle && detail.identidad && (
+                <div style={{ marginTop: 6 }}>
+                  <IdentityBadge
+                    tier={detail.identidad.tier}
+                    score={detail.identidad.score}
+                  />
                 </div>
               )}
               {(n.flags?.verificadoAfip || n.flags?.severidad) && (
