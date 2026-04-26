@@ -133,6 +133,13 @@ export async function initDb(): Promise<void> {
       activa             BOOLEAN
     )
   `)
+  // Índices IGJ entidades — search por razon_social (LIKE) y lookup por cuit
+  // o numero_correlativo. 420K filas → sin índice las queries son full-scan.
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_igj_ent_corr ON igj_entidades(numero_correlativo)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_igj_ent_cuit ON igj_entidades(cuit) WHERE cuit IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_igj_ent_razon ON igj_entidades(LOWER(razon_social)) WHERE razon_social IS NOT NULL`)
+  } catch { /* idempotente */ }
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS igj_autoridades (
@@ -142,6 +149,12 @@ export async function initDb(): Promise<void> {
       numero_documento   TEXT
     )
   `)
+  // Índices IGJ autoridades — 2.29M filas, search por DNI o nombre.
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_igj_aut_dni ON igj_autoridades(numero_documento) WHERE numero_documento IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_igj_aut_corr ON igj_autoridades(numero_correlativo)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_igj_aut_nombre ON igj_autoridades(LOWER(apellido_nombre)) WHERE apellido_nombre IS NOT NULL`)
+  } catch { /* idempotente */ }
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS reportes (
@@ -424,6 +437,13 @@ export async function initDb(): Promise<void> {
       cargado_en      TEXT NOT NULL
     )
   `)
+  // Índices para búsqueda interactiva por nombre/CUIT (Iter 2 análisis-datos).
+  // Sin estos, /api/agentes/search?q=Pérez tarda segundos en 178K filas.
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_agentes_apellido ON agentes_publicos(LOWER(apellido_nombre)) WHERE apellido_nombre IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_agentes_cuit ON agentes_publicos(cuit) WHERE cuit IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_agentes_jurisdiccion ON agentes_publicos(jurisdiccion)`)
+  } catch { /* idempotente */ }
 
   // Subsidios y transferencias — gastos a personas/entidades sin contraprestación
   // contractual directa (planes sociales, becas, ayudas, transferencias a OSC).
@@ -496,6 +516,11 @@ export async function initDb(): Promise<void> {
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_rns_dom_fiscal_prov ON rns_personas_juridicas(dom_fiscal_provincia)`)
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_rns_dom_legal_prov ON rns_personas_juridicas(dom_legal_provincia)`)
   } catch { /* ignore */ }
+
+  // ─── Licitaciones index para join contratos.numero_expediente ──────────────
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_lic_expediente ON licitaciones_llamado(expediente) WHERE expediente IS NOT NULL`)
+  } catch { /* idempotente */ }
 
   // ─── Licitaciones (llamados sin adjudicación documentada) ───────────────────
   // Distinta de `contratos`: estos son LLAMADOS A LICITACIÓN con presupuesto
