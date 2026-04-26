@@ -158,6 +158,30 @@ export async function initDb(): Promise<void> {
     )
   `)
 
+  // ─── LLM usage tracking (Fase 4) ──────────────────────────────────────────
+  // Cada call a Anthropic API se registra acá para enforce hard budget cap.
+  // El budget-guard.ts agrega SUM(costo_usd) WHERE timestamp > ventana
+  // para decidir si dejar pasar el próximo call.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS llm_usage (
+      id                    TEXT PRIMARY KEY,
+      timestamp             TEXT NOT NULL,
+      endpoint              TEXT NOT NULL,
+      modelo                TEXT NOT NULL,
+      input_tokens          INTEGER NOT NULL DEFAULT 0,
+      output_tokens         INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+      cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+      costo_usd             DOUBLE  NOT NULL DEFAULT 0,
+      status                TEXT NOT NULL,
+      error_message         TEXT
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_llm_endpoint ON llm_usage(endpoint)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_llm_timestamp ON llm_usage(timestamp DESC)`)
+  } catch { /* ya existe */ }
+
   // ─── Cache OpenSanctions / ICIJ (post-MVP) ────────────────────────────────
   // Resultado cacheado de querys a opensanctions.org keyed por CUIT. Evita
   // 1 round-trip API por análisis. TTL típico 30 días — refrescar via
