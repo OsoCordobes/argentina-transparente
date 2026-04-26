@@ -16,6 +16,7 @@ import {
   detectarAdendaPostAdjudicacion,
   detectarRedDeEmpresas,
   detectarAparicionOffshore,
+  normalizarProveedor,
 } from './signals'
 import type { Contrato, EmpresaEnriquecida, OSMatch } from '../types'
 
@@ -1053,5 +1054,50 @@ describe('detectarAparicionOffshore', () => {
     const señal = detectarAparicionOffshore(contratos, emp, matches)!
     expect(señal.titulo).toContain('1 proveedor')
     expect(señal.cuits).toEqual(['30111111111'])
+  })
+})
+
+// ─── normalizarProveedor (B5) ────────────────────────────────────────────────
+
+describe('normalizarProveedor', () => {
+  it('strip variantes societarias triviales', () => {
+    expect(normalizarProveedor('ACME S.A.')).toBe('ACME')
+    expect(normalizarProveedor('ACME SA')).toBe('ACME')
+    expect(normalizarProveedor('ACME S.R.L.')).toBe('ACME')
+    expect(normalizarProveedor('ACME SRL')).toBe('ACME')
+    expect(normalizarProveedor('ACME UTE')).toBe('ACME')
+    expect(normalizarProveedor('ACME COOP')).toBe('ACME')
+    expect(normalizarProveedor('ACME SAIIC')).toBe('ACME')
+  })
+
+  it('"ACME SA" y "ACME SRL" colapsan a la misma key (B5)', () => {
+    expect(normalizarProveedor('ACME SA')).toBe(normalizarProveedor('ACME SRL'))
+  })
+
+  it('case-insensitive y trim de espacios', () => {
+    expect(normalizarProveedor('  acme sa  ')).toBe('ACME')
+    expect(normalizarProveedor('Acme  S.A.')).toBe('ACME')  // doble espacio
+  })
+
+  it('preserva nombres compuestos', () => {
+    expect(normalizarProveedor('CONSTRUCTORA DEL CENTRO SA')).toBe('CONSTRUCTORA DEL CENTRO')
+    expect(normalizarProveedor('OBRAS Y SERVICIOS NORTE S.A.')).toBe('OBRAS Y SERVICIOS NORTE')
+  })
+
+  it('UTEs y consorcios variantes', () => {
+    expect(normalizarProveedor('ROGGIO HIJOS UTE')).toBe('ROGGIO HIJOS')
+    expect(normalizarProveedor('ROGGIO HIJOS U.T.')).toBe('ROGGIO HIJOS')
+    expect(normalizarProveedor('ROGGIO HIJOS U.T')).toBe('ROGGIO HIJOS')
+  })
+
+  it('no elimina si la palabra societaria está en el medio del nombre', () => {
+    // "SOCIEDAD" en medio (no al final) no se debe strip
+    expect(normalizarProveedor('SOCIEDAD ANONIMA EJEMPLO')).toBe('SOCIEDAD ANONIMA EJEMPLO')
+  })
+
+  it('idempotente: aplicar 2 veces da mismo resultado', () => {
+    const once = normalizarProveedor('ACME S.A.')
+    const twice = normalizarProveedor(once)
+    expect(twice).toBe(once)
   })
 })
