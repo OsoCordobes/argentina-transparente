@@ -5,7 +5,7 @@
  * Migrado de `argos/app.jsx` del zip ARGOS v2.0.
  *
  * Estructura:
- * - Sidebar (brand + nav + ChatThread embed cuando hay mensajes + footer)
+ * - Sidebar (brand + nav + SidebarChat embed cuando hay mensajes + footer)
  * - Main: Header (breadcrumb + labels toggle) + canvas-wrap (Hero + GraphCanvas + Input + Panel)
  * - O PlaceholderSection si no estás en inicio/mapa
  *

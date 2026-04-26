@@ -89,8 +89,6 @@ export interface ChatChunk {
  */
 export type ChatFadeLevel = 'typing' | 'idle' | 'hover-graph'
 
-export type ChatThreadMode = 'collapsed' | 'expanded' | 'minimized'
-
 export interface ChatContext {
   /** Nodo enfocado actual — el chat responde en su contexto si aplica. */
   focusNodeId: string | null
