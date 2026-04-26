@@ -515,16 +515,12 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
 
   const wakeGraph = useCallback(() => setGraphAsleep(false), [])
 
-  // Cargar grafo: usa el `graph` prop (real backend) si tiene nodos; sino fetch del API mock
+  // Cargar grafo: SOLO desde el `graph` prop (real backend via /api/dashboard).
+  // Si está vacío + !isLoading, mostramos empty state explícito en el render.
+  // NUNCA caemos a fixtures sintéticos (CLAUDE.md §2).
   useEffect(() => {
-    if (graph.nodes.length > 0) {
-      dispatch({ t: 'GRAPH_LOADED', payload: graph })
-    } else if (!isLoading) {
-      argosApi.getGraphSnapshot().then((snap) => {
-        dispatch({ t: 'GRAPH_LOADED', payload: snap })
-      })
-    }
-  }, [graph, isLoading])
+    dispatch({ t: 'GRAPH_LOADED', payload: graph })
+  }, [graph])
 
   // Hero node: jurisdiccion con más señales graves
   const heroNodeId = useMemo(() => {
@@ -729,6 +725,34 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
         <div className="canvas-wrap" style={{ display: 'grid', placeItems: 'center', height: '100vh' }}>
           <div className="hero">
             <div className="hero-chip"><span className="pulse" /> Cargando grafo de Córdoba…</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Backend desconectado o sin datos — estado vacío explícito (cero alucinaciones)
+  if (!isLoading && s.graph.nodes.length === 0) {
+    return (
+      <div className="app">
+        <div
+          className="canvas-wrap"
+          style={{ display: 'grid', placeItems: 'center', height: '100vh', padding: '0 24px' }}
+        >
+          <div className="hero" style={{ textAlign: 'center', maxWidth: 640 }}>
+            <div className="hero-chip" style={{ background: 'var(--bg-panel)' }}>
+              <span style={{ color: 'var(--ambar)' }}>●</span> SIN DATOS
+            </div>
+            <h1>Backend desconectado</h1>
+            <p className="hero-meta" style={{ marginTop: 16, lineHeight: 1.6 }}>
+              El frontend no recibió datos del API en{' '}
+              <code className="mono" style={{ color: 'var(--celeste)' }}>
+                {(import.meta as ImportMeta).env?.VITE_API_URL ?? 'http://localhost:3001'}
+              </code>
+              . ARGOS muestra únicamente datos verificables — no hay fixtures sintéticos.
+              Levantá el backend con <code className="mono">npm run dev</code> en{' '}
+              <code className="mono">backend/</code> y refrescá esta página.
+            </p>
           </div>
         </div>
       </div>
