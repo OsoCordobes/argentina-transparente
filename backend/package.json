@@ -37,7 +37,8 @@
     "seed:all": "npm run seed:cordoba && npm run seed:nacion && npm run seed:igj && npm run seed:afip && npm run seed:neo4j && npm run seed:opensanctions",
     "analyze": "npx ts-node src/scripts/analyze.ts",
     "alertas:check": "npx ts-node src/scripts/check-alertas.ts",
-    "ckan:explore": "npx ts-node src/scripts/ckan-explore.ts"
+    "ckan:explore": "npx ts-node src/scripts/ckan-explore.ts",
+    "build:universo": "ts-node src/scripts/build-universo-cordobes.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.79.0",

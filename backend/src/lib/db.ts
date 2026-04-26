@@ -582,6 +582,41 @@ export async function initDb(): Promise<void> {
   } catch (err) {
     console.warn('[db] v_universo_cordobes_empresas no creada:', (err as Error).message)
   }
+
+  // Personas relevantes: funcionarios cordobeses + directores de las empresas
+  // del universo N2. Útil para detectar conflicto-de-interés (un funcionario
+  // que también es director de un proveedor).
+  //
+  // NOTA schema real: `agentes_publicos` no tiene columna `numero_documento`
+  // — solo `apellido_nombre` y `cuit` (que viene casi 100% NULL en los
+  // datasets cordobeses publicados). Para funcionarios usamos `cuit` como
+  // el campo `dni` de la view (mayormente NULL hoy, mejorará si una fuente
+  // futura publica DNIs). Para directores sí hay DNI real desde
+  // igj_autoridades.numero_documento. Las dos fuentes se UNIFICAN por
+  // (nombre, dni) y la lógica de matching downstream debe normalizar nombres.
+  try {
+    await dbRun(`
+      CREATE OR REPLACE VIEW v_universo_cordobes_personas AS
+      WITH funcionarios AS (
+        SELECT DISTINCT apellido_nombre AS nombre, cuit AS dni
+        FROM agentes_publicos
+        WHERE jurisdiccion = 'cordoba-capital'
+          AND apellido_nombre IS NOT NULL
+      ),
+      directores_proveedores AS (
+        SELECT DISTINCT a.apellido_nombre AS nombre, a.numero_documento AS dni
+        FROM v_universo_cordobes_empresas e
+        JOIN igj_entidades ie ON ie.cuit = e.cuit
+        JOIN igj_autoridades a ON a.numero_correlativo = ie.numero_correlativo
+        WHERE a.apellido_nombre IS NOT NULL
+      )
+      SELECT nombre, dni FROM funcionarios
+      UNION
+      SELECT nombre, dni FROM directores_proveedores
+    `)
+  } catch (err) {
+    console.warn('[db] v_universo_cordobes_personas no creada:', (err as Error).message)
+  }
 }
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
