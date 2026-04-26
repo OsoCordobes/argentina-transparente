@@ -357,6 +357,43 @@ describe('detectarServiciosSinHistorial', () => {
     ]
     expect(detectarServiciosSinHistorial(contratos)!.legal.severidad).toBe('grave')
   })
+
+  // B7 fix: detección robusta a typos comunes y variantes ortográficas
+  it('B7 — captura typos en descripcion: LIMPEZA (sin I), SECURIDAD', () => {
+    const contratos = [
+      c({ proveedor: 'PROVEEDOR X', descripcion: 'Servicio LIMPEZA en escuelas', monto: 60_000_000 }),
+      c({ proveedor: 'PROVEEDOR Y', descripcion: 'Personal de SECURIDAD', monto: 70_000_000 }),
+    ]
+    expect(detectarServiciosSinHistorial(contratos)).not.toBeNull()
+  })
+
+  it('B7 — captura raíces extras: CATERING, IMPRENTA, INFORMATICA', () => {
+    const cases = [
+      'Provisión CATERING evento aniversario',
+      'IMPRENTA volantes campaña',
+      'Servicios INFORMATICA y soporte sistemas',
+    ]
+    for (const desc of cases) {
+      const contratos = [c({ proveedor: 'X SA', descripcion: desc, monto: 60_000_000 })]
+      expect(
+        detectarServiciosSinHistorial(contratos),
+        `Falló para descripcion="${desc}"`,
+      ).not.toBeNull()
+    }
+  })
+
+  it('B7 — busca también en tipo y area, no solo descripcion', () => {
+    const contratos = [
+      c({
+        proveedor: 'INDETERMINADO SA',
+        descripcion: 'expediente N° 1234 — adjudicación',  // ← descripcion sin keywords
+        tipo: 'CONTRATACION OBRA PUBLICA',                  // ← OBRA en tipo
+        area: 'Secretaría Limpieza Urbana',                 // ← LIMP en area
+        monto: 60_000_000,
+      }),
+    ]
+    expect(detectarServiciosSinHistorial(contratos)).not.toBeNull()
+  })
 })
 
 // ─── detectarFraccionamientoAvanzado ────────────────────────────────────────

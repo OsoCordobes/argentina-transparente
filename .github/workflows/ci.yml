@@ -35,6 +35,16 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Audit trazabilidad (CLAUDE.md §2)
+        # Falla si alguna fila crítica está sin fuente_url o nivel_confianza.
+        # En fresh CI con DB vacía pasa trivialmente; útil cuando se corra
+        # contra DB poblada en pre-deploy.
+        run: npx ts-node src/scripts/audit-trazabilidad.ts cordoba-capital
+
+      - name: Verify hallazgos (sample señales)
+        # Cada señal debe tener evidencia + fuente_url. Sanity check.
+        run: npx ts-node src/scripts/verify-hallazgos.ts
+
   frontend:
     name: Frontend (typecheck + build)
     runs-on: ubuntu-latest

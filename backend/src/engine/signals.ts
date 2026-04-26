@@ -177,8 +177,34 @@ export function detectarMonopolioRubro(contratos: Contrato[]): Señal | null {
   }
 }
 
+/**
+ * Raíces (prefijos) que capturan variantes de servicios típicos del estado.
+ * Robustas a typos comunes en datasets argentinos (descripcion no curada).
+ * Match por substring sobre descripcion + tipo + area concatenados.
+ *
+ * Ejemplos cubiertos por raíz:
+ * - LIMP → LIMPIEZA, LIMPEZA, LIMPIO/A
+ * - SEGUR/SECUR → SEGURIDAD, SECURIDAD
+ * - MANTEN/MANTIN → MANTENIMIENTO, MANTINIMIENTO
+ * - VIGIL → VIGILANCIA
+ * - CONSTRU → CONSTRUCCIÓN, CONSTRUCION
+ * - PINT → PINTURA, PINTADO
+ * - CATER → CATERING
+ * - GASTR/COMID/ALIMENT → GASTRONOMIA, COMIDA, ALIMENTOS
+ * - IMPR → IMPRENTA, IMPRESIÓN
+ * - SOFT/DESARR/INFORMAT → desarrollo software/sistemas informáticos
+ * - CONSULT/ASESOR → consultoría
+ * - VEHICUL/AUTOMOT/TRANSP → flota, transporte
+ * - INDUMENT/UNIFORM → uniformes
+ */
+const RAICES_SERVICIO = [
+  'LIMP', 'SEGUR', 'SECUR', 'MANTEN', 'MANTIN', 'VIGIL', 'CONSTRU',
+  'PINT', 'OBRA', 'CATER', 'GASTR', 'ALIMENT', 'COMID', 'IMPR',
+  'SOFT', 'DESARR', 'INFORMAT', 'CONSULT', 'ASESOR',
+  'VEHICUL', 'AUTOMOT', 'TRANSP', 'INDUMENT', 'UNIFORM',
+]
+
 export function detectarServiciosSinHistorial(contratos: Contrato[]): Señal | null {
-  const PALABRAS_SERVICIO = ['LIMPIEZA', 'SEGURIDAD', 'MANTENIMIENTO', 'VIGILANCIA', 'CONSTRUCCION', 'OBRA', 'PINTURA']
   const UMBRAL_MONTO = 50_000_000
 
   const sospechosos: { proveedor: string; monto: number; descripcion: string }[] = []
@@ -191,9 +217,11 @@ export function detectarServiciosSinHistorial(contratos: Contrato[]): Señal | n
   }
 
   for (const [proveedor, cs] of porProv.entries()) {
-    const esServicio = cs.some(c =>
-      PALABRAS_SERVICIO.some(p => c.descripcion.toUpperCase().includes(p))
-    )
+    const esServicio = cs.some(c => {
+      // Concatenar descripcion + tipo + area para máxima cobertura.
+      const haystack = `${c.descripcion} ${c.tipo} ${c.area}`.toUpperCase()
+      return RAICES_SERVICIO.some(r => haystack.includes(r))
+    })
     if (!esServicio) continue
 
     const monto = cs.reduce((s, c) => s + c.monto, 0)
