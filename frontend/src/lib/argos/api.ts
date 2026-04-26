@@ -297,6 +297,22 @@ function grafoExpandToDetail(
     }
     if (data.jurisdiccion) kpis.push({ label: 'Jurisdicción', format: 'text', value: String(data.jurisdiccion) })
   }
+  if (nodeType === 'señal') {
+    const empresasSeñaladas = relaciones.filter((r) => r.via === 'señala')
+    if (empresasSeñaladas.length > 0) {
+      kpis.push({ label: 'Empresas implicadas', format: 'count', value: String(empresasSeñaladas.length) })
+    }
+    if (data.score) {
+      const scoreNum = typeof data.score === 'number' ? data.score : Number(data.score)
+      kpis.push({ label: 'Score', format: 'count', value: String(scoreNum) })
+    }
+    if (data.severidad) {
+      kpis.push({ label: 'Severidad', format: 'text', value: String(data.severidad).toUpperCase() })
+    }
+    if (data.tipologia) {
+      kpis.push({ label: 'Tipología', format: 'text', value: String(data.tipologia).replace(/_/g, ' ') })
+    }
+  }
 
   return {
     node,
@@ -592,9 +608,10 @@ const argosApi: ArgosApi = {
         )
         return actorEmpresaToDetail(id, cuit, data)
       }
-      // Iter 8.9: persona/funcionario/reparticion usan el endpoint expand
-      // del grafo (que ya devuelve nombre + relaciones) y mapeamos a NodeDetail.
-      if (type === 'persona' || type === 'funcionario' || type === 'reparticion') {
+      // Iter 8.9 + 8.14: persona/funcionario/reparticion/señal usan el
+      // endpoint expand del grafo (que ya devuelve nombre + relaciones)
+      // y mapeamos a NodeDetail.
+      if (type === 'persona' || type === 'funcionario' || type === 'reparticion' || type === 'señal') {
         const data = await getJson<GrafoExpandResponse>(
           `/api/grafo/expand/${encodeURIComponent(id)}`
         )
