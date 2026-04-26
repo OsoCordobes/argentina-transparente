@@ -5,6 +5,9 @@
 //   - 14:  Presupuesto anual (20 versiones 2007-2026, XLSX) — partidas asignadas
 //   - 65:  Ejecución de erogaciones (41 versiones 2018-2025, XLSX) — gasto real mensual
 //   - 12:  Ejecución de recursos (63 versiones 2018-2025, XLSX) — recaudación mensual
+//   - 187: Cuenta General del Ejercicio (12 versiones 2014-2022). Solo v6461
+//          (Cuenta Ahorro-Inversión-Financiamiento 2022) tiene XLS — el resto
+//          son PDF y se procesan en M2 (OCR pipeline). Catalogamos las 12.
 //
 // Cada fila → tabla `presupuesto_ejecucion`.
 
@@ -43,7 +46,14 @@ const DATASETS: DatasetPresup[] = [
     datasetId: '12', tipo: 'recursos', nombre: 'Ejecución de recursos',
     headerKeywords: ['concepto', 'recaudacion', 'recaudado', 'calculo', 'calculado', 'estimado', 'cod'],
   },
+  // Dataset 187 — Cuenta General del Ejercicio NO se incluye aquí: 11 de 12
+  // versiones son PDF (requieren OCR M2) y el formato XLS de v6461 es un
+  // resumen ahorro-inversión-financiamiento, no encaja en presupuesto_ejecucion.
+  // Se cataloga abajo como 'pendiente' para que la UI Fuentes lo muestre.
 ]
+
+const DATASET_187_ID = '187'
+const DATASET_187_NOMBRE = 'Cuenta General del Ejercicio'
 
 function pickColumnaTexto(row: Record<string, unknown>, regexes: RegExp[]): string | null {
   for (const k of Object.keys(row)) {
@@ -122,17 +132,20 @@ async function procesarDataset(d: DatasetPresup): Promise<number> {
       // - Presupuesto: programa, partida, codigo, denomina, credito, devengado, pagado
       // - Erogaciones: ídem + comprometido, vigente
       // - Recursos: concepto, cod, recaudacion, calculado, estimado
-      const programa = pickColumnaTexto(row, [/programa/i, /actividad/i, /concepto/i, /clase/i, /objeto/i])
-      const partida = pickColumnaTexto(row, [/partida.+codigo/i, /\bpartida$/i, /\bcodigo\b/i, /^cod\b/i, /^cod\./i])
+      const programa = pickColumnaTexto(row, [/programa/i, /actividad/i, /concepto/i, /clase/i, /objeto/i, /^p\.pr/i])
+      const partida = pickColumnaTexto(row, [/partida.+codigo/i, /\bpartida$/i, /\bcodigo\b/i, /^cod\b/i, /^cod\./i, /^p\.pr/i])
       const partidaNombre = pickColumnaTexto(row, [/partida.+nombre/i, /partida.+denomina/i, /denomina/i, /^descrip/i, /^concepto$/i])
       const jurisdiccionCodigo = pickColumnaTexto(row, [/jurisdic.+codigo/i, /jurisdic.+nro/i])
       const jurisdiccionNombre = pickColumnaTexto(row, [/jurisdic.+nombre/i, /jurisdic.+denomina/i, /^jurisdic/i])
 
-      // Montos: incluye recursos (recaudacion, calculado) además de presupuesto
+      // Montos: incluye recursos (recaudacion, calculado) además de presupuesto.
+      // Nota: aceptamos formas singular/plural y variantes ("compromiso" vs
+      // "comprometido", "devengado" vs "devengamiento") porque los XLSX viejos
+      // de Córdoba (2010-2018) usan inconsistencia de género/número.
       const creditoInicial = pickMonto(row, [/credito.+inicial/i, /asignado/i, /presup.+inicial/i, /sancion/i, /calculado/i, /estimado/i])
-      const creditoVigente = pickMonto(row, [/credito.+vigente/i, /vigente/i, /actual/i])
-      const devengado = pickMonto(row, [/devengado/i, /comprometido/i, /ejecutado/i])
-      const pagado = pickMonto(row, [/pagado/i, /\bpaga\b/i, /recaudado/i, /recaudacion/i, /abonado/i])
+      const creditoVigente = pickMonto(row, [/credito.+vigente/i, /vigente/i, /actual/i, /definitivo/i])
+      const devengado = pickMonto(row, [/deveng/i, /compromis/i, /ejecutad/i])
+      const pagado = pickMonto(row, [/pagad/i, /\bpag\b/i, /recaudad/i, /recaudaci/i, /abonad/i])
 
       // Saltar filas vacías
       if (creditoInicial === null && creditoVigente === null && devengado === null && pagado === null) continue
@@ -211,6 +224,24 @@ async function main() {
       conectorId: 'seed:cordoba-presupuesto',
     })
   }
+
+  // Dataset 187 — catalogado como pendiente (PDF + format mismatch)
+  await registrarFuenteCatalogo({
+    id: `cordoba-capital-presupuesto-${DATASET_187_ID}`,
+    jurisdiccion: 'cordoba-capital',
+    organismo: 'Municipalidad de Córdoba',
+    dimension: 'presupuesto',
+    nombre: DATASET_187_NOMBRE,
+    descripcion: 'Dataset 187 — Cuenta General Ejercicio anual auditada. 11 de 12 versiones son PDF (requiere OCR M2). v6461 (2022) tiene XLS pero formato resumen ahorro-inversión, requiere tabla dedicada.',
+    urlOficial: `https://gobiernoabierto.cordoba.gob.ar/data/datos-abiertos/dato/${DATASET_187_ID}`,
+    formato: 'PDF (mayor) + XLS (1 versión)',
+    coberturaDesde: 2014,
+    coberturaHasta: 2022,
+    volumenEstimado: '12 versiones (1 XLS + 11 PDF)',
+    estadoImplementacion: 'pendiente',
+    razonBloqueo: '11/12 versiones son PDF — pipeline OCR pendiente (M2). XLS único requiere tabla dedicada cuenta_general_resumen.',
+    conectorId: null,
+  })
 
   let totalGlobal = 0
   for (const d of DATASETS) {

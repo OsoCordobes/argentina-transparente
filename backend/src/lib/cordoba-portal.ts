@@ -52,12 +52,22 @@ async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Respon
   }
 }
 
+// La API REST paginada del portal devuelve `{count, page, size, next, results}`.
+// `next` es URL absoluta de la página siguiente o null. Iteramos hasta que
+// `next` sea null para garantizar cobertura total. Sin esto, datasets grandes
+// como 131 (81 versiones) o 5 (26 versiones) silenciosamente devuelven solo
+// 20 — lo que oculta meses/años enteros de datos.
 export async function listarVersionesDataset(datasetId: string): Promise<VersionPortal[]> {
-  const url = `${API_BASE}/dato/${datasetId}/version-dato`
-  const res = await fetchWithTimeout(url)
-  if (!res.ok) throw new Error(`API HTTP ${res.status} dataset ${datasetId}`)
-  const data = await res.json() as { results: VersionPortal[] }
-  return data.results ?? []
+  let url: string | null = `${API_BASE}/dato/${datasetId}/version-dato`
+  const all: VersionPortal[] = []
+  while (url) {
+    const res = await fetchWithTimeout(url)
+    if (!res.ok) throw new Error(`API HTTP ${res.status} dataset ${datasetId}`)
+    const data = await res.json() as { results: VersionPortal[]; next: string | null }
+    all.push(...(data.results ?? []))
+    url = data.next ?? null
+  }
+  return all
 }
 
 export async function listarRecursosVersion(datasetId: string, versionId: string): Promise<RecursoPortal[]> {

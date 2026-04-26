@@ -16,6 +16,7 @@ import {
 } from '../lib/db'
 import {
   listarVersionesDataset, descargarRecursoDeVersion, parsearTabla,
+  parsearTablaConHeaderDetectable,
   inferirAnioDesdeTitulo, inferirAnioMesDesdeTitulo, parseMontoAR,
 } from '../lib/cordoba-portal'
 import type { FuenteMetadata } from '../types'
@@ -124,7 +125,16 @@ async function procesarDataset(d: DatasetSueldos): Promise<{ inserted: number; v
     }
     if (!descarga) continue
 
-    const filas = parsearTabla(descarga.buffer)
+    // Algunos datasets (ej. 131 Funcionarios) tienen 6 filas-título antes
+    // del header tabular. Usamos detección de header con keywords del schema
+    // típico de sueldos. Fallback automático a parsearTabla() si no detecta.
+    const filas = parsearTablaConHeaderDetectable(
+      descarga.buffer,
+      ['apellido', 'nombre', 'cargo', 'secretaria', 'agente', 'funcionario',
+       'cuit', 'reparticion', 'denominacion', 'categoria', 'escala',
+       'bruto', 'neto', 'devengado', 'remuneracion', 'empleado'],
+      { minMatches: 3, maxScanRows: 12 }
+    )
     let nuevos = 0
     for (const row of filas) {
       const apellidoNombre = pickColumna(row, [/apellido/i, /nombre/i, /agente/i, /funcionario/i])
@@ -182,20 +192,24 @@ async function main() {
     } as FuenteMetadata)
 
     for (const d of DATASETS) {
+      // Dataset 5 (Escala Salarial) es 100% PDF — no procesable hasta M2 OCR.
+      const esPdfOnly = d.datasetId === '5'
       await registrarFuenteCatalogo({
         id: `cordoba-capital-dataset-${d.datasetId}`,
         jurisdiccion: 'cordoba-capital',
         organismo: 'Municipalidad de Córdoba',
         dimension: 'salarios',
         nombre: d.nombre,
-        descripcion: `Dataset ${d.datasetId} en gobiernoabierto.cordoba.gob.ar`,
+        descripcion: esPdfOnly
+          ? `Dataset ${d.datasetId} — Escala Salarial mensual. 26 versiones PDF (requiere OCR M2).`
+          : `Dataset ${d.datasetId} en gobiernoabierto.cordoba.gob.ar`,
         urlOficial: `https://gobiernoabierto.cordoba.gob.ar/data/datos-abiertos/dato/${d.datasetId}`,
-        formato: 'XLSX',
+        formato: esPdfOnly ? 'PDF' : 'XLSX',
         coberturaDesde: 2017,
         coberturaHasta: 2025,
         volumenEstimado: 'multi-versión',
-        estadoImplementacion: 'implementado',
-        razonBloqueo: null,
+        estadoImplementacion: esPdfOnly ? 'pendiente' : 'implementado',
+        razonBloqueo: esPdfOnly ? '26 versiones son PDF — pipeline OCR pendiente (M2)' : null,
         conectorId: 'seed:cordoba-sueldos',
       })
     }

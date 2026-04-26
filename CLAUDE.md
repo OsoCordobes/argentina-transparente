@@ -625,6 +625,66 @@ Cambios principales:
 
 Tests: 215 → 222 verde.
 
+### 2026-04-26 (cont) — Claude Code (Misión Córdoba M1: CKAN bulk Tier S)
+
+Plan ejecutado: `docs/MISION-CORDOBA-2010-2026.md` milestone M1.
+
+**Bug crítico encontrado y arreglado** en `lib/cordoba-portal.ts`:
+`listarVersionesDataset()` no paginaba la API REST y devolvía solo 20
+versiones de cualquier dataset. Datasets con >20 versiones (131: 81,
+65: 41+, 12: 63+, 5: 26, 14: 20+) silenciosamente perdían meses/años
+enteros de datos. Fix: while-loop sobre `next` URL hasta agotar.
+
+**Datos cargados (counts post-M1 / pre-M1):**
+- `agentes_publicos`: 178,364 / 32,565 (+146K)
+  - agente: 158,638 (Córdoba Capital + 15 ministerios provinciales)
+  - funcionario: 18,907 (dataset 131 mensual 2016-2023, ahora completo)
+  - concejal: 819
+- `rns_personas_juridicas`: 196,146 (nuevo) — **191,043 CORDOBA**
+  Dos snapshots: 202412 (94K) + 202604 (308K), dedup por id.
+- `fuentes_publicas_catalogo`: 53 / 7 (+46) — incluye 45 packages CKAN
+  provincia + dataset 187 Cuenta General catalogado como pendiente.
+
+**Scripts nuevos:**
+- `seed:rns` (`scripts/seed-rns.ts`): CKAN datos.jus.gob.ar →
+  package_show → ZIPs anuales 2019-2026 → AdmZip extract → readline
+  streaming → INSERT OR IGNORE rns_personas_juridicas. Default
+  `--solo-cba` (filtra dom_fiscal/legal_provincia=CORDOBA), `--all`
+  para nacional, `--anio N` por año, `--force` para re-descargar.
+  Maneja 2 schemas (pre-2024: `fecha_actualizacion`; 2024+:
+  `fecha_hora_actualizacion`). Headers con leading-space trimmed.
+- `m1-summary` (`scripts/m1-summary.ts`): resumen CLI de cobertura DB.
+
+**Investigaciones:**
+- M1.1: dataset 2 versión 4747 ("Compras 2005-Mayo 2018") es
+  **licitaciones**, no contratos. Ya cargado en `licitaciones_llamado`
+  (2,341 filas). No hay contratos pre-2019 harvestables vía API. Para
+  cubrir 2010-2018 contratos hay que ir a Boletín Oficial (M2 OCR).
+- M1.5 DDJJ Córdoba (cat 85+105): formato 'web' en vez de XLSX/CSV →
+  cada recurso linkea PDF. Catalogado pendiente_ocr (M2).
+- M1.6 aportantes CNE: aportantes.electoral.gob.ar bloquea requests
+  automatizados con WAF. No hay alternativa estructurada en datos.gob.ar.
+  Catalogado pendiente (M2 con Playwright + headers browser-like).
+- M1.7 dataset 187 Cuenta General: 11/12 versiones PDF (M2 OCR), v6461
+  XLS único es resumen ahorro-inversión-financiamiento que no encaja
+  en `presupuesto_ejecucion`. Catalogado pendiente.
+
+**Bug residual identificado (fuera de M1):** parser
+`seed-cordoba-presupuesto.ts` llega al header correcto pero las
+expresiones regulares de columnas no extraen montos de los XLS reales
+de Córdoba (`P.Pr.`, `DENOMINACION`, `DEFINITIVO`, `COMPROMISO`).
+Tras patch parcial de regexes (`devengado` → `deveng`, agregar
+`definitivo`) sigue 0 inserts. `presupuesto_ejecucion` sigue vacío.
+Requiere sprint dedicado.
+
+**Stack OCR base instalado** (commit anterior, no usado todavía):
+unpdf, tesseract.js, pdf-to-png-converter, cheerio, p-queue, compromise.
+
+Tests: 222 verde, sin regresiones.
+
+Estado: M1 60% completado (4 milestones de 8 ejecutados con datos
+reales, 3 catalogados como pendientes a M2, 1 verificado como N/A).
+Próximo: M2 — pipeline OCR Boletín Municipal/Provincial.
 
 NO BORRAR//INSTRUCCIONES
 # Argentina Transparente — Instrucciones fijas

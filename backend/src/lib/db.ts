@@ -467,6 +467,36 @@ export async function initDb(): Promise<void> {
     )
   `)
 
+  // ─── Registro Nacional de Sociedades (RNS) — datos.jus.gob.ar ───────────────
+  // Snapshot consolidado nacional de sociedades comerciales, asociaciones,
+  // mutuales, etc. Cubre TODAS las provincias (no solo CABA como IGJ).
+  // Crítico para identity resolver con CUITs de proveedores cordobeses cuyos
+  // contratos se firman fuera del registro provincial.
+  // Fuente: dataset registro-nacional-de-sociedades, ZIPs anuales 2019-presente.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS rns_personas_juridicas (
+      id                    TEXT PRIMARY KEY,           -- sha256(cuit|razon_social|fecha_actualizacion)
+      cuit                  TEXT,
+      razon_social          TEXT NOT NULL,
+      tipo_societario       TEXT,
+      fecha_contrato_social TEXT,
+      numero_inscripcion    TEXT,
+      fecha_actualizacion   TEXT,
+      dom_fiscal_provincia  TEXT,
+      dom_fiscal_localidad  TEXT,
+      dom_legal_provincia   TEXT,
+      dom_legal_localidad   TEXT,
+      snapshot_anio_mes     TEXT,                         -- YYYYMM del snapshot del CSV
+      fuente_url            TEXT NOT NULL,
+      cargado_en            TEXT NOT NULL
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_rns_cuit ON rns_personas_juridicas(cuit) WHERE cuit IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_rns_dom_fiscal_prov ON rns_personas_juridicas(dom_fiscal_provincia)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_rns_dom_legal_prov ON rns_personas_juridicas(dom_legal_provincia)`)
+  } catch { /* ignore */ }
+
   // ─── Licitaciones (llamados sin adjudicación documentada) ───────────────────
   // Distinta de `contratos`: estos son LLAMADOS A LICITACIÓN con presupuesto
   // oficial estimado, sin proveedor adjudicatario conocido. No entran al motor
