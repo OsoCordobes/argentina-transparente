@@ -21,6 +21,8 @@ import { InterpretationBlock } from './InterpretationBlock'
 import { Onboarding } from './Onboarding'
 import { Ico } from './ArgosIcons'
 import argosApi from '@/lib/argos/api'
+import { expandirNodoGrafo } from '@/lib/queries'
+import { mergeNeo4jIntoGraph } from '@/lib/argos/graphFromData'
 import {
   saveThread,
   loadThread,
@@ -125,6 +127,7 @@ interface AppState {
 
 type AppAction =
   | { t: 'GRAPH_LOADED'; payload: ArgosGraph }
+  | { t: 'GRAPH_EXPANDED'; payload: ArgosGraph }
   | { t: 'THREAD_RESTORED'; thread: ChatMessage[] }
   | { t: 'SEARCH_SUBMIT'; query: string }
   | { t: 'FOCUS_NODE'; id: string | null }
@@ -156,6 +159,11 @@ const initialState: AppState = {
 function reducer(state: AppState, a: AppAction): AppState {
   switch (a.t) {
     case 'GRAPH_LOADED':
+      return { ...state, graph: a.payload }
+    case 'GRAPH_EXPANDED':
+      // Merge: nodes/edges nuevos se agregan al grafo existente sin perder
+      // el estado de simulación (posiciones x/y) de los nodos ya presentes.
+      // Ver mergeNeo4jIntoGraph (frontend/src/lib/argos/graphFromData.ts).
       return { ...state, graph: a.payload }
     case 'SEARCH_SUBMIT':
       return { ...state, searchQuery: a.query, isSearching: true }
@@ -910,10 +918,27 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
     argosApi.getNodeDetail(node.type, node.id).then((d) => {
       if (!cancel) dispatch({ t: 'PANEL_DETAIL_LOADED', detail: d })
     })
+
+    // Iter 8.2: si el nodo viene del grafo Neo4j (id formato `<tipo>:<clave>`),
+    // pedimos sus vecinos al backend y los mergeamos al grafo en pantalla.
+    // Eso convierte el click en una experiencia de exploración progresiva:
+    // toco un actor → aparecen sus relaciones reales (DIRIGE, OPERA_EN,
+    // CONFLICTO_CON, etc.).
+    if (s.selectedNodeId.includes(':')) {
+      expandirNodoGrafo(s.selectedNodeId).then((resp) => {
+        if (cancel) return
+        if (!resp || resp.nodes.length === 0) return
+        const merged = mergeNeo4jIntoGraph(s.graph, resp)
+        // Solo dispatch si efectivamente agregamos algo (evita re-render inútil)
+        if (merged.nodes.length > s.graph.nodes.length || merged.edges.length > s.graph.edges.length) {
+          dispatch({ t: 'GRAPH_EXPANDED', payload: merged })
+        }
+      }).catch(() => { /* fallback silencioso si Neo4j no está */ })
+    }
     return () => {
       cancel = true
     }
-  }, [s.selectedNodeId, s.graph.nodes])
+  }, [s.selectedNodeId, s.graph])
 
   const submit = useCallback(
     (q: string) => {

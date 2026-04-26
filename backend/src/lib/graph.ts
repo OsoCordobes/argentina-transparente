@@ -396,6 +396,44 @@ export async function getRedDeEmpresas(municipio: string, minShared = 2): Promis
   })
 }
 
+// ─── Señales en el grafo ─────────────────────────────────────────────────
+// Cada señal del motor (señales_cache en DuckDB) se representa como un nodo
+// Señal en Neo4j. Conectada a las empresas implicadas vía SEÑALA. Esto hace
+// que el grafo del landing /explorar muestre los hallazgos como puntos
+// destacados, no como tablas separadas.
+
+export async function upsertSeñalGrafo(data: {
+  id: string
+  tipologia: string
+  titulo: string
+  score: number
+  severidad: 'grave' | 'moderada' | 'leve'
+  cuitsImplicados: string[]
+}): Promise<void> {
+  if (!_available) return
+  await withSession(async s => {
+    await s.run(
+      `MERGE (sn:Señal {id: $id})
+       SET sn.tipologia = $tipologia,
+           sn.titulo = $titulo,
+           sn.score = $score,
+           sn.severidad = $severidad`,
+      data
+    )
+    if (data.cuitsImplicados.length > 0) {
+      await s.run(
+        `MATCH (sn:Señal {id: $id})
+         UNWIND $cuits AS cuit
+         OPTIONAL MATCH (e:Empresa {cuit: cuit})
+         FOREACH (emp IN CASE WHEN e IS NULL THEN [] ELSE [e] END |
+           MERGE (sn)-[:SEÑALA]->(emp)
+         )`,
+        { id: data.id, cuits: data.cuitsImplicados }
+      )
+    }
+  })
+}
+
 // ─── Mapa-neural cordobés ──────────────────────────────────────────────────
 //
 // Estos endpoints son los que alimentan el grafo de /explorar (Argos v2).
@@ -415,7 +453,7 @@ export interface GrafoNode {
 export interface GrafoEdge {
   source: string
   target: string
-  kind: 'dirige' | 'trabaja_en' | 'gano' | 'opera_en' | 'es_la_misma_persona' | 'comparte_director' | 'conflicto_con' | 'señalada_por' | 'tiene_director'
+  kind: 'dirige' | 'trabaja_en' | 'gano' | 'opera_en' | 'es_la_misma_persona' | 'comparte_director' | 'conflicto_con' | 'señalada_por' | 'tiene_director' | 'señala'
   weight: number
   data?: Record<string, unknown>
 }
@@ -471,6 +509,15 @@ export async function getGrafoNucleo(opts?: { limite?: number; municipio?: strin
        RETURN p, empresas, cnt
        ORDER BY cnt DESC
        LIMIT 20`
+    )
+
+    // Señales activas con sus empresas implicadas
+    const señales = await s.run(
+      `MATCH (sn:Señal)
+       OPTIONAL MATCH (sn)-[:SEÑALA]->(e:Empresa)
+       RETURN sn, collect(e) AS empresas
+       ORDER BY sn.score DESC
+       LIMIT 30`
     )
 
     const nodeMap = new Map<string, GrafoNode>()
@@ -580,6 +627,43 @@ export async function getGrafoNucleo(opts?: { limite?: number; municipio?: strin
       }
     }
 
+    // Señales como nodos destacados — el corazón de ARGOS visible en el grafo.
+    for (const rec of señales.records) {
+      const sn = rec.get('sn')
+      const props = sn.properties as Record<string, unknown>
+      const id = props.id as string
+      const score = (props.score as { toNumber?: () => number } | number | null)
+      const scoreNum = (score && typeof (score as { toNumber?: () => number }).toNumber === 'function')
+        ? (score as { toNumber: () => number }).toNumber()
+        : Number(score ?? 0)
+      const sevRaw = (props.severidad as string | null) ?? 'leve'
+      const sevValid: 'grave' | 'moderada' | 'leve' =
+        sevRaw === 'grave' || sevRaw === 'moderada' || sevRaw === 'leve' ? sevRaw : 'leve'
+      void sevValid
+      const señalId = `señal:${id}`
+      if (!nodeMap.has(señalId)) {
+        nodeMap.set(señalId, {
+          id: señalId,
+          type: 'señal',
+          label: (props.titulo as string) ?? (props.tipologia as string) ?? id,
+          subtitle: (props.tipologia as string) ?? undefined,
+          weight: Math.min(0.95, Math.max(0.5, scoreNum / 100)),
+          data: { ...props, score: scoreNum },
+        })
+      }
+      const empresas = rec.get('empresas') as Array<{ properties: Record<string, unknown> } | null>
+      for (const e of empresas ?? []) {
+        if (!e?.properties?.cuit) continue
+        pushEmpresa(e)
+        edges.push({
+          source: señalId,
+          target: `empresa:${e.properties.cuit}`,
+          kind: 'señala',
+          weight: 0.7,
+        })
+      }
+    }
+
     return { nodes: Array.from(nodeMap.values()), edges }
   })
 }
@@ -631,6 +715,17 @@ export async function expandirNodo(nodeId: string, depth = 1): Promise<Grafo> {
         WITH r, collect(DISTINCT {e: e, monto: op.monto, contratos: op.contratos}) AS empresasOp,
              collect(DISTINCT f)[0..50] AS funcionarios
         RETURN r, empresasOp, funcionarios`
+    } else if (tipo === 'señal') {
+      // Click en señal → trae empresas señaladas + sus directores y reparticiones
+      // (un nivel de expansión que aterriza al usuario en los actores reales).
+      cypher = `
+        MATCH (sn:Señal {id: $clave})
+        OPTIONAL MATCH (sn)-[:SEÑALA]->(e:Empresa)
+        OPTIONAL MATCH (p:PersonaFisica)-[:DIRIGE]->(e)
+        OPTIONAL MATCH (e)-[:OPERA_EN]->(r:Reparticion)
+        RETURN sn, collect(DISTINCT e) AS empresas,
+               collect(DISTINCT p)[0..10] AS personas,
+               collect(DISTINCT r) AS reparticiones`
     } else {
       return { nodes: [], edges: [] }
     }
@@ -714,6 +809,33 @@ export async function expandirNodo(nodeId: string, depth = 1): Promise<Grafo> {
         }
         for (const f of (rec.get('funcionarios') ?? []) as Array<{ properties: Record<string, unknown> }>) {
           const fId = addFunc(f); if (fId) edges.push({ source: fId, target: rId, kind: 'trabaja_en', weight: 0.4 })
+        }
+      } else if (tipo === 'señal') {
+        const sn = rec.get('sn')
+        if (!sn?.properties?.id) continue
+        const señalId = `señal:${sn.properties.id}`
+        if (!nodeMap.has(señalId)) {
+          const score = sn.properties.score
+          const scoreNum = (score && typeof (score as { toNumber?: () => number }).toNumber === 'function')
+            ? (score as { toNumber: () => number }).toNumber()
+            : Number(score ?? 0)
+          nodeMap.set(señalId, {
+            id: señalId,
+            type: 'señal',
+            label: (sn.properties.titulo as string) ?? (sn.properties.tipologia as string) ?? sn.properties.id as string,
+            subtitle: (sn.properties.tipologia as string) ?? undefined,
+            weight: Math.min(0.95, Math.max(0.5, scoreNum / 100)),
+            data: { ...sn.properties, score: scoreNum },
+          })
+        }
+        for (const e of (rec.get('empresas') ?? []) as Array<{ properties: Record<string, unknown> }>) {
+          const eId = addEmpresa(e); if (eId) edges.push({ source: señalId, target: eId, kind: 'señala', weight: 0.7 })
+        }
+        for (const p of (rec.get('personas') ?? []) as Array<{ properties: Record<string, unknown> }>) {
+          addPersona(p)
+        }
+        for (const r of (rec.get('reparticiones') ?? []) as Array<{ properties: Record<string, unknown> }>) {
+          addRep(r)
         }
       }
     }
