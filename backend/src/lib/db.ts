@@ -495,6 +495,22 @@ export async function initDb(): Promise<void> {
     )
   `)
 
+  // ─── Padrón provincial proveedores Córdoba (Phase F4) ────────────────────
+  // Dataset 281 del portal gobiernoabierto.cordoba.gob.ar — proveedores
+  // habilitados con CUIT verificado. Distinto de `proveedores_padron`
+  // (catálogo agregado): esta tabla es source-of-truth para el identity
+  // resolver Tier 1 sobre la jurisdicción Córdoba específicamente.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS empresas_padron_provincial (
+      cuit                TEXT PRIMARY KEY,
+      razon_social        TEXT NOT NULL,
+      rubro               TEXT,
+      inicio_inscripcion  TEXT,
+      fuente_url          TEXT NOT NULL,
+      cargado_en          TEXT NOT NULL
+    )
+  `)
+
   // ─── Identity resolution tiered (Phase F3) ────────────────────────────────
   // Cache de la resolución empresa↔CUIT por nombre normalizado. Cada match
   // declara su tier (1=cuit_exact, 2=name_normalized, 3=name_fuzzy_high,

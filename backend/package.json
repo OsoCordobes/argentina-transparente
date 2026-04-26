@@ -29,6 +29,7 @@
     "seed:cordoba-historico": "npx ts-node src/scripts/seed-cordoba-historico.ts",
     "seed:licitaciones-historicas": "npx ts-node src/scripts/seed-licitaciones-historicas.ts",
     "seed:proveedores-padron": "npx ts-node src/scripts/seed-proveedores-padron.ts",
+    "seed:cordoba-padron-prov": "npx ts-node src/scripts/seed-cordoba-padron-proveedores.ts",
     "seed:cordoba-sueldos": "npx ts-node src/scripts/seed-cordoba-sueldos.ts",
     "seed:cordoba-provincia": "npx ts-node src/scripts/seed-cordoba-provincia.ts",
     "seed:cordoba-presupuesto": "npx ts-node src/scripts/seed-cordoba-presupuesto.ts",
