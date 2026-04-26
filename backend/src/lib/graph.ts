@@ -672,6 +672,130 @@ export async function getGrafoNucleo(opts?: { limite?: number; municipio?: strin
 }
 
 /**
+ * Stats globales del grafo Neo4j cordobés. Útil para el dashboard del
+ * landing — muestra "X funcionarios, Y empresas, Z conexiones, K
+ * conflictos potenciales" sin necesidad de cargar todo el subgrafo.
+ */
+export interface GrafoStats {
+  nodos: { empresa: number; persona: number; funcionario: number; reparticion: number; contrato: number; señal: number }
+  aristas: { dirige: number; trabaja_en: number; gano: number; opera_en: number; emite: number; es_la_misma_persona: number; conflicto_con: number; señala: number }
+  topPersonasPorEmpresas: Array<{ dni: string; nombre: string; empresas: number }>
+  topEmpresasPorOpera: Array<{ cuit: string; nombre: string; reparticiones: number; monto: number }>
+  conflictosPotenciales: Array<{
+    funcionario: string
+    funcionarioReparticion: string | null
+    empresa: string
+    empresaOperaEn: string
+    tier: 1 | 2 | null
+    metodo: string | null
+  }>
+}
+
+export async function getGrafoStats(): Promise<GrafoStats | null> {
+  if (!_available) return null
+  return withSession(async s => {
+    const toNum = (v: unknown): number => {
+      if (v == null) return 0
+      if (typeof v === 'object' && 'toNumber' in (v as { toNumber?: () => number })) {
+        return (v as { toNumber: () => number }).toNumber()
+      }
+      return Number(v)
+    }
+
+    // Conteo por label en una sola query
+    const labelsR = await s.run(
+      `MATCH (n)
+       RETURN labels(n)[0] AS label, count(n) AS cnt`
+    )
+    const nodos = { empresa: 0, persona: 0, funcionario: 0, reparticion: 0, contrato: 0, señal: 0 }
+    for (const r of labelsR.records) {
+      const lbl = (r.get('label') as string) ?? ''
+      const cnt = toNum(r.get('cnt'))
+      if (lbl === 'Empresa') nodos.empresa = cnt
+      else if (lbl === 'PersonaFisica') nodos.persona = cnt
+      else if (lbl === 'Funcionario') nodos.funcionario = cnt
+      else if (lbl === 'Reparticion') nodos.reparticion = cnt
+      else if (lbl === 'Contrato') nodos.contrato = cnt
+      else if (lbl === 'Señal') nodos.señal = cnt
+    }
+
+    const relsR = await s.run(
+      `MATCH ()-[r]->()
+       RETURN type(r) AS rel, count(r) AS cnt`
+    )
+    const aristas = { dirige: 0, trabaja_en: 0, gano: 0, opera_en: 0, emite: 0, es_la_misma_persona: 0, conflicto_con: 0, señala: 0 }
+    for (const r of relsR.records) {
+      const rel = (r.get('rel') as string) ?? ''
+      const cnt = toNum(r.get('cnt'))
+      if (rel === 'DIRIGE') aristas.dirige = cnt
+      else if (rel === 'TRABAJA_EN') aristas.trabaja_en = cnt
+      else if (rel === 'GANÓ') aristas.gano = cnt
+      else if (rel === 'OPERA_EN') aristas.opera_en = cnt
+      else if (rel === 'EMITE') aristas.emite = cnt
+      else if (rel === 'ES_LA_MISMA_PERSONA') aristas.es_la_misma_persona = cnt
+      else if (rel === 'CONFLICTO_CON') aristas.conflicto_con = cnt
+      else if (rel === 'SEÑALA') aristas.señala = cnt
+    }
+
+    // Top personas por # empresas dirigidas
+    const topP = await s.run(
+      `MATCH (p:PersonaFisica)-[:DIRIGE]->(e:Empresa)
+       WITH p, count(e) AS empresas
+       WHERE empresas >= 2
+       RETURN p.dni AS dni, p.nombre AS nombre, empresas
+       ORDER BY empresas DESC LIMIT 10`
+    )
+    const topPersonasPorEmpresas = topP.records.map(r => ({
+      dni: (r.get('dni') as string) ?? '',
+      nombre: (r.get('nombre') as string) ?? '',
+      empresas: toNum(r.get('empresas')),
+    }))
+
+    // Top empresas por reparticiones donde operan
+    const topE = await s.run(
+      `MATCH (e:Empresa)-[op:OPERA_EN]->(r:Reparticion)
+       WITH e, count(DISTINCT r) AS nrep, sum(op.monto) AS monto
+       RETURN e.cuit AS cuit, e.nombre AS nombre, nrep, monto
+       ORDER BY nrep DESC, monto DESC LIMIT 10`
+    )
+    const topEmpresasPorOpera = topE.records.map(r => ({
+      cuit: (r.get('cuit') as string) ?? '',
+      nombre: (r.get('nombre') as string) ?? '',
+      reparticiones: toNum(r.get('nrep')),
+      monto: toNum(r.get('monto')),
+    }))
+
+    // Conflictos potenciales: Funcionario ES_LA_MISMA_PERSONA →
+    // PersonaFisica → DIRIGE → Empresa → OPERA_EN → Reparticion. Si
+    // además el Funcionario TRABAJA_EN la misma reparticion, es Tier
+    // verificado. Si no, es potencial.
+    const confR = await s.run(
+      `MATCH (f:Funcionario)-[link:ES_LA_MISMA_PERSONA]->(p:PersonaFisica)
+            -[:DIRIGE]->(e:Empresa)-[:OPERA_EN]->(r2:Reparticion)
+       OPTIONAL MATCH (f)-[:TRABAJA_EN]->(r1:Reparticion)
+       RETURN f.nombre AS funcionario, r1.nombre AS funcRep,
+              e.nombre AS empresa, r2.nombre AS empOpera,
+              link.tier AS tier, link.metodo AS metodo
+       LIMIT 20`
+    )
+    const conflictosPotenciales = confR.records.map(r => {
+      const tierRaw = toNum(r.get('tier'))
+      const tier: 1 | 2 | null = tierRaw === 1 ? 1 : tierRaw === 2 ? 2 : null
+      return {
+        funcionario: (r.get('funcionario') as string) ?? '',
+        funcionarioReparticion: (r.get('funcRep') as string | null) ?? null,
+        empresa: (r.get('empresa') as string) ?? '',
+        empresaOperaEn: (r.get('empOpera') as string) ?? '',
+        tier,
+        metodo: (r.get('metodo') as string | null) ?? null,
+      }
+    })
+
+    return { nodos, aristas, topPersonasPorEmpresas, topEmpresasPorOpera, conflictosPotenciales }
+  })
+}
+
+/**
  * Carga vecinos del nodo enfocado. Funciona para todos los tipos.
  * IDs son `<tipo>:<clave>` (ej. "empresa:30707285504", "persona:14012698").
  */

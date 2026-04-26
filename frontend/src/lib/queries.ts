@@ -485,6 +485,31 @@ export function useGrafoNucleo(limite = 200) {
   })
 }
 
+export interface GrafoStatsResponse {
+  graphAvailable: boolean
+  nodos?: { empresa: number; persona: number; funcionario: number; reparticion: number; contrato: number; señal: number }
+  aristas?: { dirige: number; trabaja_en: number; gano: number; opera_en: number; emite: number; es_la_misma_persona: number; conflicto_con: number; señala: number }
+  topPersonasPorEmpresas?: Array<{ dni: string; nombre: string; empresas: number }>
+  topEmpresasPorOpera?: Array<{ cuit: string; nombre: string; reparticiones: number; monto: number }>
+  conflictosPotenciales?: Array<{
+    funcionario: string
+    funcionarioReparticion: string | null
+    empresa: string
+    empresaOperaEn: string
+    tier: 1 | 2 | null
+    metodo: string | null
+  }>
+}
+
+export function useGrafoStats() {
+  return useQuery({
+    queryKey: ['grafo', 'stats'],
+    queryFn: () => fetchJSON<GrafoStatsResponse>('/api/grafo/stats'),
+    staleTime: 5 * 60_000,
+    retry: 0,
+  })
+}
+
 export async function expandirNodoGrafo(nodeId: string): Promise<GrafoNeo4jResponse> {
   return fetchJSON<GrafoNeo4jResponse>(`/api/grafo/expand/${encodeURIComponent(nodeId)}`)
 }

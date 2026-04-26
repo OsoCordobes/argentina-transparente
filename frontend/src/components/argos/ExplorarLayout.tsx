@@ -21,7 +21,7 @@ import { InterpretationBlock } from './InterpretationBlock'
 import { Onboarding } from './Onboarding'
 import { Ico } from './ArgosIcons'
 import argosApi from '@/lib/argos/api'
-import { expandirNodoGrafo } from '@/lib/queries'
+import { expandirNodoGrafo, useGrafoStats } from '@/lib/queries'
 import { mergeNeo4jIntoGraph } from '@/lib/argos/graphFromData'
 import {
   saveThread,
@@ -519,6 +519,7 @@ function Sidebar({
           onClear={onChatClear}
         />
       )}
+      <SidebarHallazgos />
       <div className="sidebar-foot">
         <div className="row" style={{ marginBottom: 6 }}>
           <span className="dot-live" /> <span className="text">Backend conectado</span>
@@ -528,6 +529,81 @@ function Sidebar({
         </div>
       </div>
     </aside>
+  )
+}
+
+/**
+ * Iter 8.7 análisis-datos: panel inferior del sidebar que muestra hallazgos
+ * derivados del grafo Neo4j en tiempo real:
+ *   - Top personas con poder visible (≥2 empresas dirigidas)
+ *   - Top empresas operando en más reparticiones
+ *   - Conflictos potenciales (funcionario↔empresa via apellido)
+ */
+function SidebarHallazgos() {
+  const { data } = useGrafoStats()
+  if (!data?.graphAvailable) return null
+
+  const conflictos = data.conflictosPotenciales ?? []
+  const topPersonas = (data.topPersonasPorEmpresas ?? []).slice(0, 3)
+  const topEmpresas = (data.topEmpresasPorOpera ?? []).slice(0, 3)
+
+  if (topPersonas.length === 0 && topEmpresas.length === 0 && conflictos.length === 0) return null
+
+  return (
+    <div style={{
+      borderTop: '1px solid var(--stroke)',
+      padding: '12px 14px',
+      maxHeight: '40vh',
+      overflowY: 'auto',
+      fontSize: 11,
+    }}>
+      <div style={{
+        fontSize: 10,
+        textTransform: 'uppercase',
+        letterSpacing: '0.12em',
+        color: 'var(--text-3)',
+        marginBottom: 8,
+      }}>
+        Mapa del poder
+      </div>
+
+      {topPersonas.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ color: 'var(--text-2)', marginBottom: 4 }}>
+            Personas con más empresas dirigidas
+          </div>
+          {topPersonas.map((p) => (
+            <div key={p.dni} style={{ color: 'var(--text)', lineHeight: 1.4 }} className="mono">
+              {p.empresas}× {p.nombre.slice(0, 28)}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {topEmpresas.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ color: 'var(--text-2)', marginBottom: 4 }}>
+            Empresas en más áreas del Estado
+          </div>
+          {topEmpresas.map((e) => (
+            <div key={e.cuit} style={{ color: 'var(--text)', lineHeight: 1.4 }} className="mono">
+              {e.reparticiones} áreas · {e.nombre.slice(0, 26)}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {conflictos.length > 0 && (
+        <div>
+          <div style={{ color: 'var(--ambar, #F5B544)', marginBottom: 4 }}>
+            ⚠ {conflictos.length} cruces potenciales (Tier 2)
+          </div>
+          <div style={{ color: 'var(--text-3)', fontSize: 10, fontStyle: 'italic' }}>
+            Funcionario y director de empresa con mismo apellido — homonimia probable, requieren verificación.
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 

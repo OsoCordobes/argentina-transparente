@@ -12,7 +12,7 @@
 // para que el frontend pueda fallback a un mensaje "grafo no disponible".
 
 import { Router, Request, Response } from 'express'
-import { getGrafoNucleo, expandirNodo, isGraphAvailable } from '../lib/graph'
+import { getGrafoNucleo, expandirNodo, getGrafoStats, isGraphAvailable } from '../lib/graph'
 
 const grafoRouter = Router()
 export default grafoRouter
@@ -26,6 +26,18 @@ grafoRouter.get('/nucleo', async (req: Request, res: Response) => {
   try {
     const grafo = await getGrafoNucleo({ limite, municipio })
     res.json({ ...grafo, graphAvailable: true })
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message })
+  }
+})
+
+grafoRouter.get('/stats', async (_req: Request, res: Response) => {
+  if (!isGraphAvailable()) {
+    return res.json({ graphAvailable: false })
+  }
+  try {
+    const stats = await getGrafoStats()
+    res.json({ ...stats, graphAvailable: true })
   } catch (err) {
     res.status(500).json({ error: (err as Error).message })
   }
