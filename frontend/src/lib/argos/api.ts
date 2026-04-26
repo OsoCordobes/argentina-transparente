@@ -221,11 +221,11 @@ function entidadResponseToDetail(
     },
   }))
 
-  // Top 10 contratos para Feature A (lista clickeable)
+  // Lista completa de contratos del proveedor (hasta 500 viene del backend).
+  // El panel los filtra/ordena client-side y muestra los top N visibles.
   const contratos: NodeContrato[] = (resp.contratos ?? [])
     .slice()
     .sort((a, b) => b.monto - a.monto)
-    .slice(0, 10)
     .map((c) => ({
       hash: c.hash,
       anio: c.anio,

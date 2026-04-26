@@ -182,12 +182,17 @@ export function NodeDetailPanel({
   const [accSrc, setAccSrc] = useState(false)
   const [expanded, setExpanded] = useState<Record<number, boolean>>({})
   const [relFilter, setRelFilter] = useState<RelFilter>('todos')
+  // Feature B — filtros año/área sobre lista de contratos del proveedor
+  const [yearFilter, setYearFilter] = useState<number | null>(null)
+  const [areaFilter, setAreaFilter] = useState<string | null>(null)
 
   // Reset de filtros al cambiar de nodo (mismo deps que el .jsx).
   useEffect(() => {
     setAccSrc(false)
     setExpanded({})
     setRelFilter('todos')
+    setYearFilter(null)
+    setAreaFilter(null)
   }, [detail?.node?.id])
 
   // ESC cierra el panel.
@@ -372,84 +377,247 @@ export function NodeDetailPanel({
                 })}
               </div>
 
-              {/* Feature A — Top contratos del proveedor con fuente clickeable */}
-              {detail.contratos && detail.contratos.length > 0 && (
-                <>
-                  <div className="section-title">
-                    Top contratos ({detail.contratos.length})
-                  </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 6,
-                      marginBottom: 14,
-                    }}
-                  >
-                    {detail.contratos.map((c) => (
-                      <a
-                        key={c.hash}
-                        href={c.fuenteUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
+              {/* Feature A+B — Top contratos con filtros año/área client-side */}
+              {detail.contratos && detail.contratos.length > 0 && (() => {
+                // Universos (todos los años/áreas que aparecen en los contratos)
+                const allYears = [...new Set(detail.contratos.map((c) => c.anio))]
+                  .sort((a, b) => b - a)
+                const allAreas = [...new Set(detail.contratos.map((c) => c.area).filter(Boolean))]
+                  .sort()
+
+                // Aplicar filtros
+                const filtered = detail.contratos.filter(
+                  (c) =>
+                    (yearFilter === null || c.anio === yearFilter) &&
+                    (areaFilter === null || c.area === areaFilter),
+                )
+
+                // Recompute KPI compacto si hay filtro activo
+                const filtroActivo = yearFilter !== null || areaFilter !== null
+                const montoFiltrado = filtered.reduce((s, c) => s + c.monto, 0)
+                const totalDelProveedor = detail.contratos.reduce((s, c) => s + c.monto, 0)
+                const pctDelTotal = totalDelProveedor > 0
+                  ? (montoFiltrado / totalDelProveedor) * 100
+                  : 0
+
+                const visibles = filtered.slice(0, 10)
+
+                return (
+                  <>
+                    <div className="section-title">
+                      Top contratos ({filtered.length}
+                      {filtered.length !== detail.contratos.length
+                        ? ` de ${detail.contratos.length}`
+                        : ''})
+                    </div>
+
+                    {/* Chips de filtros */}
+                    {(allYears.length > 1 || allAreas.length > 1) && (
+                      <div style={{ marginBottom: 10 }}>
+                        {allYears.length > 1 && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: 4,
+                              marginBottom: 6,
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: 10,
+                                color: 'var(--text-3)',
+                                alignSelf: 'center',
+                                marginRight: 4,
+                              }}
+                            >
+                              Año:
+                            </span>
+                            <button
+                              type="button"
+                              className={`rel-filter ${yearFilter === null ? 'active' : ''}`}
+                              onClick={() => setYearFilter(null)}
+                              style={{ fontSize: 10 }}
+                            >
+                              Todos
+                            </button>
+                            {allYears.map((y) => (
+                              <button
+                                key={y}
+                                type="button"
+                                className={`rel-filter ${yearFilter === y ? 'active' : ''}`}
+                                onClick={() =>
+                                  setYearFilter(yearFilter === y ? null : y)
+                                }
+                                style={{ fontSize: 10 }}
+                              >
+                                {y}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {allAreas.length > 1 && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: 4,
+                              marginBottom: 6,
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: 10,
+                                color: 'var(--text-3)',
+                                alignSelf: 'center',
+                                marginRight: 4,
+                              }}
+                            >
+                              Área:
+                            </span>
+                            <button
+                              type="button"
+                              className={`rel-filter ${areaFilter === null ? 'active' : ''}`}
+                              onClick={() => setAreaFilter(null)}
+                              style={{ fontSize: 10 }}
+                            >
+                              Todas
+                            </button>
+                            {allAreas.slice(0, 8).map((a) => (
+                              <button
+                                key={a}
+                                type="button"
+                                className={`rel-filter ${areaFilter === a ? 'active' : ''}`}
+                                onClick={() =>
+                                  setAreaFilter(areaFilter === a ? null : a)
+                                }
+                                style={{ fontSize: 10 }}
+                                title={a}
+                              >
+                                {a.length > 22 ? a.slice(0, 20) + '…' : a}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* KPI inline cuando hay filtro activo */}
+                    {filtroActivo && (
+                      <div
                         style={{
-                          display: 'block',
-                          padding: '8px 10px',
-                          border: '1px solid var(--stroke)',
+                          padding: '6px 10px',
+                          border: '1px solid var(--celeste)',
                           borderRadius: 6,
-                          textDecoration: 'none',
-                          color: 'var(--text)',
-                          background: 'var(--bg-panel)',
+                          marginBottom: 10,
                           fontSize: 11,
-                          lineHeight: 1.4,
+                          color: 'var(--text-2)',
+                          background: 'rgba(111,184,232,0.06)',
                         }}
-                        title={c.descripcion}
+                        className="mono"
                       >
+                        <span style={{ color: 'var(--celeste)' }}>●</span>{' '}
+                        Filtrado: ${formatNumberCompact(montoFiltrado)} ARS en{' '}
+                        {filtered.length} contrato{filtered.length === 1 ? '' : 's'}
+                        {' · '}
+                        <span style={{ color: 'var(--text-3)' }}>
+                          {pctDelTotal.toFixed(1)}% del total del proveedor
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Lista visible (top 10 del subset filtrado) */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 6,
+                        marginBottom: 14,
+                      }}
+                    >
+                      {visibles.length === 0 ? (
                         <div
                           style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            gap: 8,
-                            marginBottom: 2,
-                          }}
-                        >
-                          <span
-                            className="mono"
-                            style={{ color: 'var(--celeste)' }}
-                          >
-                            {c.anio} · {c.area || 'sin área'}
-                          </span>
-                          <span
-                            className="mono"
-                            style={{ color: 'var(--text-2)', whiteSpace: 'nowrap' }}
-                          >
-                            ${formatNumberCompact(c.monto)}
-                          </span>
-                        </div>
-                        <div
-                          style={{
+                            padding: 12,
+                            border: '1px dashed var(--stroke)',
+                            borderRadius: 6,
                             color: 'var(--text-3)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
+                            fontSize: 11,
+                            textAlign: 'center',
                           }}
                         >
-                          {c.descripcion || c.tipo || '(sin descripción)'}
+                          Sin contratos con esos filtros
                         </div>
-                        <div
-                          style={{
-                            marginTop: 4,
-                            fontSize: 10,
-                            color: 'var(--text-3)',
-                          }}
-                        >
-                          ↗ Ver fuente original
-                        </div>
-                      </a>
-                    ))}
-                  </div>
-                </>
-              )}
+                      ) : (
+                        visibles.map((c) => (
+                          <a
+                            key={c.hash}
+                            href={c.fuenteUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              display: 'block',
+                              padding: '8px 10px',
+                              border: '1px solid var(--stroke)',
+                              borderRadius: 6,
+                              textDecoration: 'none',
+                              color: 'var(--text)',
+                              background: 'var(--bg-panel)',
+                              fontSize: 11,
+                              lineHeight: 1.4,
+                            }}
+                            title={c.descripcion}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                gap: 8,
+                                marginBottom: 2,
+                              }}
+                            >
+                              <span
+                                className="mono"
+                                style={{ color: 'var(--celeste)' }}
+                              >
+                                {c.anio} · {c.area || 'sin área'}
+                              </span>
+                              <span
+                                className="mono"
+                                style={{
+                                  color: 'var(--text-2)',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                ${formatNumberCompact(c.monto)}
+                              </span>
+                            </div>
+                            <div
+                              style={{
+                                color: 'var(--text-3)',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {c.descripcion || c.tipo || '(sin descripción)'}
+                            </div>
+                            <div
+                              style={{
+                                marginTop: 4,
+                                fontSize: 10,
+                                color: 'var(--text-3)',
+                              }}
+                            >
+                              ↗ Ver fuente original
+                            </div>
+                          </a>
+                        ))
+                      )}
+                    </div>
+                  </>
+                )
+              })()}
 
               {/* Relaciones con filtros */}
               {detail.relaciones.length > 0 &&

@@ -153,7 +153,13 @@ router.get('/:nombre', async (req: Request, res: Response) => {
         topArea,
         fechaActualizacion,
         metodoDominante,
-        contratos: contratos.slice(0, 100).map(mapContrato),
+        // Top 500 contratos por monto (suficiente para cualquier proveedor
+        // real y permite filtros año/área client-side sin perder datos).
+        contratos: contratos
+          .slice()
+          .sort((a, b) => b.monto - a.monto)
+          .slice(0, 500)
+          .map(mapContrato),
         señales,
       },
     })
