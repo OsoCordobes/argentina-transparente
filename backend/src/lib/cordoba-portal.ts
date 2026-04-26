@@ -94,6 +94,66 @@ export function parsearTabla(buffer: Buffer): Record<string, unknown>[] {
   return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null })
 }
 
+/**
+ * Variante robusta a XLSX con filas-título antes del header real.
+ * Lee el sheet como array de arrays, busca la primera fila que contenga
+ * ≥`minMatches` palabras de `headerKeywords`, y la usa como header.
+ *
+ * Caso real: dataset 14/65/12 (Presupuesto Córdoba) tienen 1-2 filas con
+ * títulos como "PRESUPUESTO GENERAL DE GASTOS PARA EL EJERCICIO 2024"
+ * antes del header tabular ("Partida", "Programa", "Crédito Vigente", etc.).
+ *
+ * Si no encuentra header válido, fallback a parsearTabla() estándar.
+ */
+export function parsearTablaConHeaderDetectable(
+  buffer: Buffer,
+  headerKeywords: string[],
+  opts?: { minMatches?: number; maxScanRows?: number }
+): Record<string, unknown>[] {
+  const minMatches = opts?.minMatches ?? 2
+  const maxScanRows = opts?.maxScanRows ?? 10
+
+  const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true })
+  const sheet = wb.Sheets[wb.SheetNames[0]]
+  // Leer como AOA (array of arrays) para escanear celdas crudas
+  const aoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+    header: 1,
+    defval: null,
+    blankrows: false,
+  })
+
+  if (aoa.length === 0) return []
+
+  const kwLower = headerKeywords.map(k => k.toLowerCase())
+  let headerRowIdx = -1
+
+  for (let i = 0; i < Math.min(maxScanRows, aoa.length); i++) {
+    const row = aoa[i]
+    if (!Array.isArray(row)) continue
+    const cellsLower = row
+      .filter((v): v is string | number => v !== null && v !== undefined)
+      .map(v => String(v).toLowerCase())
+    const matches = kwLower.filter(kw =>
+      cellsLower.some(c => c.includes(kw))
+    ).length
+    if (matches >= minMatches) {
+      headerRowIdx = i
+      break
+    }
+  }
+
+  if (headerRowIdx < 0) {
+    // No encontramos header — fallback al parser estándar
+    return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null })
+  }
+
+  // Re-parse con range = headerRowIdx (XLSX usa "range" para skip filas)
+  return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+    defval: null,
+    range: headerRowIdx,
+  })
+}
+
 // Helper: extraer año de un título de versión ("Sueldos 2023-04", "Presupuesto 2018", etc.)
 export function inferirAnioDesdeTitulo(titulo: string): number | null {
   const m = titulo.match(/\b(20\d{2}|19\d{2})\b/)

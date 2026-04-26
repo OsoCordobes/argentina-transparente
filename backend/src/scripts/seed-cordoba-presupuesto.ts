@@ -14,7 +14,8 @@ import {
   initDb, dbRun, registrarFuente, registrarFuenteCatalogo,
 } from '../lib/db'
 import {
-  listarVersionesDataset, descargarRecursoDeVersion, parsearTabla,
+  listarVersionesDataset, descargarRecursoDeVersion,
+  parsearTablaConHeaderDetectable,
   inferirAnioMesDesdeTitulo, parseMontoAR,
 } from '../lib/cordoba-portal'
 import type { FuenteMetadata } from '../types'
@@ -71,19 +72,41 @@ async function procesarDataset(d: DatasetPresup): Promise<number> {
   let totalInserted = 0
   const now = new Date().toISOString()
 
+  let skipSinAnio = 0
+  let skipSinXls = 0
+  let procesadas = 0
+
   for (const v of versiones) {
     const { anio, mes } = inferirAnioMesDesdeTitulo(v.titulo)
-    if (!anio) continue
+    if (!anio) {
+      skipSinAnio++
+      continue
+    }
 
     let descarga: Awaited<ReturnType<typeof descargarRecursoDeVersion>>
     try {
       descarga = await descargarRecursoDeVersion(d.datasetId, v.id, ['xls', 'csv'])
     } catch {
+      skipSinXls++
       continue
     }
-    if (!descarga) continue
+    if (!descarga) {
+      skipSinXls++
+      continue
+    }
+    procesadas++
 
-    const filas = parsearTabla(descarga.buffer)
+    // Los XLSX de presupuesto tienen 1-2 filas título antes del header
+    // tabular real. Buscamos la primera fila con keywords típicas.
+    const filas = parsearTablaConHeaderDetectable(
+      descarga.buffer,
+      [
+        'partida', 'programa', 'jurisdic', 'codigo', 'denomina',
+        'credito', 'devengado', 'pagado', 'comprometido', 'vigente',
+        'recurso', 'recaudado', 'estimado',
+      ],
+      { minMatches: 2, maxScanRows: 10 },
+    )
     let nuevos = 0
 
     for (const row of filas) {
@@ -123,11 +146,16 @@ async function procesarDataset(d: DatasetPresup): Promise<number> {
       } catch { /* dup */ }
     }
     if (nuevos > 0) {
-      console.log(`  v${v.id} (${anio}${mes ? '-' + String(mes).padStart(2, '0') : ''}): ${nuevos} filas`)
+      console.log(`  v${v.id} (${anio}${mes ? '-' + String(mes).padStart(2, '0') : ''}): ${nuevos} filas (${filas.length} parseadas)`)
+    } else if (filas.length > 0) {
+      // Versión con filas pero todas descartadas → log para diagnosticar
+      const sample = filas[0] ? Object.keys(filas[0]).slice(0, 6).join(', ') : '∅'
+      console.log(`  v${v.id} (${anio}): 0 insertadas de ${filas.length} filas. Cols sample: ${sample}`)
     }
     totalInserted += nuevos
   }
 
+  console.log(`  → procesadas ${procesadas}, sin año ${skipSinAnio}, sin xls/csv ${skipSinXls}`)
   return totalInserted
 }
 
