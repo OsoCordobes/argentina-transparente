@@ -452,22 +452,37 @@ function GraphCanvasInner({
   }, [size.w, size.h])
 
   // ─── Pan/zoom on focus change ────────────────────────────────────────────
+  // Iter 8.15: el nodo focado puede haber sido agregado por
+  // expandirNodoGrafo (click desde sidebar Mapa del poder) y todavía
+  // no estar en simRef. Usamos un timer + retry cuando snapshot cambia
+  // para asegurar que el pan llegue al nodo nuevo.
 
   useEffect(() => {
-    if (!focusedId || !simRef.current) return
-    const node = simRef.current.nodes.find((n) => n.id === focusedId)
-    if (!node) return
-    const t = setTimeout(() => {
+    if (!focusedId) return
+    let cancelled = false
+    const tryFocus = (attempts: number) => {
+      if (cancelled) return
+      const node = simRef.current?.nodes.find((n) => n.id === focusedId)
+      if (!node) {
+        if (attempts > 0) setTimeout(() => tryFocus(attempts - 1), 200)
+        return
+      }
       const cx = size.w / 2
       const cy = size.h / 2
-      const k = node.type === 'jurisdiccion' ? 1.15 : 1.45
+      const k = (node.type === 'jurisdiccion' || node.type === 'reparticion')
+        ? 1.15
+        : 1.45
       const nx = node.x ?? cx
       const ny = node.y ?? cy
       targetView.current = { k, tx: cx - nx * k, ty: cy - ny * k }
       simRef.current?.sim.alpha(0.18).restart()
-    }, 280)
-    return () => clearTimeout(t)
-  }, [focusedId, size.w, size.h])
+    }
+    const t = setTimeout(() => tryFocus(5), 280)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [focusedId, size.w, size.h, snapshot])
 
   // ─── Wheel/pan input ─────────────────────────────────────────────────────
 
