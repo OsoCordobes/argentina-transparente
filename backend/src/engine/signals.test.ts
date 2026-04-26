@@ -1101,3 +1101,97 @@ describe('normalizarProveedor', () => {
     expect(twice).toBe(once)
   })
 })
+
+// ─── F2.4: caveat en detectores Tier 2 ─────────────────────────────────────
+// La auditoría legal 2026-04-26 marca 6 detectores como Tier 2 (indicio).
+// Cada uno debe poblar señal.caveat con el texto del config para que la UI
+// pueda mostrar el aviso "señal técnica, no acusación".
+
+describe('F2.4 — caveat en detectores Tier 2', () => {
+  it('detectarConcentracion (Tier 2): la señal lleva caveat', () => {
+    const contratos = [
+      c({ proveedor: 'GIGANTE SA', monto: 70_000_000 }),
+      c({ proveedor: 'OTRO', monto: 30_000_000 }),
+    ]
+    const señal = detectarConcentracion(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.caveat).toBeDefined()
+    expect(señal!.caveat!.length).toBeGreaterThan(20)
+  })
+
+  it('detectarMonopolioRubro (Tier 2): la señal lleva caveat', () => {
+    const contratos = [
+      c({ area: 'OBRAS', proveedor: 'A', monto: 80_000_000 }),
+      c({ area: 'OBRAS', proveedor: 'B', monto: 10_000_000 }),
+      c({ area: 'OBRAS', proveedor: 'C', monto: 10_000_000 }),
+    ]
+    const señal = detectarMonopolioRubro(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.caveat).toBeDefined()
+  })
+
+  it('detectarServiciosSinHistorial (Tier 2): la señal lleva caveat', () => {
+    const contratos = [
+      c({ proveedor: 'NUEVA LIMPIEZA SA', descripcion: 'Servicio LIMPIEZA general', monto: 60_000_000 }),
+    ]
+    const señal = detectarServiciosSinHistorial(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.caveat).toBeDefined()
+    expect(señal!.caveat!.toLowerCase()).toContain('novedad')
+  })
+
+  it('detectarConcentracionTemporal (Tier 2): la señal lleva caveat', () => {
+    const contratos = [
+      c({ tipo: 'PRORROGA', proveedor: 'A', monto: 60_000_000, anio: 2023 }),
+      c({ tipo: 'LICITACION', proveedor: 'B', monto: 40_000_000, anio: 2023 }),
+    ]
+    const señal = detectarConcentracionTemporal(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.caveat).toBeDefined()
+  })
+
+  it('detectarProveedorCronico (Tier 2): la señal lleva caveat', () => {
+    const contratos = [
+      c({ proveedor: 'CRONICO SA', monto: 30_000_000, anio: 2020 }),
+      c({ proveedor: 'CRONICO SA', monto: 30_000_000, anio: 2021 }),
+      c({ proveedor: 'CRONICO SA', monto: 30_000_000, anio: 2022 }),
+    ]
+    const señal = detectarProveedorCronico(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.caveat).toBeDefined()
+    expect(señal!.caveat!.toLowerCase()).toContain('no es')
+  })
+
+  it('detectarEmpresaNueva (Tier 2): la señal lleva caveat', () => {
+    const emp = new Map([
+      ['NUEVA SRL', { cuit: '30123456789', razonSocial: null, esEmpleador: true, inicioActividades: '15/06/2023', estado: 'ACTIVO', actividadPrincipal: null, directores: [], encontrado: true, fuenteUrl: 'https://x' }],
+    ])
+    const contratos = [c({ proveedor: 'NUEVA SRL', anio: 2023, monto: 15_000_000 })]
+    const señal = detectarEmpresaNueva(contratos, emp)
+    expect(señal).not.toBeNull()
+    expect(señal!.caveat).toBeDefined()
+  })
+
+  // Verificación negativa: detectores Tier 1 NO llevan caveat (es opcional
+  // y solo lo poblan los Tier 2).
+  it('detectarProrrogas (Tier 1): la señal NO tiene caveat', () => {
+    const contratos = [
+      c({ tipo: 'PRORROGA', proveedor: 'A', monto: 50_000_000 }),
+      c({ tipo: 'LICITACION', proveedor: 'B', monto: 50_000_000 }),
+    ]
+    const señal = detectarProrrogas(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.caveat).toBeUndefined()
+  })
+
+  it('detectarFraccionamientoAvanzado (Tier 1): la señal NO tiene caveat', () => {
+    const contratos = [
+      c({ tipo: 'CONTRATACION DIRECTA', proveedor: 'X SA', monto: 7_000_000 }),
+      c({ tipo: 'CONTRATACION DIRECTA', proveedor: 'X SA', monto: 8_000_000 }),
+      c({ tipo: 'CONTRATACION DIRECTA', proveedor: 'X SA', monto: 8_000_000 }),
+    ]
+    const señal = detectarFraccionamientoAvanzado(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.caveat).toBeUndefined()
+  })
+})

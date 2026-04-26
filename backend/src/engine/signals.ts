@@ -105,6 +105,10 @@ export function detectarProrrogas(contratos: Contrato[]): Señal | null {
 }
 
 export function detectarConcentracion(contratos: Contrato[]): Señal | null {
+  const C = cfg('detectarConcentracion')
+  const UMBRAL_MIN = (C.umbral_minimo as number | undefined) ?? 35
+  const UMBRAL_GRAVE = (C.umbral_grave as number | undefined) ?? 60
+
   const total = montoTotal(contratos)
   if (total === 0) return null
   const porProv = agruparPorProveedor(contratos)
@@ -119,18 +123,19 @@ export function detectarConcentracion(contratos: Contrato[]): Señal | null {
     .sort((a, b) => b.m - a.m)
   const top = ranking[0]
   const pct = (top.m / total) * 100
-  if (pct < 35) return null
+  if (pct < UMBRAL_MIN) return null
   return {
     tipologia: 'concentracion_proveedor',
     score: Math.min(95, Math.round(50 + pct)),
     titulo: `Concentración extrema: ${top.displayName} recibe el ${pct.toFixed(1)}% del gasto`,
-    resumen: `El proveedor "${top.displayName}" concentra ${ars(top.m)} (${pct.toFixed(1)}% del gasto total de ${ars(total)}) en ${top.n} contrato/s. Una concentración superior al 35% en un solo proveedor contradice los principios de concurrencia establecidos en la normativa.`,
+    resumen: `El proveedor "${top.displayName}" concentra ${ars(top.m)} (${pct.toFixed(1)}% del gasto total de ${ars(total)}) en ${top.n} contrato/s. Una concentración superior al ${UMBRAL_MIN}% en un solo proveedor contradice los principios de concurrencia establecidos en la normativa.`,
     evidencia: [{ descripcion: `${top.displayName}: ${ars(top.m)} (${pct.toFixed(1)}% del total)`, fuenteUrl: contratos[0].fuenteUrl }],
     legal: {
-      articulos: ['Ley Provincial 8614 art. 22 (principio de concurrencia)', 'Decreto 1338/2016'],
-      severidad: pct >= 60 ? 'grave' : 'moderada',
-      denunciarAnte: ORGANISMOS,
+      articulos: [C.norma!],
+      severidad: pct >= UMBRAL_GRAVE ? 'grave' : 'moderada',
+      denunciarAnte: (C.denunciar_ante as string[] | undefined) ?? ORGANISMOS,
     },
+    caveat: C.caveat,
   }
 }
 
@@ -171,6 +176,10 @@ export function detectarContratacionesDirectas(contratos: Contrato[]): Señal | 
 }
 
 export function detectarMonopolioRubro(contratos: Contrato[]): Señal | null {
+  const C = cfg('detectarMonopolioRubro')
+  const UMBRAL_MIN = (C.umbral_minimo as number | undefined) ?? 60
+  const UMBRAL_GRAVE = (C.umbral_grave as number | undefined) ?? 80
+
   const porArea = new Map<string, Contrato[]>()
   for (const c of contratos) {
     const k = c.area.trim().toUpperCase()
@@ -188,7 +197,7 @@ export function detectarMonopolioRubro(contratos: Contrato[]): Señal | null {
       const m = montoTotal(pcs)
       const pct = (m / totalArea) * 100
       // Mostrar nombre original (cs[0]) en lugar de la key normalizada
-      if (pct >= 60 && (!mejor || pct > mejor.pct))
+      if (pct >= UMBRAL_MIN && (!mejor || pct > mejor.pct))
         mejor = { area, proveedor: pcs[0].proveedor, pct, monto: m, total: totalArea }
     }
   }
@@ -197,13 +206,14 @@ export function detectarMonopolioRubro(contratos: Contrato[]): Señal | null {
     tipologia: 'monopolio_rubro',
     score: Math.min(85, Math.round(55 + mejor.pct * 0.3)),
     titulo: `${mejor.proveedor} concentra el ${mejor.pct.toFixed(1)}% del gasto en "${mejor.area}"`,
-    resumen: `En el área "${mejor.area}", el proveedor "${mejor.proveedor}" recibió ${ars(mejor.monto)} de un total de ${ars(mejor.total)} (${mejor.pct.toFixed(1)}%). Una concentración superior al 60% en un área sugiere direccionamiento de contrataciones.`,
+    resumen: `En el área "${mejor.area}", el proveedor "${mejor.proveedor}" recibió ${ars(mejor.monto)} de un total de ${ars(mejor.total)} (${mejor.pct.toFixed(1)}%). Una concentración superior al ${UMBRAL_MIN}% en un área sugiere direccionamiento de contrataciones.`,
     evidencia: [{ descripcion: `${mejor.proveedor}: ${ars(mejor.monto)} de ${ars(mejor.total)} en ${mejor.area}`, fuenteUrl: contratos[0].fuenteUrl }],
     legal: {
-      articulos: ['Ley Provincial 8614 art. 22 (principio de concurrencia)'],
-      severidad: mejor.pct >= 80 ? 'grave' : 'moderada',
-      denunciarAnte: ORGANISMOS,
+      articulos: [C.norma!],
+      severidad: mejor.pct >= UMBRAL_GRAVE ? 'grave' : 'moderada',
+      denunciarAnte: (C.denunciar_ante as string[] | undefined) ?? ORGANISMOS,
     },
+    caveat: C.caveat,
   }
 }
 
@@ -235,7 +245,9 @@ const RAICES_SERVICIO = [
 ]
 
 export function detectarServiciosSinHistorial(contratos: Contrato[]): Señal | null {
-  const UMBRAL_MONTO = 50_000_000
+  const C = cfg('detectarServiciosSinHistorial')
+  const UMBRAL_MONTO = (C.umbral_monto_pesos as number | undefined) ?? 50_000_000
+  const MAX_ANIOS = (C.umbral_max_anios as number | undefined) ?? 2
 
   const sospechosos: { proveedor: string; monto: number; descripcion: string }[] = []
 
@@ -258,7 +270,7 @@ export function detectarServiciosSinHistorial(contratos: Contrato[]): Señal | n
     if (monto < UMBRAL_MONTO) continue
 
     const años = new Set(cs.map(c => c.anio))
-    if (años.size > 2) continue
+    if (años.size > MAX_ANIOS) continue
 
     const contratoPrincipal = cs.sort((a, b) => b.monto - a.monto)[0]
     sospechosos.push({ proveedor, monto, descripcion: contratoPrincipal.descripcion })
@@ -279,13 +291,14 @@ export function detectarServiciosSinHistorial(contratos: Contrato[]): Señal | n
       fuenteUrl: contratos[0].fuenteUrl,
     })),
     legal: {
-      articulos: ['Ley Provincial 8614 art. 18 (habilitación de proveedores)', 'RG AFIP 4871 (registro empleadores)'],
+      articulos: [C.norma!],
       severidad: 'grave',
-      denunciarAnte: [
+      denunciarAnte: (C.denunciar_ante as string[] | undefined) ?? [
         'Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)',
         'AFIP/ARCA — División Fiscalización',
       ],
     },
+    caveat: C.caveat,
   }
 }
 
@@ -344,6 +357,10 @@ export function detectarFraccionamientoAvanzado(contratos: Contrato[]): Señal |
 
 export function detectarConcentracionTemporal(contratos: Contrato[]): Señal | null {
   if (contratos.length === 0) return null
+  const C = cfg('detectarConcentracionTemporal')
+  const UMBRAL_MIN = (C.umbral_minimo as number | undefined) ?? 30
+  const UMBRAL_GRAVE = (C.umbral_grave as number | undefined) ?? 40
+  const MIN_AMPLIACIONES = (C.umbral_min_ampliaciones as number | undefined) ?? 3
 
   // Agrupar por año fiscal y elegir el peor año (mayor concentración en
   // prórrogas/ampliaciones). Esto permite operar sobre datasets multiyear
@@ -382,7 +399,7 @@ export function detectarConcentracionTemporal(contratos: Contrato[]): Señal | n
     ).length
 
     // Umbral: ≥30% del gasto vía prórroga/ampliación, o ≥3 ampliaciones (señal débil).
-    if (pct < 30 && ampliaciones < 3) continue
+    if (pct < UMBRAL_MIN && ampliaciones < MIN_AMPLIACIONES) continue
 
     if (!peor || pct > peor.pct) {
       peor = { anio, pct, montoFinAnio, total, contratosFinAnio, contratosDelAnio: cs, ampliaciones }
@@ -401,19 +418,22 @@ export function detectarConcentracionTemporal(contratos: Contrato[]): Señal | n
       fuenteUrl: peor.contratosFinAnio[0]?.fuenteUrl ?? peor.contratosDelAnio[0].fuenteUrl,
     }],
     legal: {
-      articulos: [
-        'Ley Provincial 8614 art. 14 (principio de licitación)',
-        'Ley de Administración Financiera — cierre de ejercicio',
-      ],
-      severidad: peor.pct >= 40 ? 'grave' : 'moderada',
-      denunciarAnte: ['Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)'],
+      articulos: [C.norma!],
+      severidad: peor.pct >= UMBRAL_GRAVE ? 'grave' : 'moderada',
+      denunciarAnte: (C.denunciar_ante as string[] | undefined) ?? ['Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)'],
     },
+    caveat: C.caveat,
   }
 }
 
 export function detectarProveedorCronico(contratos: Contrato[]): Señal | null {
+  const C = cfg('detectarProveedorCronico')
+  const PCT_ANIOS = (C.umbral_min_pct_anios as number | undefined) ?? 60
+  const MIN_ANIOS = (C.umbral_min_anios as number | undefined) ?? 2
+  const MIN_TOTAL = (C.umbral_minimo_total_pesos as number | undefined) ?? 50_000_000
+
   const años = [...new Set(contratos.map(c => c.anio))].sort()
-  if (años.length < 2) return null
+  if (años.length < MIN_ANIOS) return null
 
   const porProv = new Map<string, Map<number, number>>()
 
@@ -427,10 +447,10 @@ export function detectarProveedorCronico(contratos: Contrato[]): Señal | null {
   const cronicos: { proveedor: string; años: number; montoTotal: number; evolucion: string }[] = []
 
   for (const [proveedor, añoMap] of porProv.entries()) {
-    if (añoMap.size < Math.max(2, años.length * 0.6)) continue
+    if (añoMap.size < Math.max(MIN_ANIOS, años.length * (PCT_ANIOS / 100))) continue
 
     const total = Array.from(añoMap.values()).reduce((s, m) => s + m, 0)
-    if (total < 50_000_000) continue
+    if (total < MIN_TOTAL) continue
 
     const montosOrdenados = años.map(a => añoMap.get(a) ?? 0)
     const primero = montosOrdenados.find(m => m > 0) ?? 0
@@ -460,16 +480,14 @@ export function detectarProveedorCronico(contratos: Contrato[]): Señal | null {
       fuenteUrl: contratos[0].fuenteUrl,
     })),
     legal: {
-      articulos: [
-        'Ley Provincial 8614 art. 22 (principio de concurrencia)',
-        'Principio de eficiencia en el gasto público',
-      ],
+      articulos: [C.norma!],
       severidad: 'moderada',
-      denunciarAnte: [
+      denunciarAnte: (C.denunciar_ante as string[] | undefined) ?? [
         'Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)',
         'Concejo Deliberante de Córdoba — Comisión de Control',
       ],
     },
+    caveat: C.caveat,
   }
 }
 
@@ -479,7 +497,10 @@ export function detectarEmpresaNueva(
   contratos: Contrato[],
   empresas: Map<string, EmpresaEnriquecida>
 ): Señal | null {
-  const UMBRAL_MONTO = 5_000_000
+  const C = cfg('detectarEmpresaNueva')
+  const UMBRAL_MONTO = (C.umbral_minimo_pesos as number | undefined) ?? 5_000_000
+  const MAX_ANIOS_INICIO = (C.umbral_max_anios_inicio as number | undefined) ?? 1
+
   const sospechosos: { nombre: string; inicioActividades: string; primerAnio: number; monto: number }[] = []
 
   for (const [nombre, data] of empresas) {
@@ -499,7 +520,7 @@ export function detectarEmpresaNueva(
     const monto = contratosProveedor.reduce((s, c) => s + c.monto, 0)
 
     // Empresa que arranca actividades y al año siguiente ya tiene contratos significativos
-    if (primerAnio - anioInicio <= 1 && monto >= UMBRAL_MONTO) {
+    if (primerAnio - anioInicio <= MAX_ANIOS_INICIO && monto >= UMBRAL_MONTO) {
       sospechosos.push({ nombre, inicioActividades: data.inicioActividades, primerAnio, monto })
     }
   }
@@ -516,14 +537,11 @@ export function detectarEmpresaNueva(
       fuenteUrl: empresas.get(s.nombre)?.fuenteUrl ?? '',
     })),
     legal: {
-      articulos: [
-        'Art. 11 Decreto 1023/2001 — capacidad para contratar con el Estado',
-        'Res. 1169/2016 — Registro de Proveedores del Estado',
-        'Art. 72 LCT — acreditación de capacidad operativa',
-      ],
+      articulos: [C.norma!],
       severidad: 'moderada',
-      denunciarAnte: ORGANISMOS,
+      denunciarAnte: (C.denunciar_ante as string[] | undefined) ?? ORGANISMOS,
     },
+    caveat: C.caveat,
   }
 }
 
