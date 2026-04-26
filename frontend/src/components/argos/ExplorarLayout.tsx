@@ -519,7 +519,7 @@ function Sidebar({
           onClear={onChatClear}
         />
       )}
-      <SidebarHallazgos />
+      <SidebarHallazgos onSelectActor={onChipClick} />
       <div className="sidebar-foot">
         <div className="row" style={{ marginBottom: 6 }}>
           <span className="dot-live" /> <span className="text">Backend conectado</span>
@@ -533,13 +533,12 @@ function Sidebar({
 }
 
 /**
- * Iter 8.7 análisis-datos: panel inferior del sidebar que muestra hallazgos
- * derivados del grafo Neo4j en tiempo real:
- *   - Top personas con poder visible (≥2 empresas dirigidas)
- *   - Top empresas operando en más reparticiones
- *   - Conflictos potenciales (funcionario↔empresa via apellido)
+ * Iter 8.7 + 8.8 análisis-datos: panel inferior del sidebar que muestra
+ * hallazgos derivados del grafo Neo4j en tiempo real. Cada item es clickable
+ * y dispara SELECT_NODE en el grafo (centra el nodo + abre panel + expande
+ * vecinos vía /api/grafo/expand).
  */
-function SidebarHallazgos() {
+function SidebarHallazgos({ onSelectActor }: { onSelectActor: (id: string) => void }) {
   const { data } = useGrafoStats()
   if (!data?.graphAvailable) return null
 
@@ -548,6 +547,19 @@ function SidebarHallazgos() {
   const topEmpresas = (data.topEmpresasPorOpera ?? []).slice(0, 3)
 
   if (topPersonas.length === 0 && topEmpresas.length === 0 && conflictos.length === 0) return null
+
+  const itemStyle: React.CSSProperties = {
+    color: 'var(--text)',
+    lineHeight: 1.4,
+    cursor: 'pointer',
+    padding: '2px 0',
+    background: 'none',
+    border: 'none',
+    textAlign: 'left',
+    width: '100%',
+    fontSize: 11,
+    fontFamily: 'var(--font-mono, monospace)',
+  }
 
   return (
     <div style={{
@@ -573,9 +585,16 @@ function SidebarHallazgos() {
             Personas con más empresas dirigidas
           </div>
           {topPersonas.map((p) => (
-            <div key={p.dni} style={{ color: 'var(--text)', lineHeight: 1.4 }} className="mono">
-              {p.empresas}× {p.nombre.slice(0, 28)}
-            </div>
+            <button
+              key={p.dni}
+              type="button"
+              onClick={() => onSelectActor(`persona:${p.dni}`)}
+              style={itemStyle}
+              title={`${p.nombre} (DNI ${p.dni}) dirige ${p.empresas} empresas`}
+            >
+              <span style={{ color: 'var(--ambar, #F5B544)' }}>{p.empresas}×</span>{' '}
+              {p.nombre.slice(0, 28)}
+            </button>
           ))}
         </div>
       )}
@@ -586,16 +605,23 @@ function SidebarHallazgos() {
             Empresas en más áreas del Estado
           </div>
           {topEmpresas.map((e) => (
-            <div key={e.cuit} style={{ color: 'var(--text)', lineHeight: 1.4 }} className="mono">
-              {e.reparticiones} áreas · {e.nombre.slice(0, 26)}
-            </div>
+            <button
+              key={e.cuit}
+              type="button"
+              onClick={() => onSelectActor(`empresa:${e.cuit}`)}
+              style={itemStyle}
+              title={`${e.nombre} opera en ${e.reparticiones} reparticiones`}
+            >
+              <span style={{ color: 'var(--celeste, #6FB8E8)' }}>{e.reparticiones} áreas</span>{' · '}
+              {e.nombre.slice(0, 22)}
+            </button>
           ))}
         </div>
       )}
 
       {conflictos.length > 0 && (
         <div>
-          <div style={{ color: 'var(--ambar, #F5B544)', marginBottom: 4 }}>
+          <div style={{ color: '#F5B544', marginBottom: 4 }}>
             ⚠ {conflictos.length} cruces potenciales (Tier 2)
           </div>
           <div style={{ color: 'var(--text-3)', fontSize: 10, fontStyle: 'italic' }}>
@@ -989,28 +1015,35 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
   useEffect(() => {
     if (!s.selectedNodeId) return
     let cancel = false
-    const node = s.graph.nodes.find((n) => n.id === s.selectedNodeId)
-    if (!node) return
-    argosApi.getNodeDetail(node.type, node.id).then((d) => {
-      if (!cancel) dispatch({ t: 'PANEL_DETAIL_LOADED', detail: d })
-    })
 
-    // Iter 8.2: si el nodo viene del grafo Neo4j (id formato `<tipo>:<clave>`),
-    // pedimos sus vecinos al backend y los mergeamos al grafo en pantalla.
-    // Eso convierte el click en una experiencia de exploración progresiva:
-    // toco un actor → aparecen sus relaciones reales (DIRIGE, OPERA_EN,
-    // CONFLICTO_CON, etc.).
+    const node = s.graph.nodes.find((n) => n.id === s.selectedNodeId)
+
+    // Iter 8.2 + 8.8: si el nodo viene del grafo Neo4j (id formato
+    // `<tipo>:<clave>`), pedimos sus vecinos al backend y los mergeamos
+    // al grafo. Iter 8.8: el nodo PUEDE no estar todavía en el grafo
+    // (ej. click en sidebar Mapa del poder), en ese caso el expand lo
+    // trae al grafo + sus vecinos. El siguiente render ya tendrá node y
+    // dispara getNodeDetail.
     if (s.selectedNodeId.includes(':')) {
       expandirNodoGrafo(s.selectedNodeId).then((resp) => {
         if (cancel) return
         if (!resp || resp.nodes.length === 0) return
         const merged = mergeNeo4jIntoGraph(s.graph, resp)
-        // Solo dispatch si efectivamente agregamos algo (evita re-render inútil)
         if (merged.nodes.length > s.graph.nodes.length || merged.edges.length > s.graph.edges.length) {
           dispatch({ t: 'GRAPH_EXPANDED', payload: merged })
         }
       }).catch(() => { /* fallback silencioso si Neo4j no está */ })
     }
+
+    // getNodeDetail requiere conocer el type — solo lo invocamos si ya
+    // tenemos el nodo en el grafo. Si vino de un click externo (sidebar)
+    // y no está, esperamos al próximo render post-expand.
+    if (node) {
+      argosApi.getNodeDetail(node.type, node.id).then((d) => {
+        if (!cancel) dispatch({ t: 'PANEL_DETAIL_LOADED', detail: d })
+      })
+    }
+
     return () => {
       cancel = true
     }
