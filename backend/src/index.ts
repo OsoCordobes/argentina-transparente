@@ -21,6 +21,7 @@ import scrapersRouter from './routes/scrapers'
 import alertasRouter from './routes/alertas'
 import chatRouter from './routes/chat'
 import aiRouter from './routes/ai'
+import watchlistRouter from './routes/watchlist'
 import { registrarFuente } from './lib/db'
 import { fuenteCordobaCapital } from './connectors/cordoba-capital'
 import { fuenteArgentinaCompra } from './connectors/argentina-compra'
@@ -75,6 +76,7 @@ app.use('/api/scrapers', scrapersRouter)
 app.use('/api/alertas', alertasRouter)
 app.use('/api/chat', chatRouter)
 app.use('/api/ai', aiRouter)
+app.use('/api/watchlist', watchlistRouter)
 
 // Legacy routes (still used by current frontend)
 app.use('/analizar', analizarRouter)

@@ -14,6 +14,7 @@
  */
 
 import { useReducer, useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { GraphCanvas } from './GraphCanvas'
 import { NodeDetailPanel } from './NodeDetailPanel'
 import { InterpretationBlock } from './InterpretationBlock'
@@ -29,6 +30,7 @@ import {
   consumeDeeplinkParams,
 } from '@/lib/argos/chat-persist'
 import { copyToClipboard } from '@/lib/argos/sumario'
+import { readLocal as readWatchlistLocal } from '@/lib/argos/watchlist'
 import type {
   ArgosGraph,
   ArgosNode,
@@ -581,10 +583,12 @@ interface HeaderProps {
   labelsDepth: 1 | 2 | 3
   onLabelsToggle: () => void
   onLabelsDepth: (d: 1 | 2 | 3) => void
+  novedadesCount: number
 }
 
 function Header({
   section, focusedNode, onClearFocus, labelsMode, labelsDepth, onLabelsToggle, onLabelsDepth,
+  novedadesCount,
 }: HeaderProps) {
   const today = new Date().toLocaleDateString('es-AR', {
     day: '2-digit', month: 'long', year: 'numeric',
@@ -615,6 +619,25 @@ function Header({
         )}
       </div>
       <div className="header-right">
+        {novedadesCount > 0 && (
+          <Link
+            to="/watchlist"
+            style={{
+              color: 'var(--ambar)',
+              textDecoration: 'none',
+              fontSize: 12,
+              padding: '4px 10px',
+              border: '1px solid var(--ambar)',
+              borderRadius: 999,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+            title="Hay novedades en tus proveedores monitoreados"
+          >
+            🔔 {novedadesCount} novedad{novedadesCount === 1 ? '' : 'es'}
+          </Link>
+        )}
         {showLabelsToggle && (
           <div className="lbl-toggle">
             <button
@@ -700,6 +723,8 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
   const [labelsMode, setLabelsMode] = useState<'minimal' | 'all'>('minimal')
   const [labelsDepth, setLabelsDepth] = useState<1 | 2 | 3>(1)
   const [sending, setSending] = useState(false)
+  // F8 — contador de novedades sobre la watchlist personal del user.
+  const [novedadesCount, setNovedadesCount] = useState(0)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const chipHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -751,6 +776,40 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
     if (s.chat.streaming) return
     saveThread(s.chat.thread)
   }, [s.chat.thread, s.chat.streaming])
+
+  // ─── F8 — fetch novedades count al montar ────────────────────────────────
+  // Lee la watchlist local y pregunta al backend cuántos contratos/señales
+  // nuevas aparecieron desde la última visita por proveedor. Falla silenciosa
+  // (badge sólo aparece si hay items realmente nuevos).
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const items = readWatchlistLocal()
+      if (items.length === 0) return
+      try {
+        const apiBase =
+          (import.meta as ImportMeta).env?.VITE_API_URL ?? 'http://localhost:3001'
+        const res = await fetch(`${apiBase}/api/watchlist/novedades`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: items.map((i) => ({
+              proveedor_id: i.proveedor_id,
+              ultima_visita: i.ultima_visita,
+            })),
+          }),
+        })
+        if (!res.ok) return
+        const data = (await res.json()) as { ok: boolean; total: number }
+        if (!cancelled && data.ok) setNovedadesCount(data.total)
+      } catch {
+        // Backend offline o cualquier error: no rompemos la UI.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Hero node: jurisdiccion con más señales graves
   const heroNodeId = useMemo(() => {
@@ -1024,6 +1083,7 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
           labelsDepth={labelsDepth}
           onLabelsToggle={() => setLabelsMode((m) => (m === 'minimal' ? 'all' : 'minimal'))}
           onLabelsDepth={setLabelsDepth}
+          novedadesCount={novedadesCount}
         />
 
         {showGraph && (
