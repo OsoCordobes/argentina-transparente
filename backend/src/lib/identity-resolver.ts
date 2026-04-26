@@ -141,6 +141,51 @@ async function fetchEmpresas(): Promise<EmpresaRow[]> {
   return dbAll<EmpresaRow>(`SELECT cuit, nombre FROM empresas`)
 }
 
+/**
+ * Fetcha candidatos por prefijo del nombre normalizado, uniendo las 3
+ * fuentes de identidad jurídica que tenemos cargadas:
+ *   - empresas (119 cordobesas oficiales)
+ *   - rns_personas_juridicas (196K — RNS bulk, 191K Córdoba)
+ *   - igj_entidades (420K — IGJ nacional)
+ *
+ * Filtra por prefijo de la PRIMER palabra del proveedor para acotar el set
+ * de candidatos a Levenshtein. Sin esto sería 600K × N nombres = imposible.
+ *
+ * Devuelve hasta 200 candidatos rankeados por: empresas > rns > igj
+ * (priorizando la fuente más cordobesa).
+ */
+export async function fetchCandidatosAmpliados(prefijo: string): Promise<EmpresaRow[]> {
+  if (!prefijo || prefijo.length < 3) return []
+  const like = `${prefijo.toUpperCase()}%`
+  // Tres queries separadas para no toparnos con el límite de UNION+LIMIT
+  // de DuckDB (necesita paréntesis y a veces es brittle). Mucho más
+  // simple ejecutar 3 SELECT y mergear en JS.
+  const fromEmpresas = await dbAll<{ cuit: string; nombre: string }>(
+    `SELECT cuit, nombre FROM empresas
+     WHERE cuit IS NOT NULL AND UPPER(nombre) LIKE ?`,
+    [like]
+  )
+  const fromRns = await dbAll<{ cuit: string; nombre: string }>(
+    `SELECT cuit, razon_social AS nombre FROM rns_personas_juridicas
+     WHERE cuit IS NOT NULL AND UPPER(razon_social) LIKE ?
+     LIMIT 100`,
+    [like]
+  ).catch(() => [])
+  const fromIgj = await dbAll<{ cuit: string; nombre: string }>(
+    `SELECT cuit, razon_social AS nombre FROM igj_entidades
+     WHERE cuit IS NOT NULL AND cuit != '' AND UPPER(razon_social) LIKE ?
+     LIMIT 100`,
+    [like]
+  ).catch(() => [])
+
+  // Dedup por CUIT priorizando empresas > RNS > IGJ.
+  const porCuit = new Map<string, EmpresaRow>()
+  for (const r of fromEmpresas) if (!porCuit.has(r.cuit)) porCuit.set(r.cuit, r)
+  for (const r of fromRns) if (!porCuit.has(r.cuit)) porCuit.set(r.cuit, r)
+  for (const r of fromIgj) if (!porCuit.has(r.cuit)) porCuit.set(r.cuit, r)
+  return Array.from(porCuit.values()).slice(0, 200)
+}
+
 async function lookupCache(proveedorNorm: string): Promise<IdentityMatch | null> {
   const rows = await dbAll<{
     cuit_resuelto: string | null
@@ -237,11 +282,35 @@ export async function resolverEmpresa(
     return match
   }
 
-  // 3. Tier 3 — fuzzy >=85%, mejor candidato.
-  // Computamos similitud con cada empresa una sola vez y partimos en buckets.
-  // Importante: lazy require de levenshtein para no penalizar el cache hit path.
+  // 3. Tier 3 — fuzzy >=85% sobre el universo ampliado (empresas + RNS + IGJ).
+  // Antes solo buscaba en `empresas` (119 rows cordobesas). Ahora prefiltra
+  // por prefijo del proveedor (primera palabra) para luego correr
+  // Levenshtein contra ~200 candidatos máx — viable en runtime.
   const { similarityPct } = await import('./levenshtein')
-  const scored = empresas.map(e => ({
+  const primerToken = proveedorNorm.split(/\s+/)[0]
+  const candidatosAmpliados = await fetchCandidatosAmpliados(primerToken)
+
+  // Si la búsqueda por prefijo no devuelve nada, fallback al set local
+  // de empresas (cobertura mínima).
+  const universoTier3 = candidatosAmpliados.length > 0
+    ? candidatosAmpliados
+    : empresas
+
+  // Tier 2 inverso: dentro del universo ampliado, buscar match exacto
+  // normalizado (puede que esté en RNS/IGJ pero no en `empresas`).
+  const tier2Ampliado = universoTier3.find(e => normProveedor(e.nombre) === proveedorNorm)
+  if (tier2Ampliado) {
+    const match: IdentityMatch = {
+      cuit: tier2Ampliado.cuit,
+      tier: 2,
+      score: 85,
+      metodo: 'name_normalized',
+    }
+    await persistMatch(proveedorNorm, match)
+    return match
+  }
+
+  const scored = universoTier3.map(e => ({
     cuit: e.cuit,
     nombre: e.nombre,
     sim: similarityPct(proveedorNorm, normProveedor(e.nombre)),
