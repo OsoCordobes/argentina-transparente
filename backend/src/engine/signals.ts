@@ -802,6 +802,133 @@ export function detectarRedDeEmpresas(
   }
 }
 
+// ─── Conflicto funcionario↔proveedor (Iter4 análisis-datos) ────────────────
+//
+// Cruce nuevo apoyado en agentes_publicos (cargado en M1.2 + M1.3 — 178K
+// funcionarios provinciales y municipales) contra la lista de proveedores.
+// Es la primera señal "ARGOS-only" que combina dos tablas que estaban
+// dormidas: agentes_publicos + cualquier base de identidad jurídica.
+//
+// Estrategia de match (tier explícito en cada hit):
+//   Tier 1 (cuit_exact)      — funcionario.cuit === empresa.cuit del proveedor
+//   Tier 2 (apellido_norm)   — apellido_nombre normalizado matchea proveedor
+//                              (riesgo de homonimia, requiere verificación)
+//
+// Score 95 (grave) si hay al menos un hit Tier 1.
+// Score 75 (moderada) si solo hay hits Tier 2.
+
+export interface AgentePublicoLite {
+  apellido_nombre: string
+  cuit: string | null
+  jurisdiccion: string
+  reparticion: string | null
+  cargo: string | null
+  anio: number
+  fuente_url: string
+}
+
+interface ConflictoHit {
+  funcionario: AgentePublicoLite
+  proveedor: string
+  contratosCount: number
+  monto: number
+  tier: 1 | 2
+  metodo: 'cuit_exact' | 'apellido_norm'
+}
+
+function normalizarApellidoNombre(s: string): string {
+  return s
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^A-Z\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function detectarConflictoFuncionarioProveedor(
+  contratos: Contrato[],
+  agentes: AgentePublicoLite[],
+  empresas?: Map<string, EmpresaEnriquecida>
+): Señal | null {
+  if (agentes.length === 0 || contratos.length === 0) return null
+
+  const proveedoresMap = agruparPorProveedor(contratos)
+
+  // Index funcionarios por nombre normalizado y por CUIT (para Tier 1).
+  const porApellido = new Map<string, AgentePublicoLite>()
+  const porCuit = new Map<string, AgentePublicoLite>()
+  for (const a of agentes) {
+    if (a.apellido_nombre) {
+      const k = normalizarApellidoNombre(a.apellido_nombre)
+      // Conservar la entrada más reciente por nombre (anio mayor)
+      const existing = porApellido.get(k)
+      if (!existing || a.anio > existing.anio) porApellido.set(k, a)
+    }
+    if (a.cuit && /^\d{11}$/.test(a.cuit)) porCuit.set(a.cuit, a)
+  }
+
+  const hits: ConflictoHit[] = []
+  for (const [key, cs] of proveedoresMap) {
+    const display = cs[0].proveedor
+    const monto = montoTotal(cs)
+
+    // Tier 1: si tenemos CUIT del proveedor (vía empresas) y matchea con CUIT
+    // de un funcionario.
+    const empresa = empresas?.get(display) ?? empresas?.get(cs[0].proveedor)
+    if (empresa?.cuit) {
+      const fEx = porCuit.get(empresa.cuit)
+      if (fEx) {
+        hits.push({ funcionario: fEx, proveedor: display, contratosCount: cs.length, monto, tier: 1, metodo: 'cuit_exact' })
+        continue
+      }
+    }
+
+    // Tier 2: match por apellido_nombre normalizado del proveedor (solo
+    // cuando el proveedor parece persona física — heurística: 2-4 palabras
+    // sin tipo societario común). Evita matchear "ACME S.A." contra
+    // "Pérez García".
+    const provNorm = normalizarApellidoNombre(key) // key ya viene normalizada
+    const palabras = provNorm.split(' ').filter(Boolean)
+    if (palabras.length < 2 || palabras.length > 4) continue
+
+    const fNm = porApellido.get(provNorm)
+    if (fNm) {
+      hits.push({ funcionario: fNm, proveedor: display, contratosCount: cs.length, monto, tier: 2, metodo: 'apellido_norm' })
+    }
+  }
+
+  if (hits.length === 0) return null
+
+  hits.sort((a, b) => a.tier - b.tier || b.monto - a.monto)
+  const tieneTier1 = hits.some(h => h.tier === 1)
+  const totalMonto = hits.reduce((s, h) => s + h.monto, 0)
+  const cuits = hits.map(h => h.funcionario.cuit).filter((x): x is string => !!x)
+
+  const C = cfg('detectarConflictoFuncionarioProveedor')
+  const score = tieneTier1 ? 95 : 75
+
+  return {
+    tipologia: 'conflicto_funcionario_proveedor',
+    score,
+    titulo: `${hits.length} posible${hits.length > 1 ? 's' : ''} cruce${hits.length > 1 ? 's' : ''} funcionario↔proveedor (${hits.filter(h => h.tier === 1).length} Tier 1, ${hits.filter(h => h.tier === 2).length} Tier 2)`,
+    resumen: `Se detectó al menos una persona registrada como funcionaria pública (agentes_publicos) cuyo nombre o CUIT coincide con un proveedor del Estado. ${tieneTier1 ? 'Hay al menos un hit Tier 1 (CUIT exacto) — fuerte indicio de incompatibilidad bajo Ley 25.188 art. 13 inc. a.' : 'Los hits son Tier 2 (match por apellido normalizado) — requieren verificación contra biografía pública para descartar homonimia.'} Total acumulado en ${hits.reduce((s, h) => s + h.contratosCount, 0)} contrato(s) por ${ars(totalMonto)}.`,
+    evidencia: hits.slice(0, 5).map(h => ({
+      descripcion: `${h.funcionario.apellido_nombre} (${h.funcionario.cargo ?? h.funcionario.jurisdiccion}, ${h.funcionario.reparticion ?? '—'}) figura como proveedor "${h.proveedor}" — ${h.contratosCount} contrato(s) por ${ars(h.monto)}. Match Tier ${h.tier} (${h.metodo}).`,
+      fuenteUrl: h.funcionario.fuente_url,
+    })),
+    legal: {
+      articulos: [C.norma!],
+      severidad: tieneTier1 ? 'grave' : 'moderada',
+      denunciarAnte: (C.denunciar_ante as string[] | undefined) ?? [
+        ...ORGANISMOS,
+        'Oficina Anticorrupción (oa.gob.ar)',
+      ],
+    },
+    cuits,
+  }
+}
+
 // ─── Aparición en datasets internacionales (post-MVP — OpenSanctions/ICIJ) ──
 
 // Riesgos que disparan la señal. PEP solo no la dispara — estar en lista de
@@ -894,7 +1021,8 @@ export async function calcularSeñales(
   contratos: Contrato[],
   empresas?: Map<string, EmpresaEnriquecida>,
   municipioId?: string,
-  osMatches?: Map<string, OSMatch>
+  osMatches?: Map<string, OSMatch>,
+  agentes?: AgentePublicoLite[]
 ): Promise<Señal[]> {
   const señales: Señal[] = []
 
@@ -921,6 +1049,16 @@ export async function calcularSeñales(
 
     try { const s = detectarEmpresaSinEmpleados(contratos, empresas); if (s) señales.push(s) }
     catch (err) { console.error('[signals] Error en empresa_sin_empleados:', err) }
+  }
+
+  // Señal de conflicto funcionario↔proveedor — Iter4 análisis-datos.
+  // Activa la tabla agentes_publicos contra los contratos para detectar
+  // posibles incompatibilidades bajo Ley 25.188 art. 13.
+  if (agentes && agentes.length > 0) {
+    try {
+      const s = detectarConflictoFuncionarioProveedor(contratos, agentes, empresas)
+      if (s) señales.push(s)
+    } catch (err) { console.error('[signals] Error en conflicto_funcionario_proveedor:', err) }
   }
 
   // Señal de cruce internacional (requiere AFIP + cache OpenSanctions)

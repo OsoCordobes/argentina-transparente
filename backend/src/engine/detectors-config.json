@@ -204,6 +204,20 @@
     ]
   },
 
+  "detectarConflictoFuncionarioProveedor": {
+    "tier": 1,
+    "norma": "Ley 25.188 art. 13 inc. a (Ética en la Función Pública — incompatibilidad: dirigir, administrar, representar, patrocinar, asesorar, o prestar servicios a quien gestione, tenga concesión o sea proveedor del Estado) + Ley Provincial Córdoba 8.835 art. 4 (régimen ético del agente público) + Ley 27.401 art. 1 (responsabilidad penal de personas jurídicas) + Código Penal arts. 265-267 (negociaciones incompatibles con la función pública)",
+    "caveat": "El match por apellido_nombre puede generar falsos positivos por homonimia. ARGOS marca como Tier 1 cuando hay coincidencia exacta de DNI/CUIT entre funcionario y director. Cuando el match es solo por nombre, marcar como Tier 2 y exigir verificación manual contra biografía pública.",
+    "fuente_umbral": "SÓLIDO — la norma es taxativa: la incompatibilidad existe sin necesidad de probar perjuicio económico. Basta con la coincidencia funcionario-proveedor en el mismo período.",
+    "denunciar_ante": [
+      "Oficina Anticorrupción (oa.gob.ar)",
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)",
+      "Fiscalía de Estado de Córdoba (fiscaliaestado.cba.gov.ar)",
+      "Ministerio Público Fiscal (fiscales.gob.ar)",
+      "Defensoría del Pueblo de Córdoba (defensoria.cba.gov.ar)"
+    ]
+  },
+
   "detectarAparicionOffshore": {
     "tier": 1,
     "norma": "Ley 25.246 (Encubrimiento y Lavado de Activos de origen delictivo — obligación de reportar operaciones sospechosas) + Ley 27.401 art. 1 (Responsabilidad penal de personas jurídicas — cohecho transnacional, soborno extranjero, negociaciones incompatibles, enriquecimiento ilícito, balances falsos) + Convención de la OCDE contra el Cohecho de Funcionarios Públicos Extranjeros (Argentina ratificó por Ley 25.319) + Código Penal arts. 277 y siguientes (encubrimiento)",

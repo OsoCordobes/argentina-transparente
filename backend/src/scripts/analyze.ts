@@ -12,7 +12,7 @@ import {
   getOSMatchesAll,
 } from '../lib/db'
 import { initGraph } from '../lib/graph'
-import { calcularSeñales } from '../engine/signals'
+import { calcularSeñales, type AgentePublicoLite } from '../engine/signals'
 import type { EmpresaEnriquecida, Señal } from '../types'
 
 // Extrae los CUITs de las entidades implicadas en una señal mirando título y
@@ -107,7 +107,38 @@ async function main() {
       console.log(`[${municipio}] ${osMatches.size} CUITs en cache OpenSanctions (${matched} con match)`)
     }
 
-    const señales = await calcularSeñales(contratos, empresas, municipio, osMatches)
+    // Carga funcionarios cordobeses (jurisdiccion-aware) para detector de
+    // conflicto funcionario↔proveedor (Iter4 análisis-datos).
+    // El detector usa los datos del PROPIO municipio analizado: cordoba-capital
+    // ↔ cordoba-capital + cordoba-provincia (los provinciales también
+    // contratan dentro del territorio Córdoba). Para argentina-compra
+    // pasaríamos solo nacionales — por ahora lo dejamos como solo Córdoba.
+    const agentesRows = municipio === 'cordoba-capital'
+      ? await dbAll<{
+          apellido_nombre: string; cuit: string | null;
+          jurisdiccion: string; reparticion: string | null;
+          cargo: string | null; anio: number; fuente_url: string;
+        }>(
+          `SELECT apellido_nombre, cuit, jurisdiccion, reparticion, cargo, anio, fuente_url
+           FROM agentes_publicos
+           WHERE jurisdiccion IN ('cordoba-capital', 'cordoba-provincia')
+             AND apellido_nombre IS NOT NULL`
+        )
+      : []
+    const agentes: AgentePublicoLite[] = agentesRows.map(r => ({
+      apellido_nombre: r.apellido_nombre,
+      cuit: r.cuit,
+      jurisdiccion: r.jurisdiccion,
+      reparticion: r.reparticion,
+      cargo: r.cargo,
+      anio: r.anio,
+      fuente_url: r.fuente_url,
+    }))
+    if (agentes.length > 0) {
+      console.log(`[${municipio}] ${agentes.length.toLocaleString()} funcionarios cargados para cruce conflicto`)
+    }
+
+    const señales = await calcularSeñales(contratos, empresas, municipio, osMatches, agentes)
 
     for (const s of señales) {
       const cuits = extraerCuits(s, empresas)

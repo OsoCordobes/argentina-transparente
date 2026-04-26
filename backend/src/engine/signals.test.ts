@@ -16,6 +16,8 @@ import {
   detectarAdendaPostAdjudicacion,
   detectarRedDeEmpresas,
   detectarAparicionOffshore,
+  detectarConflictoFuncionarioProveedor,
+  type AgentePublicoLite,
   normalizarProveedor,
 } from './signals'
 import type { Contrato, EmpresaEnriquecida, OSMatch } from '../types'
@@ -1193,5 +1195,108 @@ describe('F2.4 — caveat en detectores Tier 2', () => {
     const señal = detectarFraccionamientoAvanzado(contratos)
     expect(señal).not.toBeNull()
     expect(señal!.caveat).toBeUndefined()
+  })
+})
+
+// ─── detectarConflictoFuncionarioProveedor (Iter4 análisis-datos) ───────────
+
+describe('detectarConflictoFuncionarioProveedor', () => {
+  function a(overrides: Partial<AgentePublicoLite> & { apellido_nombre: string }): AgentePublicoLite {
+    return {
+      anio: 2023,
+      jurisdiccion: 'cordoba-capital',
+      reparticion: 'SECRETARIA DE OBRAS',
+      cargo: 'DIRECTOR',
+      cuit: null,
+      fuente_url: URL,
+      ...overrides,
+    }
+  }
+
+  it('returns null cuando no hay agentes', () => {
+    expect(detectarConflictoFuncionarioProveedor([c({ proveedor: 'X', monto: 1 })], [])).toBeNull()
+  })
+
+  it('returns null cuando no hay contratos', () => {
+    expect(detectarConflictoFuncionarioProveedor([], [a({ apellido_nombre: 'PEREZ JUAN' })])).toBeNull()
+  })
+
+  it('detecta hit Tier 2 por apellido normalizado', () => {
+    const contratos = [
+      c({ proveedor: 'PEREZ JUAN', monto: 5_000_000 }),
+      c({ proveedor: 'OTRA EMPRESA SA', monto: 1_000_000 }),
+    ]
+    const agentes = [a({ apellido_nombre: 'PEREZ JUAN' })]
+    const señal = detectarConflictoFuncionarioProveedor(contratos, agentes)
+    expect(señal).not.toBeNull()
+    expect(señal!.tipologia).toBe('conflicto_funcionario_proveedor')
+    expect(señal!.score).toBe(75) // solo Tier 2
+    expect(señal!.legal.severidad).toBe('moderada')
+    expect(señal!.evidencia[0].descripcion).toContain('Tier 2')
+  })
+
+  it('detecta hit Tier 1 por CUIT exacto y eleva severidad a grave', () => {
+    const contratos = [c({ proveedor: 'CONSULTORA X SA', monto: 10_000_000 })]
+    const agentes = [
+      a({ apellido_nombre: 'DIRECTOR DE OBRAS', cuit: '20111111119' }),
+    ]
+    const empresas = new Map<string, EmpresaEnriquecida>()
+    empresas.set('CONSULTORA X SA', {
+      cuit: '20111111119',
+      razonSocial: 'CONSULTORA X SA',
+      esEmpleador: true,
+      inicioActividades: '2010-01-01',
+      estado: 'ACTIVO',
+      actividadPrincipal: 'CONSULTORIA',
+      directores: [],
+      encontrado: true,
+      fuenteUrl: 'https://afip',
+    } as EmpresaEnriquecida)
+    const señal = detectarConflictoFuncionarioProveedor(contratos, agentes, empresas)
+    expect(señal).not.toBeNull()
+    expect(señal!.score).toBe(95)
+    expect(señal!.legal.severidad).toBe('grave')
+    expect(señal!.evidencia[0].descripcion).toContain('Tier 1')
+    expect(señal!.evidencia[0].descripcion).toContain('cuit_exact')
+  })
+
+  it('NO matchea proveedores que parecen empresas (5+ palabras)', () => {
+    const contratos = [c({ proveedor: 'PEREZ JUAN HERMANOS Y COMPAÑIA SOCIEDAD ANONIMA', monto: 1_000_000 })]
+    const agentes = [a({ apellido_nombre: 'PEREZ JUAN' })]
+    const señal = detectarConflictoFuncionarioProveedor(contratos, agentes)
+    // 5+ palabras no entran al matcheo Tier 2
+    expect(señal).toBeNull()
+  })
+
+  it('emite cuits del funcionario en hits Tier 1', () => {
+    const contratos = [c({ proveedor: 'CONSULTORA X SA', monto: 10_000_000 })]
+    const agentes = [a({ apellido_nombre: 'DIRECTOR', cuit: '20111111119' })]
+    const empresas = new Map<string, EmpresaEnriquecida>()
+    empresas.set('CONSULTORA X SA', {
+      cuit: '20111111119',
+      razonSocial: 'CONSULTORA X SA',
+      esEmpleador: true,
+      inicioActividades: '2010-01-01',
+      estado: 'ACTIVO',
+      actividadPrincipal: 'CONSULTORIA',
+      directores: [],
+      encontrado: true,
+      fuenteUrl: 'https://afip',
+    } as EmpresaEnriquecida)
+    const señal = detectarConflictoFuncionarioProveedor(contratos, agentes, empresas)
+    expect(señal!.cuits).toContain('20111111119')
+  })
+
+  it('un mismo funcionario en múltiples contratos solo aparece una vez', () => {
+    const contratos = [
+      c({ proveedor: 'PEREZ JUAN', monto: 1_000_000 }),
+      c({ proveedor: 'PEREZ JUAN', monto: 2_000_000 }),
+      c({ proveedor: 'PEREZ JUAN', monto: 3_000_000 }),
+    ]
+    const agentes = [a({ apellido_nombre: 'PEREZ JUAN' })]
+    const señal = detectarConflictoFuncionarioProveedor(contratos, agentes)
+    expect(señal).not.toBeNull()
+    expect(señal!.evidencia.length).toBe(1)
+    expect(señal!.evidencia[0].descripcion).toContain('3 contrato')
   })
 })
