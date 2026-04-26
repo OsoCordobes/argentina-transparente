@@ -23,6 +23,7 @@ import {
   BudgetExceededError,
   type ModeloSoportado,
 } from '../lib/budget-guard'
+import { validarChunk } from '../lib/llm-validator'
 
 const router = Router()
 const MODELO: ModeloSoportado = 'claude-sonnet-4-6'
@@ -146,6 +147,11 @@ router.post('/', async (req: Request, res: Response) => {
       messages,
     })
 
+    // Buffer + validador post-LLM (F6) — bloquear hechos sin cita inline.
+    let bufferTexto = ''
+    const BUFFER_FLUSH_CHARS = 200
+    let chunkBlocked = false
+
     for await (const event of stream) {
       if (event.type === 'message_start') {
         const u = event.message.usage
@@ -155,10 +161,51 @@ router.post('/', async (req: Request, res: Response) => {
           cacheCreationTokens = u.cache_creation_input_tokens ?? 0
         }
       } else if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-        send({ delta: event.delta.text })
+        bufferTexto += event.delta.text
+        if (bufferTexto.length >= BUFFER_FLUSH_CHARS || event.delta.text.includes('\n')) {
+          const v = validarChunk(bufferTexto)
+          if (!v.valid) {
+            // Bloquear chunk: avisar al usuario + log + abortar stream temprano.
+            send({
+              delta: '⚠ ARGOS no pudo verificar este fragmento — refrescá la pregunta.',
+              done: true,
+            })
+            const costoBloqueo = estimarCostoCall(
+              MODELO, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens,
+            )
+            await recordLlmCall({
+              endpoint: '/api/chat',
+              modelo: MODELO,
+              inputTokens,
+              outputTokens,
+              cacheReadTokens,
+              cacheCreationTokens,
+              costoUsd: costoBloqueo,
+              status: 'error',
+              errorMessage: `validador bloqueó chunk: ${v.reason} ("${v.matchedText}")`,
+            }).catch(() => { /* swallow */ })
+            res.end()
+            chunkBlocked = true
+            return
+          }
+          send({ delta: bufferTexto })
+          bufferTexto = ''
+        }
       } else if (event.type === 'message_delta' && event.usage) {
         outputTokens = event.usage.output_tokens ?? outputTokens
       }
+    }
+
+    if (chunkBlocked) return
+
+    // Flush final: validar buffer remanente. Si inválido, drop silencioso
+    // (el cliente no recibe ese fragmento; ya no se duplica el warning).
+    if (bufferTexto) {
+      const v = validarChunk(bufferTexto)
+      if (v.valid) {
+        send({ delta: bufferTexto })
+      }
+      bufferTexto = ''
     }
 
     const costo = estimarCostoCall(MODELO, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
