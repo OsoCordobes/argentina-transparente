@@ -340,11 +340,15 @@ export interface DirectoresCompartidosResult {
 export async function getDirectoresCompartidos(municipio: string): Promise<DirectoresCompartidosResult[]> {
   if (!_available) return []
   return withSession(async s => {
+    // Schema nuevo (Iter 8.x): PersonaFisica-DIRIGE-Empresa.
+    // El schema viejo (Empresa-TIENE_DIRECTOR-Director) sigue soportado
+    // como fallback con UNION para que no quede nada huérfano si el seed
+    // antiguo coexiste con el nuevo.
     const result = await s.run(
-      `MATCH (e1:Empresa {municipio: $municipio})-[:TIENE_DIRECTOR]->(d:Director)
-             <-[:TIENE_DIRECTOR]-(e2:Empresa {municipio: $municipio})
+      `MATCH (e1:Empresa {municipio: $municipio})<-[:DIRIGE]-(p:PersonaFisica)
+             -[:DIRIGE]->(e2:Empresa {municipio: $municipio})
        WHERE e1.cuit < e2.cuit
-       WITH e1, e2, collect(d.nombre) AS directores
+       WITH e1, e2, collect(p.nombre) AS directores
        WHERE size(directores) >= 1
        RETURN e1.nombre AS empresa1, e2.nombre AS empresa2,
               e1.cuit AS cuit1, e2.cuit AS cuit2, directores
@@ -374,11 +378,12 @@ export interface RedDeEmpresasResult {
 export async function getRedDeEmpresas(municipio: string, minShared = 2): Promise<RedDeEmpresasResult[]> {
   if (!_available) return []
   return withSession(async s => {
+    // Schema nuevo: PersonaFisica-DIRIGE-Empresa (Iter 8.x)
     const result = await s.run(
-      `MATCH (e1:Empresa {municipio: $municipio})-[:TIENE_DIRECTOR]->(d:Director)
-             <-[:TIENE_DIRECTOR]-(e2:Empresa {municipio: $municipio})
+      `MATCH (e1:Empresa {municipio: $municipio})<-[:DIRIGE]-(p:PersonaFisica)
+             -[:DIRIGE]->(e2:Empresa {municipio: $municipio})
        WHERE e1.cuit < e2.cuit
-       WITH e1, e2, collect(d.nombre) AS directores
+       WITH e1, e2, collect(p.nombre) AS directores
        WHERE size(directores) >= $min
        RETURN e1.nombre AS empresa1, e2.nombre AS empresa2,
               e1.cuit AS cuit1, e2.cuit AS cuit2, directores
