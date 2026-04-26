@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Building2, Loader2 } from 'lucide-react'
+import { Building2, Briefcase, Users, FileText, Loader2 } from 'lucide-react'
 import {
   CommandDialog,
   CommandEmpty,
@@ -8,34 +8,67 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandSeparator,
 } from '@/components/ui/command'
-import { useEntidadSearch } from '@/lib/queries'
-import { fmtARS } from '@/lib/format'
+import { useActoresSearch, type ActorSearchHit, type ActorTipo } from '@/lib/queries'
 
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
+const TIPO_HEADING: Record<ActorTipo, string> = {
+  funcionario: 'Funcionarios públicos',
+  director: 'Directores y administradores',
+  empresa: 'Personas jurídicas',
+  proveedor: 'Proveedores con contratos',
+}
+
+const TIPO_ICON: Record<ActorTipo, React.ComponentType<{ className?: string }>> = {
+  funcionario: Briefcase,
+  director: Users,
+  empresa: Building2,
+  proveedor: FileText,
+}
+
 export function CommandPalette({ open, onOpenChange }: Props) {
   const [query, setQuery] = useState('')
   const navigate = useNavigate()
   const debounced = useDebounced(query, 200)
-  const { data, isFetching } = useEntidadSearch(debounced)
+
+  // Búsqueda unificada (Iter5 análisis-datos): consulta /api/actores/search
+  // que junta funcionarios + directores + empresas + proveedores en una
+  // sola llamada. Antes solo se buscaba en proveedores de contratos.
+  const { data, isFetching } = useActoresSearch(debounced, 'todos')
 
   useEffect(() => {
     if (!open) setQuery('')
   }, [open])
 
-  const goToEntidad = (nombre: string) => {
+  const goToHit = (hit: ActorSearchHit) => {
     onOpenChange(false)
-    navigate(`/entidad/${encodeURIComponent(nombre)}`)
+    navigate(hit.href)
   }
+
+  // Agrupar hits por tipo manteniendo el orden de score
+  const grupos: Record<ActorTipo, ActorSearchHit[]> = {
+    funcionario: [],
+    director: [],
+    empresa: [],
+    proveedor: [],
+  }
+  for (const h of data?.hits ?? []) {
+    grupos[h.tipo].push(h)
+  }
+
+  // Orden de presentación: proveedor (los que tienen contratos primero — más
+  // accionables), luego empresa, luego funcionario, luego director.
+  const ordenTipos: ActorTipo[] = ['proveedor', 'empresa', 'funcionario', 'director']
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
       <CommandInput
-        placeholder="Buscar proveedor por nombre…"
+        placeholder="Buscar funcionario, empresa, director o CUIT…"
         value={query}
         onValueChange={setQuery}
       />
@@ -48,27 +81,44 @@ export function CommandPalette({ open, onOpenChange }: Props) {
             <Loader2 className="h-4 w-4 animate-spin" /> Buscando…
           </div>
         )}
-        {debounced.length >= 2 && !isFetching && data?.entidades.length === 0 && (
+        {debounced.length >= 2 && !isFetching && data && data.hits.length === 0 && (
           <CommandEmpty>Sin resultados para "{debounced}".</CommandEmpty>
         )}
-        {data?.entidades && data.entidades.length > 0 && (
-          <CommandGroup heading="Entidades">
-            {data.entidades.map((e) => (
-              <CommandItem
-                key={`${e.proveedor}-${e.municipio}`}
-                value={e.proveedor}
-                onSelect={() => goToEntidad(e.proveedor)}
-                className="flex items-center gap-2"
-              >
-                <Building2 className="h-4 w-4 text-muted-foreground" />
-                <span className="truncate flex-1">{e.proveedor}</span>
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {fmtARS(e.monto_total)} · {e.total_contratos} contratos
-                </span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        )}
+        {data && data.hits.length > 0 && ordenTipos.map((tipo, idx) => {
+          const items = grupos[tipo]
+          if (items.length === 0) return null
+          const Icon = TIPO_ICON[tipo]
+          return (
+            <div key={tipo}>
+              {idx > 0 && <CommandSeparator />}
+              <CommandGroup heading={TIPO_HEADING[tipo]}>
+                {items.slice(0, 6).map((h, i) => (
+                  <CommandItem
+                    key={`${tipo}-${h.identificador ?? h.nombre}-${i}`}
+                    value={`${tipo}|${h.nombre}|${h.identificador ?? ''}|${i}`}
+                    onSelect={() => goToHit(h)}
+                    className="flex items-center gap-2"
+                  >
+                    <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate">{h.nombre}</div>
+                      {h.detalle && (
+                        <div className="text-xs text-muted-foreground truncate">
+                          {h.detalle}
+                        </div>
+                      )}
+                    </div>
+                    {h.identificador && (
+                      <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                        {h.identificador}
+                      </span>
+                    )}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </div>
+          )
+        })}
       </CommandList>
     </CommandDialog>
   )
