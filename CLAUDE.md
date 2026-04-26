@@ -166,7 +166,7 @@ VITE_API_URL=https://bestia-backend-...railway.app  # rename pendiente → argos
 
 | Comando | Desde | Descripción |
 |---------|-------|-------------|
-| `npm run test` | backend/ | 103 unit tests (vitest) |
+| `npm run test` | backend/ | 133 unit tests (vitest) |
 | `npm run test:connector` | backend/ | Descarga y parsea 2023 |
 | `npm run test:signals 2022 2023` | backend/ | 2 años, señales detectadas |
 | `npm run test:signals 2019 2023` | backend/ | 5 años — 1390 contratos, 5 señales |
@@ -551,6 +551,55 @@ Frontend:
 - `App.tsx`: ruta `/alertas` lazy.
 
 103 tests siguen verde. tsc --noEmit OK (backend + frontend).
+
+### 2026-04-26 — Claude Code (sesión beta plan 7-fase + features A-E + cron loop)
+
+Sesión completa de ejecución del plan-beta sobre branch
+`claude/chat-first-ui-design-aWg0V` (rama destino confirmada por user
+para evitar merge con feat/e1-backend-debt antiguo).
+
+**Plan 7-fase — todas commiteadas:**
+- Fase 1 (`1ba0bb7`): bugs B1 (seed-cordoba hardcode) + B2 (BigInt × 4 sitios + patch global toJSON) + B3 (detectarConcentracionTemporal multiyear)
+- Fase 2 (`8b5afcb`): scripts audit-trazabilidad + inspect-db. DB real verificada: 2,421 contratos 2015-2025 (no 2019-2023 como creía el user) + 33K sueldos + 2.3K licitaciones + 420K IGJ entidades + 2.3M IGJ autoridades
+- Fase 3 (`f43edb4`): Argos v2.0 frontend pixel-perfect del zip. 4 olas de agentes paralelos: mockData/icons/CSS → chat/api → panel/graph → layout. Total +5,272 LOC. Eliminados fixtures sintéticos (CLAUDE.md §2)
+- Fase 4 (`245839c`): backend LLM con budget guard semanal (€50/sem viernes). Tabla llm_usage + budget-guard.ts + endpoints /api/chat (Sonnet SSE) + /api/ai/suggestions (Haiku JSON) + /api/ai/usage. Smoke real: $0.012 / $45 (0.027% gastado)
+- Fase 5 (`eb386b2`): bugs B5/B6/B8 (normalizarProveedor + regex anclada + LICITACION en fraccionamiento) + sidebar embedded chat + frontend envía context.graph al backend
+- Fase 6 (`2c6de8c`): script verify-hallazgos.ts. 8/8 señales con evidencia + fuente_url verificable
+- Fase 7 (`1da2bf0`): release notes. Branch pusheada a remote
+
+**Features A-E (post-brainstorming, /loop autónomo iter 1-5):**
+- A (`dbe7e9e`): panel proveedor "ficha rápida" con 4 KPIs grandes + top 10 contratos clickeables a fuente_url + badge fecha + método
+- B (`2a1c45f`): filtros año/área client-side + KPI inline filtrado
+- C (`152dce5`): copiar sumario Markdown con [link a fuente] por item
+- D (`f6966b2`): screenshot PNG con watermark "ARGOS · cordoba.gob.ar · [fecha]"
+- E (`ed8a014`): chat persistence localStorage + deeplink `?focus=&q=` shareable
+
+**Iter #6**: audit doc generado en `~/Desktop/ARGOS-AUDIT-Y-PROPUESTAS.md`.
+Hallazgo crítico: 2.7M filas IGJ + 32K sueldos cargadas pero sin uso UI.
+Propuestas R1-R5 priorizadas para approval del user.
+
+**Iter #7** (`151a5aa`): bug B7 detectarServiciosSinHistorial robusto a
+typos (RAICES_SERVICIO 25 prefijos vs 7 keywords) + match en
+descripcion+tipo+area + CI hardening (audit-trazabilidad +
+verify-hallazgos como steps post-build).
+
+**Iter #8** (este commit): sweep de COUNT BigInts pendientes
+(loadIGJFromCSV) + LOG update.
+
+Métricas finales sesión:
+- 12 commits sobre claude/chat-first-ui-design-aWg0V
+- ~6,800 LOC netas agregadas
+- Tests: 103 → 133 vitest verde
+- Endpoints LLM nuevos: 3 (chat, suggestions, usage)
+- Anthropic gastado: ~$0.012 (0.027% del cap semanal)
+- Beta funcional: /explorar, /casos, /denuncia, /api/* end-to-end
+
+Backlog post-beta documentado en ARGOS-AUDIT-Y-PROPUESTAS.md:
+- R1 Endpoint IGJ + UI directores (~5h, activa 2.7M filas)
+- R2 Detector conflicto funcionario↔proveedor (~7h, 32K sueldos)
+- R3 Fix parser presupuesto Córdoba (~4h)
+- R4 AFIP padrón empleadores desde datos.gob.ar (~3h)
+- R5 Loader obras públicas dataset 262 (~5h)
 
 
 NO BORRAR//INSTRUCCIONES

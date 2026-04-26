@@ -574,7 +574,7 @@ export async function loadIGJFromCSV(entidadesPath: string, autoridadesPath: str
 
   const [{ cnt: cntEnt }] = await dbAll<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM igj_entidades`)
   const [{ cnt: cntAut }] = await dbAll<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM igj_autoridades`)
-  return { entidades: cntEnt, autoridades: cntAut }
+  return { entidades: Number(cntEnt), autoridades: Number(cntAut) }
 }
 
 export interface IGJDirectorRow {
