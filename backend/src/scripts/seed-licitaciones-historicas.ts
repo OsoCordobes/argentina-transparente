@@ -73,7 +73,7 @@ async function main() {
        AND l.expediente = c.numero_expediente
      WHERE l.municipio = 'cordoba-capital'`
   )
-  console.log(`\n✓ Cruces detectados: ${cruces[0]?.cnt ?? 0} llamados tienen contrato adjudicado en la tabla contratos (vía expediente)`)
+  console.log(`\n✓ Cruces detectados: ${Number(cruces[0]?.cnt ?? 0)} llamados tienen contrato adjudicado en la tabla contratos (vía expediente)`)
 
   console.log('\nPróximos pasos:')
   console.log('  1. Después del extractor de normas, los expedientes deberían cruzar más')

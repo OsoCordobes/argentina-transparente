@@ -10,6 +10,19 @@ const COL_ANIO        = 'Año contratación'
 
 const FUENTE_BASE = 'https://gobiernoabierto.cordoba.gob.ar/data/datos-abiertos/categoria/erogaciones/compras-y-contrataciones/2'
 
+/**
+ * Busca tolerantemente una key cuya nombre contenga la subcadena (case-insensitive).
+ * Útil cuando el XLSX agrega/renombra columnas entre años (ej. "Expediente N°"
+ * vs "Nº Expediente" vs "Expte"). Para M18 (cruce con licitaciones_llamado).
+ */
+function findKeyContaining(row: Record<string, unknown>, substr: string): string | null {
+  const subLower = substr.toLowerCase()
+  for (const k of Object.keys(row)) {
+    if (k.toLowerCase().includes(subLower)) return k
+  }
+  return null
+}
+
 export function parseRows(rows: Record<string, unknown>[], anio: number): Contrato[] {
   const contratos: Contrato[] = []
 
@@ -29,6 +42,13 @@ export function parseRows(rows: Record<string, unknown>[], anio: number): Contra
 
     const anioFinal = anioRaw ? parseInt(String(anioRaw)) : anio
 
+    // M18: extraer numeroExpediente si está presente (col puede llamarse de
+    // varias formas: "Expediente N°", "Nº Expediente", "Expte", etc.)
+    const expedKey = findKeyContaining(row, 'exped')
+    const numeroExpediente = expedKey
+      ? String(row[expedKey] ?? '').trim() || undefined
+      : undefined
+
     contratos.push({
       tipo,
       proveedor,
@@ -37,6 +57,7 @@ export function parseRows(rows: Record<string, unknown>[], anio: number): Contra
       monto,
       anio: anioFinal,
       fuenteUrl: FUENTE_BASE,
+      numeroExpediente,
     })
   }
 

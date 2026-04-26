@@ -61,9 +61,17 @@ export async function initDb(): Promise<void> {
     `ALTER TABLE contratos ADD COLUMN nivel_confianza TEXT DEFAULT 'alto'`,
     `ALTER TABLE contratos ADD COLUMN metodo_extraccion TEXT DEFAULT 'api_estructurada'`,
     `ALTER TABLE contratos ADD COLUMN pagina_pdf INTEGER`,
+    // M18 — numero_expediente para cruce con licitaciones_llamado.
+    // Se popula desde Contrato.numeroExpediente cuando el connector lo expone.
+    `ALTER TABLE contratos ADD COLUMN numero_expediente TEXT`,
   ]) {
     try { await dbRun(alter) } catch { /* columna ya existe */ }
   }
+  // Índice para que el JOIN licitaciones_llamado.expediente = contratos.numero_expediente
+  // sea rápido. CREATE INDEX IF NOT EXISTS sí lo soporta DuckDB.
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_contratos_expediente ON contratos(numero_expediente) WHERE numero_expediente IS NOT NULL`)
+  } catch { /* ignore */ }
 
   // ─── Pre-computed signals cache ────────────────────────────────────────────
   await dbRun(`
@@ -635,14 +643,16 @@ export async function insertContratoBatch(municipio: string, contratos: Contrato
       await dbRun(
         `INSERT OR IGNORE INTO contratos
          (hash, municipio, anio, tipo, proveedor, proveedor_norm, area, descripcion,
-          monto, fuente_url, cargado_en, nivel_confianza, metodo_extraccion, pagina_pdf)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          monto, fuente_url, cargado_en, nivel_confianza, metodo_extraccion,
+          pagina_pdf, numero_expediente)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           hash, municipio, c.anio, c.tipo, c.proveedor, normProveedor(c.proveedor),
           c.area, c.descripcion ?? '', c.monto, c.fuenteUrl, now,
           c.nivelConfianza ?? 'alto',
           c.metodoExtraccion ?? 'api_estructurada',
           c.paginaPdf ?? null,
+          c.numeroExpediente ?? null,
         ]
       )
       inserted++
