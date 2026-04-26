@@ -10,6 +10,33 @@
 
 import 'dotenv/config'
 import { initDb, dbAll } from '../lib/db'
+import { parseDetectorConfig } from '../engine/detectors-loader'
+import config from '../engine/detectors-config.json'
+
+// Mapping tipologia (snake_case en señales_cache) → key del detector
+// (camelCase con prefijo `detectar` en detectors-config.json).
+// Esto NO se puede derivar trivialmente porque varias tipologías
+// difieren del nombre de la función (ej. `prorrogas_excesivas` vs
+// `detectarProrrogas`, `gasto_fin_ejercicio` vs
+// `detectarConcentracionTemporal`). Se construye a partir de las
+// tipologías reales emitidas por `signals.ts`.
+const TIPOLOGIA_TO_DETECTOR: Record<string, string> = {
+  prorrogas_excesivas: 'detectarProrrogas',
+  concentracion_proveedor: 'detectarConcentracion',
+  contrataciones_directas: 'detectarContratacionesDirectas',
+  monopolio_rubro: 'detectarMonopolioRubro',
+  servicio_sin_historial: 'detectarServiciosSinHistorial',
+  fraccionamiento_avanzado: 'detectarFraccionamientoAvanzado',
+  gasto_fin_ejercicio: 'detectarConcentracionTemporal',
+  proveedor_cronico: 'detectarProveedorCronico',
+  empresa_nueva: 'detectarEmpresaNueva',
+  empresa_sin_empleados: 'detectarEmpresaSinEmpleados',
+  directores_compartidos: 'detectarDirectoresCompartidos',
+  rotacion_coordinada: 'detectarRotacionCoordinada',
+  adenda_postajudicacion: 'detectarAdendaPostAdjudicacion',
+  red_de_empresas: 'detectarRedDeEmpresas',
+  aparicion_offshore: 'detectarAparicionOffshore',
+}
 
 interface SignalRow {
   id: string
@@ -46,11 +73,32 @@ async function main() {
 
   console.log(`\n=== Verificación de ${señales.length} señales — Córdoba Capital ===\n`)
 
+  // Cargar y validar el config de detectores. Si el JSON está roto,
+  // esto lanza ZodError y aborta antes del loop — comportamiento
+  // deseado: el verify completo debe fallar.
+  const CFG = parseDetectorConfig(config)
+
   let totalFails = 0
 
   for (const s of señales) {
     console.log(`\n━━━ [${s.score}] ${s.severidad.toUpperCase()} — ${s.tipologia}`)
     console.log(`     ${s.titulo}`)
+
+    // Chequeo F9.1: cada tipologia cacheada debe tener una entrada
+    // correspondiente en detectors-config.json (norma + tier).
+    const detectorKey = TIPOLOGIA_TO_DETECTOR[s.tipologia]
+    if (!detectorKey) {
+      console.log(`     ✗ tipologia "${s.tipologia}" no tiene mapping a detectorKey`)
+      totalFails++
+    } else {
+      const cfgEntry = CFG[detectorKey]
+      if (!cfgEntry) {
+        console.log(`     ✗ Señal ${s.tipologia} (${detectorKey}) sin entrada en detectors-config.json`)
+        totalFails++
+      } else {
+        console.log(`     Tier ${cfgEntry.tier} — norma citada: ${cfgEntry.norma ? 'sí' : 'NO'}`)
+      }
+    }
 
     let evidencia: Array<{ descripcion: string; fuenteUrl: string }> = []
     try {
@@ -135,12 +183,13 @@ async function main() {
 
   console.log(`\n=== Resumen ===`)
   console.log(`Señales verificadas: ${señales.length}`)
-  console.log(`Fails (evidencia ausente/malformada): ${totalFails}`)
+  console.log(`Fails (evidencia ausente/malformada o config faltante): ${totalFails}`)
 
   if (totalFails > 0) {
     process.exit(1)
   }
   console.log(`✓ Todas las señales tienen evidencia poblada con fuente_url`)
+  console.log(`✓ Todas las señales tienen entrada en detectors-config.json`)
   process.exit(0)
 }
 
