@@ -18,6 +18,15 @@ import { GraphCanvas } from './GraphCanvas'
 import { NodeDetailPanel } from './NodeDetailPanel'
 import { Ico } from './ArgosIcons'
 import argosApi from '@/lib/argos/api'
+import {
+  saveThread,
+  loadThread,
+  clearThread,
+  parseDeeplink,
+  buildDeeplinkUrl,
+  consumeDeeplinkParams,
+} from '@/lib/argos/chat-persist'
+import { copyToClipboard } from '@/lib/argos/sumario'
 import type {
   ArgosGraph,
   ArgosNode,
@@ -112,6 +121,7 @@ interface AppState {
 
 type AppAction =
   | { t: 'GRAPH_LOADED'; payload: ArgosGraph }
+  | { t: 'THREAD_RESTORED'; thread: ChatMessage[] }
   | { t: 'SEARCH_SUBMIT'; query: string }
   | { t: 'FOCUS_NODE'; id: string | null }
   | { t: 'HOVER_NODE'; id: string | null }
@@ -211,6 +221,15 @@ function reducer(state: AppState, a: AppAction): AppState {
         focusedNodeId: null,
         highlightedNodeIds: new Set(),
       }
+    case 'THREAD_RESTORED':
+      return {
+        ...state,
+        chat: {
+          thread: a.thread,
+          streaming: false,
+          fadeLevel: 'idle',
+        },
+      }
     case 'CLEAR_CHAT':
       return {
         ...state,
@@ -264,6 +283,7 @@ interface SidebarChatProps {
   thread: ChatMessage[]
   streaming: boolean
   graph: ArgosGraph
+  focusedNodeId: string | null
   onChipHover: (id: string | null) => void
   onChipClick: (id: string) => void
   onClear: () => void
@@ -313,12 +333,28 @@ function renderInlineBody(
 }
 
 function SidebarChat({
-  thread, streaming, graph, onChipHover, onChipClick, onClear,
+  thread, streaming, graph, focusedNodeId,
+  onChipHover, onChipClick, onClear,
 }: SidebarChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [shareStatus, setShareStatus] = useState<'idle' | 'ok'>('idle')
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
   }, [thread.length, streaming, thread[thread.length - 1]?.content])
+
+  // Feature E — botón "Compartir vista" copia URL deeplink
+  const handleShare = async () => {
+    const lastUser = [...thread].reverse().find((m) => m.role === 'user')
+    const url = buildDeeplinkUrl({
+      focusNodeId: focusedNodeId,
+      query: lastUser?.content,
+    })
+    const ok = await copyToClipboard(url)
+    if (ok) {
+      setShareStatus('ok')
+      setTimeout(() => setShareStatus('idle'), 1800)
+    }
+  }
 
   if (thread.length === 0) return null
 
@@ -339,14 +375,24 @@ function SidebarChat({
           <span className={`tdot ${streaming ? 'streaming' : ''}`} />{' '}
           ARGOS · {streaming ? 'investigando…' : `${thread.length} mensaje${thread.length === 1 ? '' : 's'}`}
         </span>
-        <button
-          onClick={onClear}
-          className="thead-btn"
-          style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 11 }}
-          title="Limpiar"
-        >
-          Limpiar
-        </button>
+        <span style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={handleShare}
+            className="thead-btn"
+            style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 11 }}
+            title="Copiar link compartible al portapapeles (incluye foco actual + última pregunta)"
+          >
+            {shareStatus === 'ok' ? '✓ Link copiado' : 'Compartir'}
+          </button>
+          <button
+            onClick={onClear}
+            className="thead-btn"
+            style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 11 }}
+            title="Limpiar conversación + localStorage"
+          >
+            Limpiar
+          </button>
+        </span>
       </div>
       {thread.map((m, i) => (
         <div key={i} className={`msg ${m.role}`}>
@@ -376,6 +422,7 @@ interface SidebarProps {
   streaming: boolean
   fadeLevel: ChatFadeLevel
   graph: ArgosGraph
+  focusedNodeId: string | null
   onChipHover: (id: string | null) => void
   onChipClick: (id: string) => void
   onChatClear: () => void
@@ -385,7 +432,7 @@ interface SidebarProps {
 }
 
 function Sidebar({
-  active, onNav, hasChat, hasHistory, thread, streaming, fadeLevel, graph,
+  active, onNav, hasChat, hasHistory, thread, streaming, fadeLevel, graph, focusedNodeId,
   onChipHover, onChipClick, onChatClear,
   totalProv, totalSenales, totalJur,
 }: SidebarProps) {
@@ -420,6 +467,7 @@ function Sidebar({
           thread={thread}
           streaming={streaming}
           graph={graph}
+          focusedNodeId={focusedNodeId}
           onChipHover={onChipHover}
           onChipClick={onChipClick}
           onClear={onChatClear}
@@ -629,6 +677,46 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
     dispatch({ t: 'GRAPH_LOADED', payload: graph })
   }, [graph])
 
+  // ─── Feature E — restore chat thread al montar (1 vez) ────────────────────
+  // Hidrata desde localStorage. NO sobrescribe si user empezó a chatear ya.
+  const hydratedRef = useRef(false)
+  useEffect(() => {
+    if (hydratedRef.current) return
+    hydratedRef.current = true
+
+    const saved = loadThread()
+    if (saved.length > 0 && s.chat.thread.length === 0) {
+      // Restore preservando timestamps originales — CHAT_USER_MSG + CHAT_CHUNK
+      // generarían new Date.now() en cada uno, perdiendo los originales.
+      dispatch({ t: 'THREAD_RESTORED', thread: saved })
+    }
+
+    // Procesar deeplink ?focus=&q= si vino en la URL
+    const dl = parseDeeplink()
+    if (dl.focusNodeId) {
+      // Esperamos al graph estar cargado para enfocar — usamos timeout corto
+      setTimeout(() => {
+        dispatch({ t: 'SELECT_NODE', id: dl.focusNodeId! })
+      }, 200)
+    }
+    if (dl.query && saved.length === 0) {
+      // Auto-disparar la pregunta solo si no había chat previo (no spam)
+      setTimeout(() => submit(dl.query!), 600)
+    }
+    // Consumir los params para que F5 no re-dispare
+    if (dl.focusNodeId || dl.query) {
+      consumeDeeplinkParams()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ─── Feature E — persist thread cada vez que cambia ──────────────────────
+  useEffect(() => {
+    // No guardar mientras se está streaming (chunks parciales)
+    if (s.chat.streaming) return
+    saveThread(s.chat.thread)
+  }, [s.chat.thread, s.chat.streaming])
+
   // Hero node: jurisdiccion con más señales graves
   const heroNodeId = useMemo(() => {
     if (!s.graph.nodes.length) return null
@@ -801,7 +889,11 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
     chipHoverTimer.current = setTimeout(() => dispatch({ t: 'HIGHLIGHT_ONE', id }), 80)
   }, [])
   const onChipClick = useCallback((id: string) => dispatch({ t: 'SELECT_NODE', id }), [])
-  const onChatClear = useCallback(() => dispatch({ t: 'CLEAR_CHAT' }), [])
+  // Feature E — al limpiar el chat también borramos localStorage
+  const onChatClear = useCallback(() => {
+    dispatch({ t: 'CLEAR_CHAT' })
+    clearThread()
+  }, [])
   const onPanelClose = useCallback(() => dispatch({ t: 'PANEL_CLOSE' }), [])
   const onPanelSelect = useCallback((id: string) => dispatch({ t: 'SELECT_NODE', id }), [])
   const onPanelRelHover = useCallback(
@@ -877,6 +969,7 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
         streaming={s.chat.streaming}
         fadeLevel={s.chat.fadeLevel}
         graph={s.graph}
+        focusedNodeId={s.focusedNodeId}
         onChipHover={onChipHover}
         onChipClick={onChipClick}
         onChatClear={onChatClear}
