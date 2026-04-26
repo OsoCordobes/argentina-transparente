@@ -31,6 +31,7 @@ import { Ico } from '@/components/argos/ArgosIcons'
 import { IdentityBadge } from '@/components/argos/IdentityBadge'
 import { sumarioProveedorMarkdown, copyToClipboard } from '@/lib/argos/sumario'
 import { capturarCanvasWrap } from '@/lib/argos/screenshot'
+import { addItem as addToWatchlist, readLocal as readWatchlistLocal } from '@/lib/argos/watchlist'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -192,6 +193,8 @@ export function NodeDetailPanel({
   const [copyStatus, setCopyStatus] = useState<'idle' | 'ok' | 'fail'>('idle')
   // Feature D — feedback del botón "Descargar imagen"
   const [shotStatus, setShotStatus] = useState<'idle' | 'busy' | 'ok' | 'fail'>('idle')
+  // F8 — watchlist: el nodo actual ya está marcado por el user?
+  const [enWatchlist, setEnWatchlist] = useState(false)
 
   // Reset de filtros al cambiar de nodo (mismo deps que el .jsx).
   useEffect(() => {
@@ -201,6 +204,16 @@ export function NodeDetailPanel({
     setYearFilter(null)
     setAreaFilter(null)
   }, [detail?.node?.id])
+
+  // F8 — sync `enWatchlist` con localStorage cada vez que cambia el nodo.
+  useEffect(() => {
+    if (!detail) {
+      setEnWatchlist(false)
+      return
+    }
+    const items = readWatchlistLocal()
+    setEnWatchlist(items.some((i) => i.proveedor_id === detail.node.id))
+  }, [detail])
 
   // ESC cierra el panel.
   useEffect(() => {
@@ -250,6 +263,26 @@ export function NodeDetailPanel({
       console.warn('[screenshot] Falló:', result.error)
     }
     setTimeout(() => setShotStatus('idle'), 2000)
+  }
+
+  // F8 — agregar el proveedor actual a la watchlist personal del user.
+  // Sólo aplica para nodos de tipo proveedor (no jurisdicción / contrato / etc).
+  const handleAddToWatchlist = async () => {
+    if (!detail) return
+    const now = new Date().toISOString()
+    const cuit =
+      typeof detail.node.data?.cuit === 'string'
+        ? (detail.node.data.cuit as string)
+        : null
+    await addToWatchlist({
+      proveedor_id: detail.node.id,
+      proveedor_label: detail.node.label,
+      cuit,
+      agregado_en: now,
+      ultima_visita: now,
+      notas: null,
+    })
+    setEnWatchlist(true)
   }
 
   // Export JSON: descarga el `detail` completo como `<id>.json`.
@@ -909,6 +942,21 @@ export function NodeDetailPanel({
                 >
                   <Ico.FileText size={13} /> Exportar JSON
                 </button>
+                {n.type === 'proveedor' && (
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={handleAddToWatchlist}
+                    disabled={enWatchlist}
+                    title={
+                      enWatchlist
+                        ? 'Este proveedor ya está en tu watchlist'
+                        : 'Agregar este proveedor a tu watchlist personal'
+                    }
+                  >
+                    {enWatchlist ? '⭐ En tu watchlist' : '☆ Agregar a watchlist'}
+                  </button>
+                )}
               </div>
             </div>
           </>
