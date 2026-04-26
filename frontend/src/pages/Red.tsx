@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { ArrowLeft, AlertTriangle, Network, Loader2, Users, Info } from 'lucide-react'
-// @ts-expect-error react-cytoscapejs no exporta types
 import CytoscapeComponent from 'react-cytoscapejs'
 import cytoscape from 'cytoscape'
-// @ts-expect-error cytoscape-dagre no exporta types
 import dagre from 'cytoscape-dagre'
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -200,7 +198,7 @@ export default function Red() {
                       idealEdgeLength: 120,
                       nodeRepulsion: 8000,
                     }}
-                    stylesheet={STYLE as unknown as cytoscape.Stylesheet[]}
+                    stylesheet={STYLE as unknown as cytoscape.StylesheetCSS[]}
                     style={{ width: '100%', height: '100%' }}
                     cy={(cy: cytoscape.Core) => {
                       cyRef.current = cy

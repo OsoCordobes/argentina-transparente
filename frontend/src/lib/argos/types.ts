@@ -81,6 +81,16 @@ export interface ChatChunk {
   done?: boolean
 }
 
+/**
+ * Niveles de "fade" del chat según interacción del usuario:
+ * - 'typing': mensaje en streaming, opacidad alta
+ * - 'idle': chat inactivo, opacidad media
+ * - 'hover-graph': el cursor está sobre el grafo, chat se atenúa
+ */
+export type ChatFadeLevel = 'typing' | 'idle' | 'hover-graph'
+
+export type ChatThreadMode = 'collapsed' | 'expanded' | 'minimized'
+
 export interface ChatContext {
   /** Nodo enfocado actual — el chat responde en su contexto si aplica. */
   focusNodeId: string | null

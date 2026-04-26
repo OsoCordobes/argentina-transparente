@@ -51,7 +51,7 @@ export function graphFromDashboard(data: DashboardResponse): ArgosGraph {
       type: 'jurisdiccion',
       label: muni.municipio,
       weight: clamp(muni.monto_total / maxMonto, 0.15, 1),
-      data: muni,
+      data: muni as unknown as Record<string, unknown>,
     })
   }
 
@@ -71,7 +71,7 @@ export function graphFromDashboard(data: DashboardResponse): ArgosGraph {
       label: ent.proveedor,
       subtitle: ent.municipio,
       weight: clamp(ent.monto_total / maxMontoEnt, 0.1, 1),
-      data: ent,
+      data: ent as unknown as Record<string, unknown>,
     })
 
     // Arista proveedor → municipio
@@ -93,7 +93,7 @@ export function graphFromDashboard(data: DashboardResponse): ArgosGraph {
         subtitle: señal.municipio,
         weight: clamp(señal.score / 100, 0.1, 1),
         flags: { severidad: señal.severidad },
-        data: señal,
+        data: señal as unknown as Record<string, unknown>,
       })
     }
 
@@ -149,7 +149,7 @@ export function mergeEntidadIntoGraph(
       label: entidad.nombre,
       weight: 0.8,
       flags: { verificadoAfip: !!entidad.afip },
-      data: entidad,
+      data: entidad as unknown as Record<string, unknown>,
     })
   } else {
     // Actualizar data con el detalle completo
@@ -157,7 +157,7 @@ export function mergeEntidadIntoGraph(
     if (idx >= 0) {
       nodes[idx] = {
         ...nodes[idx],
-        data: entidad,
+        data: entidad as unknown as Record<string, unknown>,
         flags: { ...nodes[idx].flags, verificadoAfip: !!entidad.afip },
       }
     }
@@ -173,7 +173,7 @@ export function mergeEntidadIntoGraph(
         label: señal.titulo,
         weight: clamp(señal.score / 100, 0.1, 1),
         flags: { severidad: señal.severidad },
-        data: señal,
+        data: señal as unknown as Record<string, unknown>,
       })
     }
     addEdge(entId, señal.id, 'señalado_por', señal.score / 100)

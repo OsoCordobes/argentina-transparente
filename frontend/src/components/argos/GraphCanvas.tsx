@@ -1,402 +1,779 @@
 /**
- * GraphCanvas.tsx
+ * GraphCanvas.tsx — d3-force + IMPERATIVE animation (refs only, zero React per-frame)
  *
- * Grafo d3-force renderizado en SVG con animación imperativa.
- * NUNCA usa useState para la posición de nodos — toda la animación
- * se hace con refs + mutación directa del DOM (patrón d3 clásico).
+ * Migrado del zip Argos v2.0 (`graph.jsx`, 466 LOC). Refactor obligatorio:
+ *   - Eliminado `window.__argosSim` global. La simulación vive en `simRef`.
+ *     En modo DEV se expone read-only para debugging.
+ *   - Tipado estricto contra `d3-force` (NodeDatum/LinkDatum extienden los
+ *     SimulationNodeDatum / SimulationLinkDatum del paquete).
+ *   - Props nuevas: snapshot/focusedId/hoveredId/highlighted/idle/heroNodeId/
+ *     labelsMode/labelsDepth/onHover/onSelect/onBgEnter/onBgLeave.
  *
- * React sólo se invoca para cambios estructurales (nodes/edges, focusedId).
- * Esto evita el freeze de 60 re-renders/seg que quemaba el heap.
+ * Patrón:
+ *   - useRef mirroring de cada prop dinámica → la simulación lee de refs,
+ *     NO re-renderiza por cada frame.
+ *   - Build sim solo cuando snapshot/size cambia.
+ *   - 3 RAF loops: tick (posiciones), step (cámara), pulse (halos 15Hz).
+ *   - Cleanup: stop() + cancelAnimationFrame en cada useEffect.
+ *
+ * className pixel-perfect del zip: graph, node, halo, ring, dot, node-label.
+ *
+ * Performance: hasta ~500 nodos. La simulación itera todos los nodos por
+ * frame, pero usa refs (sin reconciliation). Para >500 nodos puede haber
+ * jank en navegadores low-end — considerar canvas2d en una v2.
  */
 
-import { useEffect, useRef, useCallback, memo } from 'react'
-import type { RefObject } from 'react'
-import type { ArgosGraph, ArgosNode, ArgosEdge } from '@/lib/argos/types'
+import { useEffect, useRef, useState, useMemo, useCallback, memo } from 'react'
+import {
+  forceSimulation,
+  forceManyBody,
+  forceLink,
+  forceCenter,
+  forceCollide,
+  forceX,
+  forceY,
+  type Simulation,
+  type SimulationNodeDatum,
+  type SimulationLinkDatum,
+} from 'd3-force'
+import type {
+  ArgosGraph,
+  ArgosNode,
+  ArgosNodeType,
+  ArgosSeveridad,
+  ArgosEdge,
+  ArgosEdgeKind,
+} from '@/lib/argos/types'
 
-// d3-force se importa con dynamic import para que vaya en su propio chunk
-// y no bloquee el bundle inicial.
+// ─── Constantes de diseño (copiadas del .jsx) ─────────────────────────────────
 
-// ─── Constantes de diseño ─────────────────────────────────────────────────────
-
-const NODE_COLOR: Record<string, string> = {
-  jurisdiccion: '#818cf8',
-  proveedor: '#38bdf8',
-  director: '#f472b6',
-  contrato: '#34d399',
-  señal: '#fb923c',
+const TYPE_COLOR: Record<ArgosNodeType, string> = {
+  jurisdiccion: '#6FB8E8',
+  proveedor: '#FFFFFF',
+  director: '#B79CFF',
+  contrato: '#62C7A0',
+  'señal': '#F5B544',
 }
 
-const NODE_RADIUS = (weight: number) => 6 + weight * 18
-
-// ─── Tipos D3 mínimos para evitar import masivo ───────────────────────────────
-
-type D3Simulation = {
-  nodes: (arr?: ArgosNode[]) => ArgosNode[] | D3Simulation
-  force: (name: string, f?: unknown) => D3Simulation
-  alpha: (v?: number) => number | D3Simulation
-  alphaTarget: (v: number) => D3Simulation
-  alphaDecay: (v: number) => D3Simulation
-  velocityDecay: (v: number) => D3Simulation
-  on: (event: string, cb: () => void) => D3Simulation
-  restart: () => D3Simulation
-  stop: () => void
-  tick: () => D3Simulation
+function nodeBaseRadius(n: ArgosNode): number {
+  const t = n.type
+  const w = n.weight ?? 0.4
+  if (t === 'jurisdiccion') return 14 + w * 16
+  if (t === 'proveedor') return 6 + w * 14
+  if (t === 'señal') return 7 + w * 8
+  if (t === 'director') return 5 + w * 6
+  return 3 + w * 5
 }
 
-// ─── Pan/zoom imperativo ──────────────────────────────────────────────────────
+function colorFor(n: ArgosNode): string {
+  const sev = n.flags?.severidad
+  if (sev === 'grave') return '#E5484D'
+  if (sev === 'moderada') return '#F5B544'
+  return TYPE_COLOR[n.type] ?? '#9BA3B4'
+}
+
+// ─── Tipado d3-force ──────────────────────────────────────────────────────────
+
+/**
+ * NodeDatum: ArgosNode + propiedades que d3-force muta in-place
+ * (x/y/vx/vy ya están en ArgosNode; index/fx/fy son del simulador).
+ */
+interface NodeDatum extends ArgosNode, SimulationNodeDatum {
+  index?: number
+}
+
+/**
+ * LinkDatum: por contrato d3 reemplaza source/target (string|Node) por el
+ * objeto NodeDatum una vez resuelto. Antes del primer tick pueden ser
+ * strings — el código maneja ambos casos.
+ */
+interface LinkDatum extends SimulationLinkDatum<NodeDatum> {
+  source: string | NodeDatum
+  target: string | NodeDatum
+  kind: ArgosEdgeKind
+  weight: number
+}
+
+// ─── Refs DOM por nodo / arista ───────────────────────────────────────────────
+
+interface NodeDOMRefs {
+  gEl: SVGGElement
+  haloEl: SVGCircleElement | null
+  ringEl: SVGCircleElement | null
+  dotEl: SVGCircleElement | null
+  labelEl: SVGTextElement | null
+}
+
+interface EdgeDOMRefs {
+  lineEl: SVGLineElement
+}
+
+interface SimBundle {
+  sim: Simulation<NodeDatum, LinkDatum>
+  nodes: NodeDatum[]
+  edges: LinkDatum[]
+  nodeMap: Map<string, NodeDatum>
+}
+
+// ─── View state (cámara) ──────────────────────────────────────────────────────
 
 interface ViewState {
   tx: number
   ty: number
-  scale: number
+  k: number
 }
 
-function applyTransform(g: SVGGElement | null, v: ViewState) {
-  if (!g) return
-  g.setAttribute('transform', `translate(${v.tx},${v.ty}) scale(${v.scale})`)
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function endpointId(end: string | NodeDatum): string {
+  return typeof end === 'string' ? end : end.id
+}
+
+function endpointNode(end: string | NodeDatum, map: Map<string, NodeDatum>): NodeDatum | undefined {
+  return typeof end === 'string' ? map.get(end) : end
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface GraphCanvasProps {
-  graph: ArgosGraph
-  focusedNodeId: string | null
-  highlightedIds: Set<string>
-  onNodeClick: (node: ArgosNode) => void
-  onNodeHover: (node: ArgosNode | null, x: number, y: number) => void
+  snapshot: ArgosGraph
+  focusedId: string | null
+  hoveredId: string | null
+  highlighted: Set<string>
+  idle: boolean
+  heroNodeId: string | null
+  labelsMode: 'minimal' | 'all'
+  labelsDepth: 1 | 2 | 3
+  onHover: (id: string | null) => void
+  onSelect: (id: string) => void
+  onBgEnter?: () => void
+  onBgLeave?: () => void
 }
 
 // ─── Componente ──────────────────────────────────────────────────────────────
 
-export const GraphCanvas = memo(function GraphCanvas({
-  graph,
-  focusedNodeId,
-  highlightedIds,
-  onNodeClick,
-  onNodeHover,
+function GraphCanvasInner({
+  snapshot,
+  focusedId,
+  hoveredId,
+  highlighted,
+  idle,
+  heroNodeId,
+  labelsMode,
+  labelsDepth,
+  onHover,
+  onSelect,
+  onBgEnter,
+  onBgLeave,
 }: GraphCanvasProps) {
+  const wrapRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const gRef = useRef<SVGGElement>(null)
-  const simRef = useRef<D3Simulation | null>(null)
-  const viewRef = useRef<ViewState>({ tx: 0, ty: 0, scale: 1 })
-  const rafRef = useRef<number>(0)
-  const isDraggingRef = useRef(false)
-  const dragStartRef = useRef({ x: 0, y: 0, tx: 0, ty: 0 })
-  const nodeElsRef = useRef<Map<string, SVGGElement>>(new Map())
-  const edgeElsRef = useRef<Map<string, SVGLineElement>>(new Map())
+  const simRef = useRef<SimBundle | null>(null)
 
-  // ─── Init d3-force ─────────────────────────────────────────────────────────
+  const [size, setSize] = useState<{ w: number; h: number }>({ w: 1200, h: 800 })
+  // Forzamos 1 re-render cuando la sim termina de construirse, para que el
+  // JSX pueda mapear nodes/edges con sus refs.
+  const [, setSimTick] = useState(0)
 
-  useEffect(() => {
-    let cancelled = false
+  // ─── Refs imperativos para animación ─────────────────────────────────────
 
-    async function init() {
-      const [
-        { forceSimulation },
-        { forceManyBody },
-        { forceLink },
-        { forceCenter },
-        { forceCollide },
-      ] = await Promise.all([
-        import('d3-force'),
-        import('d3-force'),
-        import('d3-force'),
-        import('d3-force'),
-        import('d3-force'),
-      ]) as [
-        { forceSimulation: (nodes: ArgosNode[]) => D3Simulation },
-        { forceManyBody: () => { strength: (v: number) => unknown } },
-        { forceLink: (edges: ArgosEdge[]) => { id: (fn: (d: ArgosNode) => string) => unknown; distance: (fn: (d: ArgosEdge) => number) => unknown; strength: (v: number) => unknown } },
-        { forceCenter: (x: number, y: number) => unknown },
-        { forceCollide: () => { radius: (fn: (d: ArgosNode) => number) => unknown; strength: (v: number) => unknown } },
-      ]
+  const viewRef = useRef<ViewState>({ tx: 0, ty: 0, k: 1 })
+  const targetView = useRef<ViewState>({ tx: 0, ty: 0, k: 1 })
+  const timeRef = useRef<number>(0)
+  const nodeRefs = useRef<Map<string, NodeDOMRefs>>(new Map())
+  const edgeRefs = useRef<EdgeDOMRefs[]>([])
 
-      if (cancelled || !svgRef.current) return
+  // Refs que reflejan props para que los RAF loops no requieran re-render
+  const focusedRef = useRef<string | null>(focusedId)
+  const hoveredRef = useRef<string | null>(hoveredId)
+  const highlightedRef = useRef<Set<string>>(highlighted)
+  const heroIdRef = useRef<string | null>(heroNodeId)
+  const idleRef = useRef<boolean>(idle)
 
-      const svg = svgRef.current
-      const { width, height } = svg.getBoundingClientRect()
-      const cx = width / 2
-      const cy = height / 2
+  useEffect(() => { focusedRef.current = focusedId }, [focusedId])
+  useEffect(() => { hoveredRef.current = hoveredId }, [hoveredId])
+  useEffect(() => { highlightedRef.current = highlighted }, [highlighted])
+  useEffect(() => { heroIdRef.current = heroNodeId }, [heroNodeId])
+  useEffect(() => { idleRef.current = idle }, [idle])
 
-      // Centro de la vista en el centro del SVG
-      viewRef.current = { tx: cx, ty: cy, scale: 1 }
-
-      const sim = forceSimulation(graph.nodes)
-        .force('charge', (forceManyBody() as { strength: (v: number) => unknown }).strength(-220))
-        .force(
-          'link',
-          ((forceLink(graph.edges) as {
-            id: (fn: (d: ArgosNode) => string) => typeof forceLink
-            distance: (fn: (d: ArgosEdge) => number) => typeof forceLink
-            strength: (v: number) => typeof forceLink
-          })
-            .id((d: ArgosNode) => d.id)
-            .distance((e: ArgosEdge) => 80 + (1 - e.weight) * 80)
-            .strength(0.4) as unknown)
-        )
-        .force('center', (forceCenter as (x: number, y: number) => unknown)(0, 0))
-        .force(
-          'collide',
-          ((forceCollide() as { radius: (fn: (d: ArgosNode) => number) => unknown; strength: (v: number) => unknown })
-            .radius((d: ArgosNode) => NODE_RADIUS(d.weight) + 8)
-            .strength(0.7) as unknown)
-        )
-        .alphaDecay(0.025)
-        .velocityDecay(0.35)
-        .on('tick', onTick)
-
-      simRef.current = sim
-    }
-
-    init()
-    return () => {
-      cancelled = true
-      simRef.current?.stop()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // sólo en mount — el grafo se actualiza por separado
-
-  // ─── Actualizar simulación cuando cambia el grafo ──────────────────────────
+  // ─── ResizeObserver ──────────────────────────────────────────────────────
 
   useEffect(() => {
-    const sim = simRef.current
-    if (!sim) return
-
-    // Reconstruir DOM para nodos/aristas
-    rebuildDOM()
-
-    // Actualizar fuerzas con los nuevos datos
-    ;(sim as unknown as {
-      nodes: (arr: ArgosNode[]) => D3Simulation
-      force: (name: string, f?: unknown) => D3Simulation
-    }).nodes(graph.nodes)
-
-    const linkForce = (sim as unknown as { force: (name: string) => { links: (arr: ArgosEdge[]) => void } | null }).force('link')
-    if (linkForce) linkForce.links(graph.edges)
-
-    ;(sim as unknown as { alpha: (v: number) => D3Simulation; restart: () => D3Simulation })
-      .alpha(0.5)
-      .restart()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph.nodes.length, graph.edges.length])
-
-  // ─── rAF tick: mutar DOM directamente, sin React ─────────────────────────
-
-  const onTick = useCallback(() => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current)
-    rafRef.current = requestAnimationFrame(flushPositions)
+    if (!wrapRef.current) return
+    const ro = new ResizeObserver((entries) => {
+      const cr = entries[0].contentRect
+      setSize({ w: cr.width, h: cr.height })
+    })
+    ro.observe(wrapRef.current)
+    return () => ro.disconnect()
   }, [])
 
-  const flushPositions = useCallback(() => {
-    const g = gRef.current
-    if (!g) return
-
-    applyTransform(g, viewRef.current)
-
-    // Mover aristas
-    for (const edge of graph.edges) {
-      const src = edge.source as ArgosNode
-      const tgt = edge.target as ArgosNode
-      const key = `${typeof edge.source === 'string' ? edge.source : src.id}|${typeof edge.target === 'string' ? edge.target : tgt.id}`
-      const el = edgeElsRef.current.get(key)
-      if (el && src.x != null && tgt.x != null) {
-        el.setAttribute('x1', String(src.x))
-        el.setAttribute('y1', String(src.y))
-        el.setAttribute('x2', String(tgt.x))
-        el.setAttribute('y2', String(tgt.y))
-      }
-    }
-
-    // Mover nodos
-    for (const node of graph.nodes) {
-      const el = nodeElsRef.current.get(node.id)
-      if (el && node.x != null) {
-        el.setAttribute('transform', `translate(${node.x},${node.y})`)
-      }
-    }
-  }, [graph])
-
-  // ─── Construcción imperativa del DOM SVG ──────────────────────────────────
-
-  const rebuildDOM = useCallback(() => {
-    const g = gRef.current
-    if (!g) return
-
-    // Limpiar
-    while (g.firstChild) g.removeChild(g.firstChild)
-    nodeElsRef.current.clear()
-    edgeElsRef.current.clear()
-
-    const svgNS = 'http://www.w3.org/2000/svg'
-
-    // Layer de aristas
-    const edgeLayer = document.createElementNS(svgNS, 'g')
-    edgeLayer.setAttribute('class', 'ae-edge-layer')
-    for (const edge of graph.edges) {
-      const src = typeof edge.source === 'string' ? edge.source : (edge.source as ArgosNode).id
-      const tgt = typeof edge.target === 'string' ? edge.target : (edge.target as ArgosNode).id
-      const key = `${src}|${tgt}`
-      const line = document.createElementNS(svgNS, 'line')
-      line.setAttribute('class', 'ae-edge')
-      edgeLayer.appendChild(line)
-      edgeElsRef.current.set(key, line)
-    }
-    g.appendChild(edgeLayer)
-
-    // Layer de nodos
-    const nodeLayer = document.createElementNS(svgNS, 'g')
-    nodeLayer.setAttribute('class', 'ae-node-layer')
-    for (const node of graph.nodes) {
-      const r = NODE_RADIUS(node.weight)
-      const color = NODE_COLOR[node.type] ?? '#38bdf8'
-
-      const grp = document.createElementNS(svgNS, 'g')
-      grp.setAttribute('class', 'ae-node')
-      grp.setAttribute('data-id', node.id)
-
-      // Halo
-      const halo = document.createElementNS(svgNS, 'circle')
-      halo.setAttribute('class', 'ae-node-halo ae-halo-pulse')
-      halo.setAttribute('r', String(r + 8))
-      halo.setAttribute('fill', color)
-      halo.setAttribute('opacity', '0.15')
-      grp.appendChild(halo)
-
-      // Círculo principal
-      const circle = document.createElementNS(svgNS, 'circle')
-      circle.setAttribute('class', 'ae-node-circle')
-      circle.setAttribute('r', String(r))
-      circle.setAttribute('fill', color)
-      circle.setAttribute('fill-opacity', '0.9')
-      grp.appendChild(circle)
-
-      // Label
-      const label = document.createElementNS(svgNS, 'text')
-      label.setAttribute('class', 'ae-node-label')
-      label.setAttribute('y', String(r + 12))
-      label.textContent = node.label.length > 20 ? node.label.slice(0, 18) + '…' : node.label
-      grp.appendChild(label)
-
-      // Eventos
-      grp.addEventListener('click', () => onNodeClick(node))
-      grp.addEventListener('mouseenter', (e) => {
-        const evt = e as MouseEvent
-        onNodeHover(node, evt.clientX, evt.clientY)
-      })
-      grp.addEventListener('mouseleave', () => onNodeHover(null, 0, 0))
-
-      nodeLayer.appendChild(grp)
-      nodeElsRef.current.set(node.id, grp)
-    }
-    g.appendChild(nodeLayer)
-  }, [graph, onNodeClick, onNodeHover])
-
-  // ─── Actualizar estilos de focus/highlight sin reconstruir ─────────────────
+  // ─── BUILD SIM (re-runs solo en cambio de snapshot o tamaño) ─────────────
 
   useEffect(() => {
-    for (const [id, el] of nodeElsRef.current) {
-      const isFocused = id === focusedNodeId
-      const isHighlighted = highlightedIds.has(id)
-      el.classList.toggle('focused', isFocused)
+    if (!snapshot || snapshot.nodes.length === 0) return
+    if (!size.w || !size.h) return
 
-      const halo = el.querySelector('.ae-node-halo') as SVGCircleElement | null
-      if (halo) {
-        if (isHighlighted) {
-          halo.setAttribute('opacity', '0.5')
-          halo.classList.add('ae-halo-flash')
-        } else {
-          halo.setAttribute('opacity', isFocused ? '0.35' : '0.15')
-          halo.classList.remove('ae-halo-flash')
+    const cx = size.w / 2
+    const cy = size.h / 2
+    const span = Math.min(size.w, size.h) * 0.45
+
+    const nodes: NodeDatum[] = snapshot.nodes.map((n, i) => ({
+      ...n,
+      x: cx + (Math.cos(i * 2.3) * 0.5 + (Math.random() - 0.5)) * span,
+      y: cy + (Math.sin(i * 2.3) * 0.5 + (Math.random() - 0.5)) * span,
+    }))
+
+    const ids = new Set(nodes.map((n) => n.id))
+    const edges: LinkDatum[] = (snapshot.edges as ArgosEdge[])
+      .filter((e) => {
+        if (!e) return false
+        const sId = typeof e.source === 'string' ? e.source : e.source?.id
+        const tId = typeof e.target === 'string' ? e.target : e.target?.id
+        return ids.has(sId) && ids.has(tId)
+      })
+      .map((e) => ({
+        source: typeof e.source === 'string' ? e.source : e.source.id,
+        target: typeof e.target === 'string' ? e.target : e.target.id,
+        kind: e.kind,
+        weight: e.weight,
+      }))
+
+    const sim = forceSimulation<NodeDatum, LinkDatum>(nodes)
+      .force(
+        'charge',
+        forceManyBody<NodeDatum>().strength((d) => {
+          if (d.type === 'jurisdiccion') return -380
+          if (d.type === 'proveedor') return -130
+          if (d.type === 'señal') return -170
+          return -55
+        }),
+      )
+      .force(
+        'link',
+        forceLink<NodeDatum, LinkDatum>(edges)
+          .id((d) => d.id)
+          .distance((e) => {
+            if (e.kind === 'gano') return 50
+            if (e.kind === 'opera_en') return 110
+            if (e.kind === 'tiene_director') return 65
+            if (e.kind === 'señalado_por') return 60
+            return 80
+          })
+          .strength(0.4),
+      )
+      .force('center', forceCenter(cx, cy).strength(0.05))
+      .force(
+        'collide',
+        forceCollide<NodeDatum>()
+          .radius((d) => nodeBaseRadius(d) + 8)
+          .strength(0.9),
+      )
+      .alphaDecay(0.04)
+      .alphaMin(0.005)
+
+    const nodeMap = new Map<string, NodeDatum>(nodes.map((n) => [n.id, n]))
+
+    // ── IMPERATIVE TICK: mutamos x1/y1/x2/y2 + transform directo en SVG ──
+    const writeFrame = () => {
+      const eRefs = edgeRefs.current
+      for (let i = 0; i < edges.length; i++) {
+        const ref = eRefs[i]
+        if (!ref?.lineEl) continue
+        const e = edges[i]
+        const s = endpointNode(e.source, nodeMap)
+        const t = endpointNode(e.target, nodeMap)
+        if (!s || !t || s.x == null || t.x == null || s.y == null || t.y == null) continue
+        ref.lineEl.setAttribute('x1', String(s.x))
+        ref.lineEl.setAttribute('y1', String(s.y))
+        ref.lineEl.setAttribute('x2', String(t.x))
+        ref.lineEl.setAttribute('y2', String(t.y))
+      }
+      nodeRefs.current.forEach((ref, id) => {
+        if (!ref?.gEl) return
+        const n = nodeMap.get(id)
+        if (!n || n.x == null || n.y == null) return
+        ref.gEl.setAttribute('transform', `translate(${n.x},${n.y})`)
+      })
+    }
+    sim.on('tick', writeFrame)
+
+    // Seed posicional: corremos 60 ticks sincrónicos para que el grafo
+    // arranque con un layout plausible, y schedulea ~10 frames de write
+    // para hidratar refs que aparecen tras el primer render.
+    for (let i = 0; i < 60; i++) sim.tick()
+
+    let seedRaf = 0
+    let seedAttempts = 0
+    const seedWrite = () => {
+      writeFrame()
+      seedAttempts++
+      if (seedAttempts < 10) seedRaf = requestAnimationFrame(seedWrite)
+    }
+    seedRaf = requestAnimationFrame(seedWrite)
+
+    simRef.current = { sim, nodes, edges, nodeMap }
+
+    // Debug-only: exponer la sim sin contaminar producción.
+    if (import.meta.env.DEV) {
+      ;(window as unknown as { __argosSim?: Simulation<NodeDatum, LinkDatum> }).__argosSim = sim
+    }
+
+    // Forzamos un render para que JSX mapee nodes/edges con refs.
+    setSimTick((t) => t + 1)
+
+    return () => {
+      sim.stop()
+      if (seedRaf) cancelAnimationFrame(seedRaf)
+      if (import.meta.env.DEV) {
+        delete (window as unknown as { __argosSim?: unknown }).__argosSim
+      }
+    }
+    // ESLint quiere size completo; intencionalmente solo dependemos de
+    // snapshot identity y dimensiones >0 para evitar rebuilds en flicker.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot, size.w > 0 && size.h > 0])
+
+  // ─── VIEW RAF (cámara con interpolación hacia targetView) ────────────────
+
+  useEffect(() => {
+    let raf = 0
+    const step = () => {
+      const v = viewRef.current
+      const t = targetView.current
+      const dx = t.tx - v.tx
+      const dy = t.ty - v.ty
+      const dk = t.k - v.k
+      if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5 || Math.abs(dk) > 0.005) {
+        const far = Math.abs(dx) + Math.abs(dy) > 200
+        const f = far ? 0.08 : 0.14
+        v.tx += dx * f
+        v.ty += dy * f
+        v.k += dk * f
+        if (gRef.current) {
+          gRef.current.setAttribute('transform', `translate(${v.tx},${v.ty}) scale(${v.k})`)
         }
       }
+      raf = requestAnimationFrame(step)
     }
-  }, [focusedNodeId, highlightedIds])
-
-  // ─── Pan con mouse / touch ─────────────────────────────────────────────────
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button !== 0) return
-    isDraggingRef.current = true
-    dragStartRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-      tx: viewRef.current.tx,
-      ty: viewRef.current.ty,
-    }
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
   }, [])
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isDraggingRef.current) return
-    const dx = e.clientX - dragStartRef.current.x
-    const dy = e.clientY - dragStartRef.current.y
-    viewRef.current = {
-      ...viewRef.current,
-      tx: dragStartRef.current.tx + dx,
-      ty: dragStartRef.current.ty + dy,
-    }
-    applyTransform(gRef.current, viewRef.current)
-  }, [])
-
-  const handleMouseUp = useCallback(() => {
-    isDraggingRef.current = false
-  }, [])
-
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault()
-    const factor = e.deltaY < 0 ? 1.08 : 0.92
-    const newScale = Math.max(0.2, Math.min(4, viewRef.current.scale * factor))
-
-    // Zoom centrado en cursor
-    const svg = svgRef.current
-    if (!svg) return
-    const rect = svg.getBoundingClientRect()
-    const mx = e.clientX - rect.left
-    const my = e.clientY - rect.top
-    const { tx, ty, scale } = viewRef.current
-    const ratio = newScale / scale
-    viewRef.current = {
-      tx: mx + (tx - mx) * ratio,
-      ty: my + (ty - my) * ratio,
-      scale: newScale,
-    }
-    applyTransform(gRef.current, viewRef.current)
-  }, [])
-
-  // ─── Centrar en nodo enfocado ──────────────────────────────────────────────
+  // ─── PULSE RAF (halos a ~15Hz) ───────────────────────────────────────────
 
   useEffect(() => {
-    if (!focusedNodeId) return
-    const node = graph.nodes.find((n) => n.id === focusedNodeId)
-    if (!node || node.x == null || !svgRef.current) return
+    if (typeof window === 'undefined') return
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (reduce) return
 
-    const svg = svgRef.current
-    const { width, height } = svg.getBoundingClientRect()
-    const { scale } = viewRef.current
-
-    viewRef.current = {
-      tx: width / 2 - node.x * scale,
-      ty: height / 2 - (node.y ?? 0) * scale,
-      scale,
+    let raf = 0
+    let last = 0
+    const start = performance.now()
+    const tick = (t: number) => {
+      if (t - last > 66) {
+        last = t
+        timeRef.current = (t - start) / 1000
+        const fid = focusedRef.current
+        const hid = hoveredRef.current
+        const hi = highlightedRef.current
+        const heroId = heroIdRef.current
+        const heroActive = idleRef.current && heroId
+        nodeRefs.current.forEach((ref, id) => {
+          if (!ref?.haloEl) return
+          const isFocus = id === fid
+          const isHover = id === hid
+          const isHi = hi && hi.has(id)
+          const isHero = heroActive && id === heroId
+          if (isFocus || isHover || isHi) {
+            const phase = timeRef.current * 0.6 + (id.charCodeAt(0) % 17) * 0.21
+            const scale = 1 + Math.sin(phase * 1.3) * 0.06
+            ref.haloEl.setAttribute('opacity', '1')
+            ref.haloEl.setAttribute('transform', `scale(${scale})`)
+          } else if (isHero) {
+            const op = 0.25 + Math.sin(timeRef.current * (Math.PI * 2 / 6)) * 0.07
+            ref.haloEl.setAttribute('opacity', String(op))
+            ref.haloEl.setAttribute('transform', 'scale(1)')
+          } else {
+            ref.haloEl.setAttribute('opacity', '0')
+          }
+        })
+      }
+      raf = requestAnimationFrame(tick)
     }
-    applyTransform(gRef.current, viewRef.current)
-  }, [focusedNodeId, graph.nodes])
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [])
 
-  // ─── Render ────────────────────────────────────────────────────────────────
+  // ─── Idle hero pulling force ─────────────────────────────────────────────
+
+  useEffect(() => {
+    const bundle = simRef.current
+    const sim = bundle?.sim
+    if (!sim || !bundle) return
+    if (idle && heroNodeId) {
+      const heroNode = bundle.nodes.find((n) => n.id === heroNodeId)
+      if (heroNode) {
+        sim.force(
+          'xHero',
+          forceX<NodeDatum>(size.w / 2).strength((d) => (d.id === heroNodeId ? 0.4 : 0.06)),
+        )
+        sim.force(
+          'yHero',
+          forceY<NodeDatum>(size.h / 2).strength((d) => (d.id === heroNodeId ? 0.4 : 0.06)),
+        )
+        sim.alpha(0.18).restart()
+      }
+    } else {
+      sim.force('xHero', null)
+      sim.force('yHero', null)
+    }
+  }, [idle, heroNodeId, size.w, size.h])
+
+  // ─── Recenter on size change ─────────────────────────────────────────────
+
+  useEffect(() => {
+    const bundle = simRef.current
+    if (!bundle) return
+    bundle.sim.force('center', forceCenter(size.w / 2, size.h / 2).strength(0.05))
+    bundle.sim.alpha(0.18).restart()
+  }, [size.w, size.h])
+
+  // ─── Pan/zoom on focus change ────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!focusedId || !simRef.current) return
+    const node = simRef.current.nodes.find((n) => n.id === focusedId)
+    if (!node) return
+    const t = setTimeout(() => {
+      const cx = size.w / 2
+      const cy = size.h / 2
+      const k = node.type === 'jurisdiccion' ? 1.15 : 1.45
+      const nx = node.x ?? cx
+      const ny = node.y ?? cy
+      targetView.current = { k, tx: cx - nx * k, ty: cy - ny * k }
+      simRef.current?.sim.alpha(0.18).restart()
+    }, 280)
+    return () => clearTimeout(t)
+  }, [focusedId, size.w, size.h])
+
+  // ─── Wheel/pan input ─────────────────────────────────────────────────────
+
+  const onWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
+    e.preventDefault()
+    if (!svgRef.current) return
+    const delta = -e.deltaY * 0.0015
+    const k = Math.min(2.5, Math.max(0.45, targetView.current.k * (1 + delta)))
+    const rect = svgRef.current.getBoundingClientRect()
+    const mx = e.clientX - rect.left
+    const my = e.clientY - rect.top
+    const x = (mx - targetView.current.tx) / targetView.current.k
+    const y = (my - targetView.current.ty) / targetView.current.k
+    targetView.current = { k, tx: mx - x * k, ty: my - y * k }
+  }, [])
+
+  const dragRef = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null)
+
+  const onMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    // No iniciar pan si el click cae dentro de un .node
+    const target = e.target as Element | null
+    if (target && target.closest && target.closest('.node')) return
+    dragRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      tx: targetView.current.tx,
+      ty: targetView.current.ty,
+    }
+  }, [])
+
+  const onMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    if (!dragRef.current) return
+    const dx = e.clientX - dragRef.current.x
+    const dy = e.clientY - dragRef.current.y
+    targetView.current = {
+      ...targetView.current,
+      tx: dragRef.current.tx + dx,
+      ty: dragRef.current.ty + dy,
+    }
+  }, [])
+
+  const onMouseUp = useCallback(() => {
+    dragRef.current = null
+  }, [])
+
+  // ─── Snapshot derivado del bundle (post-build) ───────────────────────────
+
+  const nodes: NodeDatum[] = simRef.current?.nodes ?? []
+  const edges: LinkDatum[] = simRef.current?.edges ?? []
+
+  // ─── Adjacency (topología) ───────────────────────────────────────────────
+
+  const adjacency = useMemo(() => {
+    const m = new Map<string, Set<string>>()
+    edges.forEach((e) => {
+      const sId = endpointId(e.source)
+      const tId = endpointId(e.target)
+      if (!m.has(sId)) m.set(sId, new Set())
+      if (!m.has(tId)) m.set(tId, new Set())
+      m.get(sId)!.add(tId)
+      m.get(tId)!.add(sId)
+    })
+    return m
+  }, [edges])
+
+  const neighborSet = useMemo(() => {
+    if (!focusedId) return null
+    const s = new Set<string>([focusedId])
+    edges.forEach((e) => {
+      const sId = endpointId(e.source)
+      const tId = endpointId(e.target)
+      if (sId === focusedId) s.add(tId)
+      if (tId === focusedId) s.add(sId)
+    })
+    return s
+    // edges identity cambia al rebuild — suficiente
+  }, [focusedId, edges])
+
+  const labelExpandSet = useMemo(() => {
+    if (labelsMode !== 'all') return null
+    const seed = focusedId || hoveredId || heroNodeId
+    if (!seed) return new Set<string>(nodes.map((n) => n.id))
+    const visited = new Set<string>([seed])
+    let frontier: string[] = [seed]
+    for (let d = 0; d < labelsDepth; d++) {
+      const next: string[] = []
+      frontier.forEach((id) => {
+        const nb = adjacency.get(id)
+        if (!nb) return
+        nb.forEach((m) => {
+          if (!visited.has(m)) {
+            visited.add(m)
+            next.push(m)
+          }
+        })
+      })
+      frontier = next
+    }
+    return visited
+  }, [labelsMode, labelsDepth, focusedId, hoveredId, heroNodeId, adjacency, nodes])
+
+  // ─── IMPERATIVE: focus/hover/highlight → mutar opacidad y labels ─────────
+
+  useEffect(() => {
+    nodeRefs.current.forEach((ref, id) => {
+      if (!ref?.gEl) return
+      const n = nodes.find((x) => x.id === id)
+      if (!n) return
+      const inFocus = !focusedId || (neighborSet ? neighborSet.has(id) : false)
+      const isFocus = id === focusedId
+      const isHover = id === hoveredId
+      const isHi = highlighted && highlighted.has(id)
+      const isHero = idle && id === heroNodeId
+      ref.gEl.setAttribute('opacity', inFocus ? '1' : '0.18')
+
+      if (ref.labelEl) {
+        const r0Base = nodeBaseRadius(n)
+        const isLargeJ = n.type === 'jurisdiccion' && r0Base >= 18
+        const inExpand = labelExpandSet ? labelExpandSet.has(id) : false
+        const showLabel =
+          isHero ||
+          isLargeJ ||
+          isFocus ||
+          isHover ||
+          isHi ||
+          inExpand ||
+          (neighborSet?.has(id) ? r0Base > 12 : false)
+        ref.labelEl.style.display = showLabel ? '' : 'none'
+      }
+      if (ref.ringEl) {
+        ref.ringEl.setAttribute('stroke-opacity', isFocus ? '0.55' : '0.18')
+      }
+    })
+
+    edgeRefs.current.forEach((ref, i) => {
+      if (!ref?.lineEl) return
+      const e = edges[i]
+      if (!e) return
+      const sId = endpointId(e.source)
+      const tId = endpointId(e.target)
+      const inFocus = neighborSet ? neighborSet.has(sId) && neighborSet.has(tId) : false
+      const touchesHero = !focusedId && (sId === heroNodeId || tId === heroNodeId)
+      const isHi = highlighted && (highlighted.has(sId) || highlighted.has(tId))
+      let op = focusedId ? (inFocus ? 0.5 : 0.04) : touchesHero ? 0.22 : 0.08
+      if (isHi) op = 0.75
+      ref.lineEl.setAttribute('stroke-opacity', String(op))
+    })
+  }, [focusedId, hoveredId, highlighted, neighborSet, labelExpandSet, idle, heroNodeId, nodes, edges])
+
+  const handleHover = useCallback((id: string | null) => onHover(id), [onHover])
+  const handleSelect = useCallback((id: string) => onSelect(id), [onSelect])
+
+  // ─── Render JSX ──────────────────────────────────────────────────────────
 
   return (
-    <div className="ae-canvas-wrapper">
-      <div className="ae-grid-bg" />
+    <div
+      ref={wrapRef}
+      style={{ position: 'absolute', inset: 0 }}
+      onMouseEnter={onBgEnter}
+      onMouseLeave={onBgLeave}
+    >
       <svg
         ref={svgRef}
-        className="ae-canvas-svg"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
+        className="graph"
+        onWheel={onWheel}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseUp}
       >
-        <g ref={gRef} />
+        <defs>
+          <radialGradient id="halo-celeste" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#6FB8E8" stopOpacity="0.55" />
+            <stop offset="60%" stopColor="#6FB8E8" stopOpacity="0.12" />
+            <stop offset="100%" stopColor="#6FB8E8" stopOpacity="0" />
+          </radialGradient>
+          <radialGradient id="halo-celeste-hero" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#6FB8E8" stopOpacity="0.45" />
+            <stop offset="50%" stopColor="#6FB8E8" stopOpacity="0.18" />
+            <stop offset="100%" stopColor="#6FB8E8" stopOpacity="0" />
+          </radialGradient>
+          <radialGradient id="halo-ambar" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#F5B544" stopOpacity="0.5" />
+            <stop offset="100%" stopColor="#F5B544" stopOpacity="0" />
+          </radialGradient>
+          <radialGradient id="halo-rojo" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#E5484D" stopOpacity="0.6" />
+            <stop offset="100%" stopColor="#E5484D" stopOpacity="0" />
+          </radialGradient>
+          <filter id="soft-glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="2.5" result="b" />
+            <feMerge>
+              <feMergeNode in="b" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        <g ref={gRef}>
+          {/* edges-group */}
+          <g className="edges-group">
+            {edges.map((e, i) => {
+              const stroke =
+                e.kind === 'señalado_por' ? '#F5B544'
+                : e.kind === 'tiene_director' ? '#B79CFF'
+                : e.kind === 'gano' ? '#9BA3B4'
+                : '#6FB8E8'
+              const sw = 0.6 + (e.weight || 0.3) * 1.6
+              return (
+                <line
+                  key={i}
+                  ref={(el) => {
+                    if (el) edgeRefs.current[i] = { lineEl: el }
+                  }}
+                  stroke={stroke}
+                  strokeWidth={sw}
+                  strokeOpacity={0.08}
+                />
+              )
+            })}
+          </g>
+
+          {/* nodes-group */}
+          <g className="nodes-group">
+            {nodes.map((n) => {
+              const r0Base = nodeBaseRadius(n)
+              const c = colorFor(n)
+              const sev: ArgosSeveridad | undefined = n.flags?.severidad
+              const haloId =
+                sev === 'grave' ? 'halo-rojo'
+                : sev === 'moderada' ? 'halo-ambar'
+                : n.id === heroNodeId ? 'halo-celeste-hero'
+                : 'halo-celeste'
+              const r = r0Base
+              const haloR = r * 4
+              const initX = n.x ?? 0
+              const initY = n.y ?? 0
+
+              let fill = c
+              let fillOp = 0.85
+              let strokeCol = c
+              let strokeOp = 0.28
+              let strokeW = 0.8
+              if (n.type === 'proveedor') {
+                if (n.flags?.verificadoAfip) {
+                  fill = '#FFFFFF'; fillOp = 0.92; strokeCol = '#FFFFFF'; strokeOp = 0.7
+                } else {
+                  fill = '#D8DEE9'; fillOp = 0.65; strokeCol = '#D8DEE9'; strokeOp = 0.4
+                }
+              } else if (n.type === 'jurisdiccion') {
+                fillOp = 0.16
+                strokeW = 1.4
+              } else if (n.type === 'contrato') {
+                fillOp = 0.10
+                strokeOp = 0.10
+              }
+
+              const labelText = n.label.length > 28 ? n.label.slice(0, 26) + '…' : n.label
+
+              return (
+                <g
+                  key={n.id}
+                  className={`node ${n.type === 'señal' ? 'is-señal' : ''}`}
+                  transform={`translate(${initX},${initY})`}
+                  ref={(el) => {
+                    if (!el) return
+                    nodeRefs.current.set(n.id, {
+                      gEl: el,
+                      haloEl: el.querySelector('.halo'),
+                      ringEl: el.querySelector('.ring'),
+                      dotEl: el.querySelector('.dot'),
+                      labelEl: el.querySelector('.node-label'),
+                    })
+                  }}
+                  onMouseEnter={() => handleHover(n.id)}
+                  onMouseLeave={() => handleHover(null)}
+                  onClick={(ev) => {
+                    ev.stopPropagation()
+                    handleSelect(n.id)
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${n.type}: ${n.label}`}
+                  onKeyDown={(ev) => {
+                    if (ev.key === 'Enter') handleSelect(n.id)
+                  }}
+                >
+                  <circle className="halo" r={haloR} fill={`url(#${haloId})`} opacity="0" />
+                  <circle
+                    className="ring"
+                    r={r + 2}
+                    fill="none"
+                    stroke={strokeCol}
+                    strokeOpacity={strokeOp * 0.6}
+                    strokeWidth={1}
+                  />
+                  <circle
+                    className="dot"
+                    r={r}
+                    fill={fill}
+                    fillOpacity={fillOp}
+                    stroke={strokeCol}
+                    strokeWidth={strokeW}
+                    strokeOpacity={strokeOp}
+                  />
+                  <text className="node-label" y={r + 14} style={{ display: 'none' }}>
+                    {labelText}
+                  </text>
+                </g>
+              )
+            })}
+          </g>
+        </g>
       </svg>
     </div>
   )
-})
+}
+
+export const GraphCanvas = memo(GraphCanvasInner)
+export default GraphCanvas

@@ -1,326 +1,567 @@
 /**
  * NodeDetailPanel.tsx
  *
- * Panel lateral derecho que muestra KPIs, relaciones, señales y fuentes
- * del nodo actualmente seleccionado en el grafo.
+ * Panel lateral derecho (slide-in) que muestra KPIs, relaciones, señales y
+ * fuentes del nodo actualmente seleccionado en el grafo.
  *
- * NO hace fetch — recibe NodeDetail pre-construido por nodeDetailFromNode().
+ * Migrado pixel-perfect desde `.tmp-argos-v2/argos/panel.jsx` (v2.0).
+ * Conserva las classNames originales (`panel`, `glass`, `panel-head`,
+ * `panel-body`, `kpi-grid`, `kpi`, `spark`, `rel-list`, `signal-card`, etc.)
+ * para que el CSS del HTML standalone aplique sin retoques.
+ *
+ * NO hace fetch — recibe `NodeDetail` pre-construido por `nodeDetailFromNode`.
+ *
+ * Diferencias relevantes vs el .jsx original:
+ * - Tipado TypeScript estricto (no `window.X`).
+ * - El lookup de severidad por relación que el .jsx hacía contra
+ *   `window.ArgosMock.SEN` se reemplaza por `relacion.severidad` (ya disponible
+ *   en el tipo `Relacion`). Si no viene, no se renderiza la barra lateral.
+ * - El KPI `sub` ya no usa `dangerouslySetInnerHTML` — `dompurify` NO está en
+ *   el package.json del frontend (verificado), así que renderizamos texto plano
+ *   para evitar XSS. Si en el futuro se necesita HTML inline (ej. resaltar
+ *   "grave" en rojo), instalar `dompurify` y volver a `<span dangerouslySetInnerHTML>`
+ *   pasando `DOMPurify.sanitize(k.sub)`.
+ * - Sparkline mantiene el SVG path original con gradient `#6FB8E8`. No soporta
+ *   múltiples series (deuda técnica heredada del .jsx).
  */
 
-import { memo, useCallback } from 'react'
-import { X, ExternalLink, AlertTriangle, Users, FileText, MapPin } from 'lucide-react'
-import type { NodeDetail, ArgosNode, ArgosNodeType, ArgosSeveridad, KPI } from '@/lib/argos/types'
-import { fmtARS, fmtCompactARS } from '@/lib/format'
+import { useEffect, useState } from 'react'
+import type { NodeDetail, KPI, Relacion, ArgosNodeType } from '@/lib/argos/types'
+import { Ico } from '@/components/argos/ArgosIcons'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const NODE_TYPE_LABEL: Record<ArgosNodeType, string> = {
-  jurisdiccion: 'Jurisdicción',
-  proveedor: 'Proveedor',
-  director: 'Director',
-  contrato: 'Contrato',
-  señal: 'Señal de riesgo',
+/**
+ * Compacta un número a notación AR-friendly (1,2B / 850,5M / 4,3K).
+ * Replica el formatNumberCompact del .jsx original.
+ */
+function formatNumberCompact(n: number): string {
+  if (n >= 1e9) return (n / 1e9).toFixed(2).replace('.', ',') + 'B'
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace('.', ',') + 'M'
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace('.', ',') + 'K'
+  return n.toLocaleString('es-AR')
 }
 
-const NODE_TYPE_COLOR: Record<ArgosNodeType, string> = {
-  jurisdiccion: '#818cf8',
-  proveedor: '#38bdf8',
-  director: '#f472b6',
-  contrato: '#34d399',
-  señal: '#fb923c',
+const TYPE_LABEL_PLURAL: Record<string, string> = {
+  todos: 'Todos',
+  proveedor: 'Proveedores',
+  director: 'Directores',
+  contrato: 'Contratos',
+  señal: 'Señales',
+  jurisdiccion: 'Jurisdicciones',
 }
 
-const SEV_LABEL: Record<ArgosSeveridad, string> = {
-  grave: 'Grave',
-  moderada: 'Moderada',
-  leve: 'Leve',
-}
+type RelFilter = 'todos' | ArgosNodeType
 
-// ─── KPI Sparkline ────────────────────────────────────────────────────────────
+// ─── Sparkline ────────────────────────────────────────────────────────────────
 
-function TrendSparkline({ values, years, format }: { values: number[]; years?: number[]; format?: 'currency' | 'count' }) {
-  if (values.length < 2) return null
-  const max = Math.max(...values, 1)
-  const w = 280
-  const h = 36
-  const pts = values.map((v, i) => {
-    const x = (i / (values.length - 1)) * w
-    const y = h - (v / max) * h * 0.85
-    return `${x},${y}`
+/**
+ * SVG inline con `linePath` + `areaPath` y gradient `#6FB8E8`.
+ * Misma fórmula y proporciones que el .jsx (200×28 viewBox).
+ */
+function Sparkline({ data }: { data: number[] }) {
+  if (!data || data.length < 2) return null
+  const w = 200
+  const h = 28
+  const max = Math.max(...data)
+  const min = Math.min(...data)
+  const range = max - min || 1
+  const pts = data.map((v, i): [number, number] => {
+    const x = (i / (data.length - 1)) * w
+    const y = h - ((v - min) / range) * h
+    return [x, y]
   })
-  const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p}`).join(' ')
-  const areaD = `${pathD} L${w},${h} L0,${h} Z`
+  const linePath = pts
+    .map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1))
+    .join(' ')
+  const areaPath = linePath + ` L${w},${h} L0,${h} Z`
 
   return (
-    <div className="ae-kpi-trend">
-      <div className="ae-kpi-label">Gasto anual</div>
-      <svg className="ae-trend-svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-        <defs>
-          <linearGradient id="ae-trend-gradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.25" />
-            <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.02" />
-          </linearGradient>
-        </defs>
-        <path d={areaD} className="ae-trend-area" />
-        <path d={pathD} className="ae-trend-line" />
-      </svg>
-      {years && (
-        <div className="ae-trend-years">
-          <span>{years[0]}</span>
-          {values.length > 2 && <span>{years[Math.floor(years.length / 2)]}</span>}
-          <span>{years[years.length - 1]}</span>
-        </div>
-      )}
-      {format === 'currency' && (
-        <div style={{ fontSize: 10, color: 'var(--ae-text-muted)', marginTop: 2 }}>
-          Pico: {fmtCompactARS(Math.max(...values))}
-        </div>
-      )}
+    <svg className="spark" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="spark-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#6FB8E8" stopOpacity="0.4" />
+          <stop offset="100%" stopColor="#6FB8E8" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path className="area" d={areaPath} />
+      <path className="line" d={linePath} />
+    </svg>
+  )
+}
+
+// ─── Skeleton de carga ────────────────────────────────────────────────────────
+
+function PanelSkeleton() {
+  return (
+    <div className="panel-body">
+      <div className="skeleton" style={{ height: 14, width: '40%', marginBottom: 10 }} />
+      <div className="skeleton" style={{ height: 24, width: '80%', marginBottom: 6 }} />
+      <div className="skeleton" style={{ height: 12, width: '60%', marginBottom: 18 }} />
+      <div className="kpi-grid">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="skeleton" style={{ height: 64 }} />
+        ))}
+      </div>
+      <div style={{ marginTop: 18 }}>
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="skeleton" style={{ height: 36, marginBottom: 6 }} />
+        ))}
+      </div>
     </div>
   )
 }
 
-// ─── KPI Card ─────────────────────────────────────────────────────────────────
+// ─── Ícono de nodo según tipo ─────────────────────────────────────────────────
 
-function KPICard({ kpi }: { kpi: KPI }) {
-  if (kpi.format === 'trend' && kpi.trend) {
-    return (
-      <TrendSparkline
-        values={kpi.trend}
-        years={kpi.trendYears}
-        format={kpi.trendFormat}
-      />
-    )
-  }
-
-  let displayValue = kpi.value ?? ''
-  if (kpi.format === 'currency' && kpi.amount != null) {
-    displayValue = fmtCompactARS(kpi.amount)
-  }
-
-  return (
-    <div className="ae-kpi-card">
-      <div className="ae-kpi-label">{kpi.label}</div>
-      <div className={`ae-kpi-value ${kpi.format === 'currency' ? 'currency' : ''}`}>
-        {displayValue}
-      </div>
-      {kpi.sub && (
-        <div
-          className="ae-kpi-sub"
-          dangerouslySetInnerHTML={{ __html: kpi.sub }}
-        />
-      )}
-    </div>
-  )
+interface NodeIconProps {
+  type: ArgosNodeType
+  size?: number
 }
 
-// ─── Relación item ────────────────────────────────────────────────────────────
+function NodeIcon({ type, size = 14 }: NodeIconProps) {
+  const stroke =
+    type === 'jurisdiccion'
+      ? '#6FB8E8'
+      : type === 'proveedor'
+      ? '#FFFFFF'
+      : type === 'director'
+      ? '#B79CFF'
+      : type === 'contrato'
+      ? '#62C7A0'
+      : '#F5B544'
 
-function RelItem({
-  relacion,
-  onFocus,
-}: {
-  relacion: NodeDetail['relaciones'][0]
-  onFocus: (node: ArgosNode) => void
-}) {
-  const color = NODE_TYPE_COLOR[relacion.node.type]
+  const Component =
+    type === 'jurisdiccion'
+      ? Ico.Building
+      : type === 'proveedor'
+      ? Ico.Briefcase
+      : type === 'director'
+      ? Ico.User
+      : type === 'contrato'
+      ? Ico.Doc
+      : Ico.Alert
+
+  return <Component size={size} stroke={stroke} sw={1.7} />
+}
+
+// ─── Helpers para render de KPI ───────────────────────────────────────────────
+
+function isMonoFormat(k: KPI): boolean {
   return (
-    <div className="ae-rel-item" onClick={() => onFocus(relacion.node)}>
-      <div className="ae-rel-dot" style={{ background: color }} />
-      <div className="ae-rel-label" title={relacion.node.label}>
-        {relacion.node.label}
-      </div>
-      <div className="ae-rel-via">{relacion.via.replace(/_/g, ' ')}</div>
-    </div>
+    k.format === 'currency' ||
+    k.format === 'count' ||
+    k.format === 'date' ||
+    (k.format === 'text' && /^\d/.test(k.value || ''))
   )
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface NodeDetailPanelProps {
+  open: boolean
+  loading: boolean
   detail: NodeDetail | null
   onClose: () => void
-  onFocusNode: (nodeId: string) => void
-  onNavigateToEntity: (node: ArgosNode) => void
+  /** Click en una relación → navegar al nodo target. */
+  onSelect: (id: string) => void
+  /** Hover en una relación → resaltar en el grafo (null al salir). */
+  onRelHover: (id: string | null) => void
 }
 
 // ─── Panel principal ──────────────────────────────────────────────────────────
 
-export const NodeDetailPanel = memo(function NodeDetailPanel({
+export function NodeDetailPanel({
+  open,
+  loading,
   detail,
   onClose,
-  onFocusNode,
-  onNavigateToEntity,
+  onSelect,
+  onRelHover,
 }: NodeDetailPanelProps) {
-  const handleFocus = useCallback(
-    (node: ArgosNode) => {
-      onFocusNode(node.id)
-    },
-    [onFocusNode]
-  )
+  const [accSrc, setAccSrc] = useState(false)
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({})
+  const [relFilter, setRelFilter] = useState<RelFilter>('todos')
 
-  const isOpen = !!detail
+  // Reset de filtros al cambiar de nodo (mismo deps que el .jsx).
+  useEffect(() => {
+    setAccSrc(false)
+    setExpanded({})
+    setRelFilter('todos')
+  }, [detail?.node?.id])
+
+  // ESC cierra el panel.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && open) onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
+  // Panel cerrado → render placeholder transparente (preserva ancho de layout
+  // y permite la animación de transición CSS hacia `open`).
+  if (!open) return <div className="panel glass" aria-hidden />
+
+  const n = detail?.node
+
+  // Header label del tipo (capitalizado, "Señal" para el caso especial).
+  const typeLabel =
+    n?.type === 'señal'
+      ? 'Señal'
+      : n?.type
+      ? n.type[0].toUpperCase() + n.type.slice(1)
+      : 'Detalle'
+
+  // Export JSON: descarga el `detail` completo como `<id>.json`.
+  const exportJSON = () => {
+    if (!detail || !n) return
+    const blob = new Blob([JSON.stringify(detail, null, 2)], {
+      type: 'application/json',
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${n.id}.json`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
 
   return (
-    <div className={`ae-panel ${isOpen ? 'open' : ''}`} style={{ position: 'relative' }}>
-      {!detail ? null : (
-        <>
-          {/* Header */}
-          <div className="ae-panel-header">
-            <div className="ae-panel-type-badge">
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
-                  background: NODE_TYPE_COLOR[detail.node.type],
-                  display: 'inline-block',
-                }}
-              />
-              {NODE_TYPE_LABEL[detail.node.type]}
-              {detail.node.flags?.verificadoAfip && (
-                <span
-                  title="Verificado en AFIP"
-                  style={{ color: '#34d399', fontSize: 10, marginLeft: 4 }}
+    <aside
+      className="panel glass open"
+      role="dialog"
+      aria-label="Detalle del nodo"
+    >
+      <div className="panel-inner" style={{ minHeight: 0, height: '100%' }}>
+        {loading || !detail || !n ? (
+          <>
+            <div className="panel-head">
+              <div className="panel-row1">
+                <div
+                  className="skeleton"
+                  style={{ height: 22, width: 90, borderRadius: 999 }}
+                />
+                <button
+                  type="button"
+                  className="x-btn"
+                  onClick={onClose}
+                  aria-label="Cerrar"
                 >
-                  ✓ AFIP
-                </span>
-              )}
-              {detail.node.flags?.severidad && (
-                <span
-                  className={`ae-señal-badge ${detail.node.flags.severidad}`}
-                  style={{ marginLeft: 6 }}
-                >
-                  {SEV_LABEL[detail.node.flags.severidad]}
-                </span>
-              )}
+                  <Ico.X size={14} />
+                </button>
+              </div>
             </div>
-            <div className="ae-panel-title">{detail.node.label}</div>
-            {detail.node.subtitle && (
-              <div className="ae-panel-subtitle">{detail.node.subtitle}</div>
-            )}
-            <button className="ae-panel-close" onClick={onClose} title="Cerrar">
-              <X size={12} />
-            </button>
-          </div>
-
-          {/* Body */}
-          <div className="ae-panel-body">
-            {/* KPIs */}
-            {detail.kpis.length > 0 && (
-              <div className="ae-section">
-                <div className="ae-section-title">Indicadores clave</div>
-                <div className="ae-kpi-grid">
-                  {detail.kpis.map((kpi, i) => (
-                    <KPICard key={i} kpi={kpi} />
-                  ))}
-                </div>
+            <PanelSkeleton />
+          </>
+        ) : (
+          <>
+            {/* ── Header ── */}
+            <div className="panel-head">
+              <div className="panel-row1">
+                <span className={`type-chip t-${n.type}`}>
+                  <NodeIcon type={n.type} size={11} />
+                  {typeLabel}
+                </span>
+                <button
+                  type="button"
+                  className="x-btn"
+                  onClick={onClose}
+                  aria-label="Cerrar"
+                >
+                  <Ico.X size={14} />
+                </button>
               </div>
-            )}
-
-            {/* Señales */}
-            {detail.señales.length > 0 && (
-              <div className="ae-section">
-                <div className="ae-section-title">
-                  <AlertTriangle
-                    size={10}
-                    style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }}
-                  />
-                  Señales de riesgo ({detail.señales.length})
+              <h2 className="panel-title">{n.label}</h2>
+              {n.subtitle && (
+                <div
+                  className={`panel-sub ${n.type === 'proveedor' ? 'mono' : ''}`}
+                >
+                  {n.subtitle}
                 </div>
-                {detail.señales.map((s) => (
-                  <div key={s.id} className={`ae-señal-item ${s.severidad}`}>
-                    <div className="ae-señal-header">
-                      <span className={`ae-señal-badge ${s.severidad}`}>
-                        {SEV_LABEL[s.severidad]}
-                      </span>
-                      <div className="ae-señal-title">{s.titulo}</div>
-                    </div>
-                    <div className="ae-señal-resumen">{s.resumen}</div>
-                    {s.legal.denunciarAnte.length > 0 && (
-                      <div style={{ fontSize: 10, color: 'var(--ae-text-muted)', marginTop: 4 }}>
-                        Denunciar ante: {s.legal.denunciarAnte.join(', ')}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Relaciones */}
-            {detail.relaciones.length > 0 && (
-              <div className="ae-section">
-                <div className="ae-section-title">
-                  <Users
-                    size={10}
-                    style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }}
-                  />
-                  Relaciones ({detail.relaciones.length})
-                </div>
-                <div className="ae-rel-list">
-                  {detail.relaciones.slice(0, 8).map((rel, i) => (
-                    <RelItem key={i} relacion={rel} onFocus={handleFocus} />
-                  ))}
-                  {detail.relaciones.length > 8 && (
-                    <div style={{ fontSize: 11, color: 'var(--ae-text-muted)', padding: '4px 10px' }}>
-                      +{detail.relaciones.length - 8} más…
-                    </div>
+              )}
+              {(n.flags?.verificadoAfip || n.flags?.severidad) && (
+                <div className="badges">
+                  {n.flags?.verificadoAfip && (
+                    <span className="badge verified">● Verificado AFIP</span>
+                  )}
+                  {n.flags?.severidad && (
+                    <span className={`badge sev-${n.flags.severidad}`}>
+                      ● Severidad {n.flags.severidad}
+                    </span>
                   )}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
-            {/* Fuentes */}
-            {detail.fuentes.length > 0 && (
-              <div className="ae-section">
-                <div className="ae-section-title">
-                  <FileText
-                    size={10}
-                    style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }}
+            {/* ── Body ── */}
+            <div className="panel-body">
+              {/* Indicadores (KPI grid) */}
+              <div className="section-title">Indicadores</div>
+              <div className="kpi-grid">
+                {detail.kpis.map((k, i) => {
+                  const mono = isMonoFormat(k)
+                  return (
+                    <div
+                      className={`kpi ${k.format === 'trend' ? 'trend' : ''}`}
+                      key={i}
+                    >
+                      <div className="l">{k.label}</div>
+                      <div className={`v ${mono ? 'mono' : ''}`}>
+                        {k.format === 'currency' && k.amount != null ? (
+                          <>
+                            $ {formatNumberCompact(k.amount)}
+                            <span className="unit">ARS</span>
+                          </>
+                        ) : (
+                          k.value
+                        )}
+                      </div>
+                      {/*
+                        XSS guard: dompurify no está instalado (verificado contra
+                        package.json del frontend). Renderizamos `k.sub` como
+                        texto plano. Si en el futuro hace falta HTML, instalar
+                        `dompurify` y reemplazar por:
+                          <span dangerouslySetInnerHTML={{
+                            __html: DOMPurify.sanitize(k.sub),
+                          }} />
+                      */}
+                      {k.sub && <div className="sub">{k.sub}</div>}
+                      {k.format === 'trend' && k.trend && (
+                        <Sparkline data={k.trend} />
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Relaciones con filtros */}
+              {detail.relaciones.length > 0 &&
+                (() => {
+                  const counts = detail.relaciones.reduce<Record<string, number>>(
+                    (acc, r) => {
+                      acc[r.node.type] = (acc[r.node.type] || 0) + 1
+                      acc.todos = (acc.todos || 0) + 1
+                      return acc
+                    },
+                    {}
+                  )
+                  const filtered =
+                    relFilter === 'todos'
+                      ? detail.relaciones
+                      : detail.relaciones.filter(
+                          (r) => r.node.type === relFilter
+                        )
+                  const types = (
+                    [
+                      'todos',
+                      'proveedor',
+                      'director',
+                      'contrato',
+                      'señal',
+                      'jurisdiccion',
+                    ] as RelFilter[]
+                  ).filter((t) => (counts[t] || 0) > 0)
+
+                  return (
+                    <>
+                      <div className="section-title">
+                        Relaciones ({detail.relaciones.length})
+                      </div>
+                      {types.length > 2 && (
+                        <div className="rel-filters">
+                          {types.map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              className={`rel-filter ${
+                                relFilter === t ? 'active' : ''
+                              }`}
+                              onClick={() => setRelFilter(t)}
+                            >
+                              {TYPE_LABEL_PLURAL[t] || t}
+                              <span className="count">{counts[t]}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <div className="rel-list">
+                        {filtered.slice(0, 20).map((r: Relacion, i) => {
+                          const sev = r.severidad
+                          const sevClass = sev
+                            ? `has-severity sev-${sev}`
+                            : ''
+                          return (
+                            <div
+                              className={`rel ${sevClass}`}
+                              key={i}
+                              onClick={() => onSelect(r.node.id)}
+                              onMouseEnter={() => onRelHover(r.node.id)}
+                              onMouseLeave={() => onRelHover(null)}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') onSelect(r.node.id)
+                              }}
+                            >
+                              <div className="icon">
+                                <NodeIcon type={r.node.type} size={12} />
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div className="label">{r.node.label}</div>
+                                <div className="meta">
+                                  {r.via.replace(/_/g, ' ')}
+                                </div>
+                              </div>
+                              <Ico.Chev size={14} stroke="#5C6478" />
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </>
+                  )
+                })()}
+
+              {/* Señales activas (cards expandibles) */}
+              {detail.señales.filter(Boolean).length > 0 && (
+                <>
+                  <div className="section-title">Señales activas</div>
+                  {detail.señales.filter(Boolean).map((s, i) => (
+                    <div
+                      key={i}
+                      className={`signal-card ${expanded[i] ? 'expanded' : ''}`}
+                    >
+                      <span className={`badge sev-${s.severidad}`}>
+                        ● {s.severidad}
+                      </span>
+                      <div className="t">{s.titulo}</div>
+                      <div className="r">{s.resumen}</div>
+                      {s.evidencia.length > 0 && (
+                        <div
+                          className="more"
+                          onClick={() =>
+                            setExpanded((p) => ({ ...p, [i]: !p[i] }))
+                          }
+                        >
+                          {expanded[i]
+                            ? 'Ocultar evidencia'
+                            : `Ver evidencia (${s.evidencia.length})`}
+                        </div>
+                      )}
+                      {expanded[i] && (
+                        <div
+                          style={{
+                            marginTop: 8,
+                            fontSize: 12,
+                            color: 'var(--text-2)',
+                          }}
+                        >
+                          {s.evidencia.map((ev, k) => (
+                            <div
+                              key={k}
+                              style={{
+                                padding: '5px 0',
+                                borderTop: '1px solid var(--stroke)',
+                              }}
+                            >
+                              · {ev.descripcion}
+                              <div>
+                                <a
+                                  href={ev.fuenteUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{
+                                    color: 'var(--celeste)',
+                                    fontSize: 11,
+                                  }}
+                                >
+                                  {ev.fuenteUrl}
+                                </a>
+                              </div>
+                            </div>
+                          ))}
+                          <div
+                            style={{
+                              marginTop: 8,
+                              fontSize: 11.5,
+                              color: 'var(--text-3)',
+                            }}
+                          >
+                            <strong style={{ color: 'var(--text-2)' }}>
+                              Marco legal:
+                            </strong>{' '}
+                            {s.legal.articulos.join(' · ')}
+                            <br />
+                            <strong style={{ color: 'var(--text-2)' }}>
+                              Denunciar ante:
+                            </strong>{' '}
+                            {s.legal.denunciarAnte.join(' · ')}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* Fuentes (accordion) */}
+              <div className="section-title">
+                <div
+                  className="acc-head"
+                  onClick={() => setAccSrc((s) => !s)}
+                >
+                  <span>Fuentes ({detail.fuentes.length})</span>
+                  <Ico.ChevDown
+                    size={14}
+                    // El `style` inline sobre el SVG conserva la rotación
+                    // animada del .jsx original.
                   />
-                  Fuentes
                 </div>
-                {detail.fuentes.map((f, i) => (
-                  <div key={i} className="ae-fuente-item">
-                    <ExternalLink size={11} style={{ color: 'var(--ae-text-muted)', flexShrink: 0, marginTop: 2 }} />
-                    <div>
-                      <a
-                        href={f.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="ae-fuente-link"
-                      >
+              </div>
+              {accSrc && (
+                <div>
+                  {detail.fuentes.map((f, i) => (
+                    <div className="source-row" key={i}>
+                      <a href={f.url} target="_blank" rel="noreferrer">
                         {f.descripcion}
                       </a>
-                      <div className="ae-fuente-meta">
+                      <span className="date mono">
                         {f.fechaAcceso}
-                        {f.nivelConfianza && ` · Confianza: ${f.nivelConfianza}`}
-                      </div>
+                        {f.nivelConfianza ? ` · ${f.nivelConfianza}` : ''}
+                      </span>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
-          {/* Footer */}
-          <div className="ae-panel-foot">
-            {(detail.node.type === 'proveedor' || detail.node.type === 'director') && (
+            {/* ── Footer ── */}
+            <div className="panel-foot">
               <button
-                className="ae-btn ae-btn-primary"
-                onClick={() => onNavigateToEntity(detail.node)}
-                title="Abrir ficha completa"
+                type="button"
+                className="btn primary"
+                onClick={exportJSON}
               >
-                <MapPin size={12} style={{ display: 'inline', marginRight: 5 }} />
-                Ficha completa
+                <Ico.FileText size={14} /> Ver expediente completo
               </button>
-            )}
-            <button className="ae-btn" onClick={onClose}>
-              Cerrar
-            </button>
-          </div>
-        </>
-      )}
-    </div>
+              <div className="btn-row">
+                <button type="button" className="btn">
+                  <Ico.Share size={13} /> Compartir
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={exportJSON}
+                >
+                  <Ico.Download size={13} /> Exportar JSON
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </aside>
   )
-})
+}
