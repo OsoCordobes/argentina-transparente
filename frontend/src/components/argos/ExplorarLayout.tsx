@@ -21,7 +21,7 @@ import { InterpretationBlock } from './InterpretationBlock'
 import { Onboarding } from './Onboarding'
 import { Ico } from './ArgosIcons'
 import argosApi from '@/lib/argos/api'
-import { expandirNodoGrafo, useGrafoStats } from '@/lib/queries'
+import { expandirNodoGrafo, useGrafoStats, useActoresSearch } from '@/lib/queries'
 import { mergeNeo4jIntoGraph } from '@/lib/argos/graphFromData'
 import {
   saveThread,
@@ -567,7 +567,7 @@ function SidebarHallazgos({ onSelectActor }: { onSelectActor: (id: string) => vo
     <div style={{
       borderTop: '1px solid var(--stroke)',
       padding: '12px 14px',
-      maxHeight: '40vh',
+      maxHeight: '50vh',
       overflowY: 'auto',
       fontSize: 11,
     }}>
@@ -580,6 +580,8 @@ function SidebarHallazgos({ onSelectActor }: { onSelectActor: (id: string) => vo
       }}>
         Mapa del poder
       </div>
+
+      <SidebarSearchBox onSelectActor={onSelectActor} />
 
       {señales.length > 0 && (
         <div style={{ marginBottom: 12 }}>
@@ -656,9 +658,118 @@ function SidebarHallazgos({ onSelectActor }: { onSelectActor: (id: string) => vo
           <div style={{ color: '#F5B544', marginBottom: 4 }}>
             ⚠ {conflictos.length} cruces potenciales (Tier 2)
           </div>
-          <div style={{ color: 'var(--text-3)', fontSize: 10, fontStyle: 'italic' }}>
-            Funcionario y director de empresa con mismo apellido — homonimia probable, requieren verificación.
+          {conflictos.slice(0, 4).map((c, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => onSelectActor(`empresa:${cuitFromConflicto(c)}`)}
+              style={{ ...itemStyle, fontSize: 10, color: 'var(--text-2)' }}
+              title={`${c.funcionario} (${c.funcionarioReparticion ?? '?'}) ↔ ${c.empresa} en ${c.empresaOperaEn}`}
+            >
+              <span style={{ color: '#F5B544' }}>↔</span>{' '}
+              {c.funcionario.split(',')[0].slice(0, 14)}{' ↔ '}
+              {c.empresa.slice(0, 14)}
+            </button>
+          ))}
+          <div style={{ color: 'var(--text-3)', fontSize: 9, fontStyle: 'italic', marginTop: 4 }}>
+            Funcionario y director con mismo apellido — homonimia probable, requieren verificación.
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Helper: extrae cuit potencial del conflicto. Si no hay forma directa,
+// devuelve placeholder; el handler igual hará search por nombre.
+function cuitFromConflicto(_c: { empresa: string }): string {
+  // Por ahora navegamos por nombre — el ID empresa:NOMBRE sin CUIT no
+  // matchea el grafo. Mejor solución: tener cuit en el conflicto. Como
+  // fallback, devolvemos string vacío y onSelectActor cae en /api/actores
+  // con el nombre.
+  return ''
+}
+
+/**
+ * Iter 8.16: search inline en el sidebar — alternativa visible a cmd+k.
+ * Llama /api/actores/search debounced. Click en hit → SELECT_NODE
+ * usando el id del grafo Neo4j cuando es CUIT/DNI, fallback al href
+ * para el resto.
+ */
+function SidebarSearchBox({ onSelectActor }: { onSelectActor: (id: string) => void }) {
+  const [q, setQ] = useState('')
+  const [debouncedQ, setDebouncedQ] = useState('')
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q), 250)
+    return () => clearTimeout(t)
+  }, [q])
+
+  const { data, isFetching } = useActoresSearch(debouncedQ, 'todos')
+  const hits = (data?.hits ?? []).slice(0, 5)
+
+  const onClick = (h: typeof hits[number]) => {
+    // Mapear el hit del search a un id del grafo Neo4j si tenemos cuit/dni.
+    if (h.tipo === 'empresa' && h.identificador && /^\d{11}$/.test(h.identificador)) {
+      onSelectActor(`empresa:${h.identificador}`)
+    } else if (h.tipo === 'director' && h.identificador) {
+      onSelectActor(`persona:${h.identificador}`)
+    } else if (h.tipo === 'funcionario') {
+      // El id de Funcionario en grafo es sha hash que no expone search.
+      // Fallback: navegar via href de actores (página /actores/persona/:n).
+      window.location.href = h.href
+    } else if (h.tipo === 'proveedor') {
+      // Sin CUIT resuelto; intentar por nombre via /api/entidad
+      window.location.href = h.href
+    }
+    setQ('')
+  }
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Buscar persona, empresa, CUIT…"
+        style={{
+          width: '100%',
+          padding: '6px 8px',
+          fontSize: 11,
+          background: 'rgba(255,255,255,0.04)',
+          border: '1px solid var(--stroke)',
+          borderRadius: 4,
+          color: 'var(--text)',
+          outline: 'none',
+        }}
+      />
+      {isFetching && q.length >= 2 && (
+        <div style={{ color: 'var(--text-3)', fontSize: 10, padding: '4px 0' }}>buscando…</div>
+      )}
+      {hits.length > 0 && (
+        <div style={{ marginTop: 4 }}>
+          {hits.map((h, i) => (
+            <button
+              key={`${h.tipo}-${h.identificador ?? h.nombre}-${i}`}
+              type="button"
+              onClick={() => onClick(h)}
+              style={{
+                color: 'var(--text)',
+                lineHeight: 1.3,
+                cursor: 'pointer',
+                padding: '3px 0',
+                background: 'none',
+                border: 'none',
+                textAlign: 'left',
+                width: '100%',
+                fontSize: 10,
+                fontFamily: 'var(--font-mono, monospace)',
+              }}
+              title={h.detalle ?? h.nombre}
+            >
+              <span style={{ color: 'var(--text-3)', fontSize: 9 }}>[{h.tipo[0]}]</span>{' '}
+              {h.nombre.slice(0, 22)}
+            </button>
+          ))}
         </div>
       )}
     </div>

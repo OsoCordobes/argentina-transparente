@@ -439,6 +439,32 @@ export async function upsertSeñalGrafo(data: {
   })
 }
 
+/**
+ * Convierte propiedades de un nodo Neo4j a formato JSON-friendly:
+ * Neo4j Integer → number (via toNumber()).
+ * Aplicar siempre antes de meter properties en el field `data` de un
+ * GrafoNode, sino el frontend recibe `{low, high, ...}` y los chequeos
+ * `typeof === 'number'` fallan.
+ */
+function serializeProps(props: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(props)) {
+    if (v == null) { out[k] = null; continue }
+    if (typeof v === 'object' && 'toNumber' in (v as { toNumber?: () => number })) {
+      out[k] = (v as { toNumber: () => number }).toNumber()
+    } else if (Array.isArray(v)) {
+      out[k] = v.map(item =>
+        item != null && typeof item === 'object' && 'toNumber' in (item as { toNumber?: () => number })
+          ? (item as { toNumber: () => number }).toNumber()
+          : item
+      )
+    } else {
+      out[k] = v
+    }
+  }
+  return out
+}
+
 // ─── Mapa-neural cordobés ──────────────────────────────────────────────────
 //
 // Estos endpoints son los que alimentan el grafo de /explorar (Argos v2).
@@ -541,7 +567,7 @@ export async function getGrafoNucleo(opts?: { limite?: number; municipio?: strin
           label: (e.properties.nombre as string) ?? cuit,
           subtitle: cuit,
           weight: 0.7,
-          data: e.properties,
+          data: serializeProps(e.properties),
         })
       }
     }
@@ -555,7 +581,7 @@ export async function getGrafoNucleo(opts?: { limite?: number; municipio?: strin
           label: (p.properties.nombre as string) ?? dni,
           subtitle: `DNI ${dni}`,
           weight: 0.5,
-          data: p.properties,
+          data: serializeProps(p.properties),
         })
       }
     }
@@ -569,7 +595,7 @@ export async function getGrafoNucleo(opts?: { limite?: number; municipio?: strin
           label: (f.properties.nombre as string) ?? id,
           subtitle: (f.properties.cargo as string) ?? undefined,
           weight: 0.4,
-          data: f.properties,
+          data: serializeProps(f.properties),
         })
       }
     }
@@ -583,7 +609,7 @@ export async function getGrafoNucleo(opts?: { limite?: number; municipio?: strin
           label: (r.properties.nombre as string) ?? id,
           subtitle: (r.properties.jurisdiccion as string) ?? undefined,
           weight: 0.6,
-          data: r.properties,
+          data: serializeProps(r.properties),
         })
       }
     }
@@ -901,25 +927,25 @@ export async function expandirNodo(nodeId: string, depth = 1): Promise<Grafo> {
     const addEmpresa = (e: { properties: Record<string, unknown> } | null) => {
       if (!e?.properties.cuit) return null as string | null
       const id = `empresa:${e.properties.cuit}`
-      if (!nodeMap.has(id)) nodeMap.set(id, { id, type: 'empresa', label: (e.properties.nombre as string) ?? '', subtitle: e.properties.cuit as string, weight: 0.7, data: e.properties })
+      if (!nodeMap.has(id)) nodeMap.set(id, { id, type: 'empresa', label: (e.properties.nombre as string) ?? '', subtitle: e.properties.cuit as string, weight: 0.7, data: serializeProps(e.properties) })
       return id
     }
     const addPersona = (p: { properties: Record<string, unknown> } | null) => {
       if (!p?.properties.dni) return null as string | null
       const id = `persona:${p.properties.dni}`
-      if (!nodeMap.has(id)) nodeMap.set(id, { id, type: 'persona', label: (p.properties.nombre as string) ?? '', subtitle: `DNI ${p.properties.dni}`, weight: 0.5, data: p.properties })
+      if (!nodeMap.has(id)) nodeMap.set(id, { id, type: 'persona', label: (p.properties.nombre as string) ?? '', subtitle: `DNI ${p.properties.dni}`, weight: 0.5, data: serializeProps(p.properties) })
       return id
     }
     const addFunc = (f: { properties: Record<string, unknown> } | null) => {
       if (!f?.properties.id) return null as string | null
       const id = `funcionario:${f.properties.id}`
-      if (!nodeMap.has(id)) nodeMap.set(id, { id, type: 'funcionario', label: (f.properties.nombre as string) ?? '', subtitle: (f.properties.cargo as string) ?? undefined, weight: 0.4, data: f.properties })
+      if (!nodeMap.has(id)) nodeMap.set(id, { id, type: 'funcionario', label: (f.properties.nombre as string) ?? '', subtitle: (f.properties.cargo as string) ?? undefined, weight: 0.4, data: serializeProps(f.properties) })
       return id
     }
     const addRep = (r: { properties: Record<string, unknown> } | null) => {
       if (!r?.properties.id) return null as string | null
       const id = `reparticion:${r.properties.id}`
-      if (!nodeMap.has(id)) nodeMap.set(id, { id, type: 'reparticion', label: (r.properties.nombre as string) ?? '', subtitle: (r.properties.jurisdiccion as string) ?? undefined, weight: 0.6, data: r.properties })
+      if (!nodeMap.has(id)) nodeMap.set(id, { id, type: 'reparticion', label: (r.properties.nombre as string) ?? '', subtitle: (r.properties.jurisdiccion as string) ?? undefined, weight: 0.6, data: serializeProps(r.properties) })
       return id
     }
 
