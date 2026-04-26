@@ -595,6 +595,10 @@ export function detectarDirectoresCompartidos(
   if (pares.length === 0) return null
   const C = cfg('detectarDirectoresCompartidos')
 
+  // Iter 8.12: emitir cuits únicos para que la señal conecte a las empresas
+  // en el grafo Neo4j vía SEÑALA.
+  const cuits = Array.from(new Set(pares.flatMap(p => [p.cuit1, p.cuit2]).filter(Boolean)))
+
   return {
     tipologia: 'directores_compartidos',
     score: 85,
@@ -613,6 +617,7 @@ export function detectarDirectoresCompartidos(
         'Fiscalía Federal de Córdoba',
       ],
     },
+    cuits,
   }
 }
 
@@ -781,6 +786,10 @@ export function detectarRedDeEmpresas(
   if (pares.length === 0) return null
   const C = cfg('detectarRedDeEmpresas')
 
+  // Iter 8.12: emitir cuits únicos para que SEÑALA conecte la señal a las
+  // empresas en el grafo Neo4j.
+  const cuits = Array.from(new Set(pares.flatMap(p => [p.cuit1, p.cuit2]).filter(Boolean)))
+
   return {
     tipologia: 'red_de_empresas',
     score: 88,
@@ -799,6 +808,7 @@ export function detectarRedDeEmpresas(
         'Fiscalía Federal de Córdoba',
       ],
     },
+    cuits,
   }
 }
 

@@ -140,16 +140,23 @@ async function main() {
 
     const señales = await calcularSeñales(contratos, empresas, municipio, osMatches, agentes)
 
+    // Iter 8.12: priorizar cuits emitidos por el detector (cuando los tiene
+    // — directores_compartidos, red_de_empresas, conflicto_funcionario, etc.).
+    // Fallback a extraerCuits (heuristic name matching) cuando el detector
+    // no provee cuits explícitos.
+    const cuitsDeSeñal = (s: Señal): string[] =>
+      s.cuits && s.cuits.length > 0 ? s.cuits : extraerCuits(s, empresas)
+
     for (const s of señales) {
-      const cuits = extraerCuits(s, empresas)
+      const cuits = cuitsDeSeñal(s)
       await insertSeñalCache(municipio, s, cuits)
     }
 
     totalSeñales += señales.length
-    const conCuits = señales.filter(s => extraerCuits(s, empresas).length > 0).length
+    const conCuits = señales.filter(s => cuitsDeSeñal(s).length > 0).length
     console.log(`[${municipio}] ✓ ${señales.length} señales detectadas (${conCuits} con CUITs asociados):`)
     for (const s of señales) {
-      const cuits = extraerCuits(s, empresas)
+      const cuits = cuitsDeSeñal(s)
       const cuitsStr = cuits.length > 0 ? ` [cuits: ${cuits.length}]` : ''
       console.log(`  [${s.score}] [${s.legal.severidad}] ${s.tipologia}${cuitsStr}: ${s.titulo.slice(0, 80)}`)
     }
