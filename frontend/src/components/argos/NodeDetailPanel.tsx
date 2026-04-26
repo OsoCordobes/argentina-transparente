@@ -29,6 +29,7 @@ import { useEffect, useState } from 'react'
 import type { NodeDetail, KPI, Relacion, ArgosNodeType } from '@/lib/argos/types'
 import { Ico } from '@/components/argos/ArgosIcons'
 import { sumarioProveedorMarkdown, copyToClipboard } from '@/lib/argos/sumario'
+import { capturarCanvasWrap } from '@/lib/argos/screenshot'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -188,6 +189,8 @@ export function NodeDetailPanel({
   const [areaFilter, setAreaFilter] = useState<string | null>(null)
   // Feature C — feedback del botón "Copiar sumario"
   const [copyStatus, setCopyStatus] = useState<'idle' | 'ok' | 'fail'>('idle')
+  // Feature D — feedback del botón "Descargar imagen"
+  const [shotStatus, setShotStatus] = useState<'idle' | 'busy' | 'ok' | 'fail'>('idle')
 
   // Reset de filtros al cambiar de nodo (mismo deps que el .jsx).
   useEffect(() => {
@@ -229,6 +232,23 @@ export function NodeDetailPanel({
     const ok = await copyToClipboard(md)
     setCopyStatus(ok ? 'ok' : 'fail')
     setTimeout(() => setCopyStatus('idle'), 1800)
+  }
+
+  // Feature D — Captura grafo + ficha como PNG con watermark.
+  // Operación cara (1-3s), por eso state 'busy' para feedback.
+  const handleDownloadImage = async () => {
+    if (!detail) return
+    setShotStatus('busy')
+    const result = await capturarCanvasWrap({
+      slug: detail.node.label,
+      fechaDatos: detail.meta?.fechaActualizacion ?? null,
+    })
+    setShotStatus(result.ok ? 'ok' : 'fail')
+    if (!result.ok) {
+      // eslint-disable-next-line no-console
+      console.warn('[screenshot] Falló:', result.error)
+    }
+    setTimeout(() => setShotStatus('idle'), 2000)
   }
 
   // Export JSON: descarga el `detail` completo como `<id>.json`.
@@ -852,10 +872,26 @@ export function NodeDetailPanel({
                 <button
                   type="button"
                   className="btn"
+                  onClick={handleDownloadImage}
+                  disabled={shotStatus === 'busy'}
+                  title="Captura el grafo + ficha como PNG con watermark"
+                >
+                  <Ico.Download size={13} />{' '}
+                  {shotStatus === 'busy'
+                    ? 'Generando…'
+                    : shotStatus === 'ok'
+                    ? '✓ Imagen descargada'
+                    : shotStatus === 'fail'
+                    ? '✗ Error'
+                    : 'Descargar imagen (PNG)'}
+                </button>
+                <button
+                  type="button"
+                  className="btn"
                   onClick={exportJSON}
                   title="Descarga el detalle del nodo en JSON estructurado"
                 >
-                  <Ico.Download size={13} /> Exportar JSON
+                  <Ico.FileText size={13} /> Exportar JSON
                 </button>
               </div>
             </div>
