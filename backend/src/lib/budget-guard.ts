@@ -175,8 +175,17 @@ export async function assertBudget(
   }
 }
 
-/** Detector explícito del error de saldo agotado de Anthropic. */
+/** Detector explícito del error de saldo agotado de Anthropic.
+ * Cubre variantes observadas + plausibles:
+ *  - "credit balance is too low" (Anthropic estándar)
+ *  - "credit balance too low" (sin "is", paraphrased)
+ *  - "insufficient credit"
+ *  - "quota exceeded"
+ *  - "out of credits"
+ */
 export function isOutOfCreditsError(err: unknown): boolean {
+  if (err == null) return false
   const msg = err instanceof Error ? err.message : String(err)
-  return /credit\s*balance\s*is\s*too\s*low|insufficient\s*credit|quota\s*exceeded/i.test(msg)
+  return /credit\s*balance(\s+is)?\s+too\s+low|insufficient\s+credit|quota\s+exceeded|out\s+of\s+credits/i
+    .test(msg)
 }
