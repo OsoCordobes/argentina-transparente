@@ -191,6 +191,132 @@ interface ActorEmpresaApiResponse {
   cruce_externo: { matched: boolean; riesgo: string | null; dataset_principal: string | null; entidad_url: string | null } | null
 }
 
+// ─── Iter 8.9: NodeDetail desde /api/grafo/expand ──────────────────────────
+interface GrafoExpandResponse {
+  graphAvailable?: boolean
+  nodes: Array<{
+    id: string
+    type: 'empresa' | 'persona' | 'funcionario' | 'reparticion' | 'contrato' | 'señal'
+    label: string
+    subtitle?: string
+    weight: number
+    data: Record<string, unknown>
+  }>
+  edges: Array<{
+    source: string
+    target: string
+    kind: string
+    weight: number
+    data?: Record<string, unknown>
+  }>
+}
+
+function grafoExpandToDetail(
+  nodeId: string,
+  nodeType: ArgosNodeType,
+  resp: GrafoExpandResponse,
+): NodeDetail | null {
+  const self = resp.nodes.find((n) => n.id === nodeId)
+  if (!self) return null
+
+  const node: ArgosNode = {
+    id: self.id,
+    type: self.type as ArgosNodeType,
+    label: self.label,
+    subtitle: self.subtitle,
+    weight: self.weight,
+    data: self.data,
+  }
+
+  // Vecinos: todos los nodos del expand excepto self
+  const vecinos = resp.nodes.filter((n) => n.id !== nodeId)
+
+  // Aristas que tocan el self → relaciones que mostramos en el panel
+  const aristasSelf = resp.edges.filter((e) => e.source === nodeId || e.target === nodeId)
+
+  const relaciones: Relacion[] = []
+  for (const e of aristasSelf) {
+    const otroId = e.source === nodeId ? e.target : e.source
+    const otro = vecinos.find((v) => v.id === otroId)
+    if (!otro) continue
+    relaciones.push({
+      node: {
+        id: otro.id,
+        type: otro.type as ArgosNodeType,
+        label: otro.label,
+        subtitle: otro.subtitle,
+        weight: otro.weight,
+        data: otro.data,
+      },
+      via: e.kind as Relacion['via'],
+      weight: e.weight,
+    })
+  }
+  // Cap a 50 para que el panel no explote
+  relaciones.sort((a, b) => b.weight - a.weight)
+
+  // KPIs específicos por tipo
+  const kpis: KPI[] = []
+  const data = self.data as Record<string, unknown>
+  if (nodeType === 'persona') {
+    const empresasDirigidas = relaciones.filter((r) => r.via === 'dirige')
+    if (empresasDirigidas.length > 0) {
+      kpis.push({
+        label: 'Empresas dirigidas',
+        format: 'count',
+        value: String(empresasDirigidas.length),
+      })
+    }
+    if (data.dni) kpis.push({ label: 'DNI', format: 'text', value: String(data.dni) })
+    const funcionarios = relaciones.filter((r) => r.via === 'es_la_misma_persona')
+    if (funcionarios.length > 0) {
+      kpis.push({
+        label: 'Cargos públicos vinculados',
+        format: 'count',
+        value: String(funcionarios.length),
+        sub: 'match Tier 2 — verificar homonimia',
+      })
+    }
+  }
+  if (nodeType === 'funcionario') {
+    if (data.cargo) kpis.push({ label: 'Cargo', format: 'text', value: String(data.cargo) })
+    if (data.jurisdiccion) kpis.push({ label: 'Jurisdicción', format: 'text', value: String(data.jurisdiccion) })
+    if (data.bruto && typeof data.bruto === 'number') {
+      kpis.push({ label: 'Sueldo bruto', format: 'currency', amount: data.bruto })
+    }
+    if (data.anio) kpis.push({ label: 'Año más reciente', format: 'text', value: String(data.anio) })
+  }
+  if (nodeType === 'reparticion') {
+    const empresas = relaciones.filter((r) => r.via === 'opera_en')
+    if (empresas.length > 0) {
+      kpis.push({ label: 'Empresas operando', format: 'count', value: String(empresas.length) })
+    }
+    const funcionarios = relaciones.filter((r) => r.via === 'trabaja_en')
+    if (funcionarios.length > 0) {
+      kpis.push({ label: 'Funcionarios', format: 'count', value: String(funcionarios.length) })
+    }
+    if (data.jurisdiccion) kpis.push({ label: 'Jurisdicción', format: 'text', value: String(data.jurisdiccion) })
+  }
+
+  return {
+    node,
+    kpis,
+    relaciones: relaciones.slice(0, 50),
+    señales: [],
+    fuentes: [{
+      url: 'http://localhost:7474/browser/',
+      descripcion: `Grafo Neo4j cordobés — ${vecinos.length} vecino(s) directos`,
+      fechaAcceso: new Date().toISOString().slice(0, 10),
+      nivelConfianza: 'alto',
+    }],
+    meta: {
+      fechaActualizacion: new Date().toISOString(),
+      metodoDominante: 'Neo4j cordobés (DuckDB → grafo)',
+      topArea: null,
+    },
+  }
+}
+
 function actorEmpresaToDetail(
   nodeId: string,
   cuit: string,
@@ -465,6 +591,14 @@ const argosApi: ArgosApi = {
           `/api/actores/empresa/${encodeURIComponent(cuit)}`
         )
         return actorEmpresaToDetail(id, cuit, data)
+      }
+      // Iter 8.9: persona/funcionario/reparticion usan el endpoint expand
+      // del grafo (que ya devuelve nombre + relaciones) y mapeamos a NodeDetail.
+      if (type === 'persona' || type === 'funcionario' || type === 'reparticion') {
+        const data = await getJson<GrafoExpandResponse>(
+          `/api/grafo/expand/${encodeURIComponent(id)}`
+        )
+        return grafoExpandToDetail(id, type, data)
       }
       if (type === 'contrato') {
         // /api/contrato/:hash — schema distinto, no implementado todavía
