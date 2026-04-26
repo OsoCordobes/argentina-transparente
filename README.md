@@ -132,6 +132,20 @@ Propuestas priorizadas con costo estimado en [`~/Desktop/ARGOS-AUDIT-Y-PROPUESTA
 
 Multi-jurisdicción (Nación / CABA / Santa Fe) pospuesto a v1 post-beta. Connectors existen pero UI no los expone.
 
+## Identity Resolution
+
+Cada cruce nombre↔CUIT devuelve un tier con score explícito:
+
+| Tier | Método | Score | UI |
+|---|---|---|---|
+| 1 | CUIT exact | 100 | ✓ verde |
+| 2 | Nombre normalizado | 85 | ⚠ amarillo |
+| 3 | Fuzzy match (Levenshtein ≥85%) | 70-99 | ⚠ amarillo |
+| 4 | LLM ambiguous | 60-99 | 🤖 lila |
+| 5 | Sin match | 0 | ✗ gris |
+
+Para reducir tier 4: cargar `seed:afip-padron` + `seed:cordoba-padron-prov`.
+
 ## Licencia
 
 Por definir. El proyecto pasará a open source post-validación del beta.

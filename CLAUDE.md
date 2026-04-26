@@ -601,6 +601,30 @@ Backlog post-beta documentado en ARGOS-AUDIT-Y-PROPUESTAS.md:
 - R4 AFIP padrón empleadores desde datos.gob.ar (~3h)
 - R5 Loader obras públicas dataset 262 (~5h)
 
+### 2026-04-26 — Claude Code (refactor arquitectura datos)
+
+Implementado spec `docs/superpowers/specs/2026-04-26-argos-arquitectura-datos-design.md`.
+
+Cambios principales:
+- Engine: 16 detectores → ~12 (Tier 3 archivado). Cada uno con norma citada
+  + umbral fundamentado en `detectors-config.json`.
+- Identity resolver tiered: cruce nombre↔CUIT con score explícito.
+  AFIP padrón empleadores y Padrón provincial Córdoba cargados.
+- Universo cordobés N2 vía vistas materializadas.
+- Validador post-LLM bloquea hechos sin cita en `/api/chat`.
+- UI: render 2 voces (hechos vs interpretación), TierBadge + IdentityBadge
+  en cada campo crítico.
+- Onboarding modal con disclaimer al primer login.
+- Watchlist personal con magic-link Supabase opcional + badge novedades.
+- `verify-hallazgos.ts` extendido para asertar que cada señal cacheada
+  tenga entrada (norma + tier) en `detectors-config.json`.
+- Fix lingering: `claude.ts` citaba "Ley 8614" (derogada); reemplazado
+  por "Ley 10.155 + Decreto 305/14" (régimen vigente bienes/servicios).
+- Auditoría legal en `~/Desktop/ARGOS-AUDITORIA-LEGAL-DETECTORES.md`
+  (fuera del repo).
+
+Tests: 215 → 222 verde.
+
 
 NO BORRAR//INSTRUCCIONES
 # Argentina Transparente — Instrucciones fijas
