@@ -16,6 +16,7 @@
 import { useReducer, useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { GraphCanvas } from './GraphCanvas'
 import { NodeDetailPanel } from './NodeDetailPanel'
+import { InterpretationBlock } from './InterpretationBlock'
 import { Ico } from './ArgosIcons'
 import argosApi from '@/lib/argos/api'
 import {
@@ -289,26 +290,32 @@ interface SidebarChatProps {
   onClear: () => void
 }
 
-function renderInlineBody(
+/**
+ * Renderiza un fragmento de texto reemplazando `[[node:id]]` por chips
+ * clickeables (lógica de chips inline preservada del comportamiento previo
+ * de `renderInlineBody`).
+ */
+function renderHechos(
   text: string,
   graph: ArgosGraph,
   onChipHover: (id: string | null) => void,
   onChipClick: (id: string) => void,
-): React.ReactNode {
+  keyPrefix = '',
+): React.ReactNode[] {
   const parts: React.ReactNode[] = []
   const regex = /\[\[node:([^\]]+)\]\]/g
   let last = 0
   let m: RegExpExecArray | null
   let key = 0
   while ((m = regex.exec(text))) {
-    if (m.index > last) parts.push(<span key={key++}>{text.slice(last, m.index)}</span>)
+    if (m.index > last) parts.push(<span key={`${keyPrefix}t${key++}`}>{text.slice(last, m.index)}</span>)
     const id = m[1]
     const node = graph.nodes.find((n) => n.id === id)
     if (node) {
       const cls = node.type === 'señal' ? 't-senal' : `t-${node.type}`
       parts.push(
         <span
-          key={key++}
+          key={`${keyPrefix}c${key++}`}
           className={`entity-chip ${cls}`}
           onMouseEnter={() => onChipHover(node.id)}
           onMouseLeave={() => onChipHover(null)}
@@ -321,15 +328,42 @@ function renderInlineBody(
       )
     } else {
       parts.push(
-        <span key={key++} style={{ color: 'var(--text-3)' }}>
+        <span key={`${keyPrefix}m${key++}`} style={{ color: 'var(--text-3)' }}>
           [{id}]
         </span>,
       )
     }
     last = m.index + m[0].length
   }
-  if (last < text.length) parts.push(<span key={key++}>{text.slice(last)}</span>)
+  if (last < text.length) parts.push(<span key={`${keyPrefix}f${key++}`}>{text.slice(last)}</span>)
   return parts
+}
+
+/**
+ * Renderiza el cuerpo inline de un mensaje del asistente. Si el LLM marca
+ * un bloque de "Interpretación:" (convención F6 — separar hechos verificables
+ * de análisis interpretativo, CLAUDE.md §5), envuelve la segunda parte en
+ * `<InterpretationBlock>` con estilo diferenciado.
+ */
+function renderInlineBody(
+  text: string,
+  graph: ArgosGraph,
+  onChipHover: (id: string | null) => void,
+  onChipClick: (id: string) => void,
+): React.ReactNode {
+  const partes = text.split(/\n(?:Interpretación|╴Interpretación╴):?\s*/i)
+  if (partes.length === 1) {
+    return renderHechos(partes[0], graph, onChipHover, onChipClick)
+  }
+  const restoInterp = partes.slice(1).join('\n')
+  return (
+    <>
+      {renderHechos(partes[0], graph, onChipHover, onChipClick, 'h-')}
+      <InterpretationBlock>
+        {renderHechos(restoInterp, graph, onChipHover, onChipClick, 'i-')}
+      </InterpretationBlock>
+    </>
+  )
 }
 
 function SidebarChat({
