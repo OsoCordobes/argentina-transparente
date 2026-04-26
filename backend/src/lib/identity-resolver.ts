@@ -20,7 +20,15 @@
  * `empresas` (y sin tocar el LLM).
  */
 
+import Anthropic from '@anthropic-ai/sdk'
 import { dbAll, dbRun, normProveedor } from './db'
+import {
+  assertBudget,
+  estimarCostoCall,
+  isOutOfCreditsError,
+  recordLlmCall,
+  type ModeloSoportado,
+} from './budget-guard'
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -42,21 +50,84 @@ export interface IdentityMatch {
 }
 
 // ─── LLM invoker inyectable ───────────────────────────────────────────────────
-// Hook puntual para que los tests puedan mockear sin red. La implementación
-// real (Tier 4) se introduce en F3.4 — por ahora el default tira a no_match.
+// Hook puntual para que los tests puedan mockear sin red.
+// El default productivo usa Anthropic Haiku 4.5 con budget guard.
 
 export type LlmInvoker = (prompt: string) => Promise<string>
 
-const noopLlmInvoker: LlmInvoker = async () => '{"match": false}'
+const MODELO_LLM: ModeloSoportado = 'claude-haiku-4-5-20251001'
+const ENDPOINT_TAG = '/identity/resolver'
 
-let llmInvoker: LlmInvoker = noopLlmInvoker
+/**
+ * Default productivo: llama a Haiku via Anthropic SDK respetando el budget
+ * semanal. Si no hay API key o el budget está agotado, lanza para que el
+ * caller (intentarLlmMatch) lo capture y caiga a Tier 5.
+ */
+const defaultLlmInvoker: LlmInvoker = async (prompt: string) => {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new Error('no_api_key')
+
+  // Conservador: prompt suele ser ~500 tokens, output JSON corto ~150 tokens.
+  const inputTokensProy = Math.ceil(prompt.length / 4) + 64
+  const outputTokensProy = 200
+
+  await assertBudget(MODELO_LLM, inputTokensProy, outputTokensProy)
+
+  let inputTokens = 0
+  let outputTokens = 0
+  let cacheReadTokens = 0
+  let cacheCreationTokens = 0
+
+  try {
+    const client = new Anthropic({ apiKey })
+    const response = await client.messages.create({
+      model: MODELO_LLM,
+      max_tokens: outputTokensProy,
+      messages: [{ role: 'user', content: prompt }],
+    })
+
+    inputTokens = response.usage?.input_tokens ?? 0
+    outputTokens = response.usage?.output_tokens ?? 0
+    cacheReadTokens = response.usage?.cache_read_input_tokens ?? 0
+    cacheCreationTokens = response.usage?.cache_creation_input_tokens ?? 0
+
+    const text = response.content
+      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .map(b => b.text).join('')
+
+    const costo = estimarCostoCall(MODELO_LLM, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
+    await recordLlmCall({
+      endpoint: ENDPOINT_TAG,
+      modelo: MODELO_LLM,
+      inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens,
+      costoUsd: costo,
+      status: 'success',
+    })
+
+    // Strip code fences si Haiku los pone alrededor del JSON.
+    return text.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '').trim()
+  } catch (err) {
+    const status = isOutOfCreditsError(err) ? 'no_credits' : 'error'
+    await recordLlmCall({
+      endpoint: ENDPOINT_TAG,
+      modelo: MODELO_LLM,
+      inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens,
+      costoUsd: 0,
+      status,
+      errorMessage: err instanceof Error ? err.message.slice(0, 500) : String(err).slice(0, 500),
+    }).catch(() => { /* swallow */ })
+    throw err
+  }
+}
+
+let llmInvoker: LlmInvoker = defaultLlmInvoker
 
 export function _setLlmInvokerForTests(fn: LlmInvoker): void {
   llmInvoker = fn
 }
 
 export function _resetLlmInvokerForTests(): void {
-  llmInvoker = noopLlmInvoker
+  llmInvoker = defaultLlmInvoker
 }
 
 // ─── Internos ─────────────────────────────────────────────────────────────────

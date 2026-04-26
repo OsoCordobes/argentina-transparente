@@ -115,6 +115,85 @@ describe('resolverEmpresa — Tier 5 (no_match)', () => {
   })
 })
 
+describe('resolverEmpresa — Tier 4 (llm_ambiguous)', () => {
+  // Para Tier 4 necesitamos candidatos en rango 60-84% similitud.
+  // Seedeamos empresas con nombre suficientemente parecido pero no idéntico.
+  const TIER4_NOMBRE_REAL = `KAPPA INDUSTRIAS${TEST_SUFFIX}`
+  const TIER4_CUIT = '99100000004'
+  // Query: "KAPPA YNDU SRL" → ~70% similar a "KAPPA INDUSTRIAS" (rango ambiguo).
+
+  beforeAll(async () => {
+    await upsertEmpresa({
+      cuit: TIER4_CUIT,
+      nombre: TIER4_NOMBRE_REAL,
+      esEmpleador: true,
+      inicioActividades: null,
+      estado: 'ACTIVO',
+      actividadPrincipal: null,
+      fuenteUrl: 'https://test.local/identity',
+    })
+  })
+
+  it('LLM dice match=true score=85 → tier=4 con CUIT del candidato elegido', async () => {
+    _setLlmInvokerForTests(async () =>
+      JSON.stringify({
+        match: true,
+        candidato_index: 1,
+        score: 85,
+        reason: 'Razón social muy parecida, mismo rubro plausible.',
+      })
+    )
+    const r = await resolverEmpresa(`KAPPA YNDU SRL${TEST_SUFFIX}_t4a`)
+    expect(r.tier).toBe(4)
+    expect(r.metodo).toBe('llm_ambiguous')
+    expect(r.cuit).toBe(TIER4_CUIT)
+    expect(r.score).toBeGreaterThanOrEqual(70)
+    _resetLlmInvokerForTests()
+  })
+
+  it('LLM dice match=false → cae a tier=5', async () => {
+    _setLlmInvokerForTests(async () => JSON.stringify({ match: false }))
+    const r = await resolverEmpresa(`KAPPA YNDU SRL${TEST_SUFFIX}_t4b`)
+    expect(r.tier).toBe(5)
+    expect(r.metodo).toBe('no_match')
+    expect(r.cuit).toBeNull()
+    _resetLlmInvokerForTests()
+  })
+
+  it('LLM tira error → cae graceful a tier=5 (no propaga)', async () => {
+    _setLlmInvokerForTests(async () => { throw new Error('LLM down') })
+    const r = await resolverEmpresa(`KAPPA YNDU SRL${TEST_SUFFIX}_t4c`)
+    expect(r.tier).toBe(5)
+    expect(r.cuit).toBeNull()
+    _resetLlmInvokerForTests()
+  })
+
+  it('LLM responde score < 70 → cae a tier=5 (no es match seguro)', async () => {
+    _setLlmInvokerForTests(async () =>
+      JSON.stringify({ match: true, candidato_index: 1, score: 50, reason: 'dudoso' })
+    )
+    const r = await resolverEmpresa(`KAPPA YNDU SRL${TEST_SUFFIX}_t4d`)
+    expect(r.tier).toBe(5)
+    _resetLlmInvokerForTests()
+  })
+
+  it('LLM responde candidato_index inválido → cae a tier=5', async () => {
+    _setLlmInvokerForTests(async () =>
+      JSON.stringify({ match: true, candidato_index: 99, score: 90 })
+    )
+    const r = await resolverEmpresa(`KAPPA YNDU SRL${TEST_SUFFIX}_t4e`)
+    expect(r.tier).toBe(5)
+    _resetLlmInvokerForTests()
+  })
+
+  it('LLM responde JSON malformado → cae a tier=5', async () => {
+    _setLlmInvokerForTests(async () => 'esto no es json')
+    const r = await resolverEmpresa(`KAPPA YNDU SRL${TEST_SUFFIX}_t4f`)
+    expect(r.tier).toBe(5)
+    _resetLlmInvokerForTests()
+  })
+})
+
 describe('resolverEmpresa — cache hit', () => {
   it('la 2da llamada no re-ejecuta la resolución (timestamp inmutable)', async () => {
     const nombre = `CACHED COMPANY${TEST_SUFFIX}`
