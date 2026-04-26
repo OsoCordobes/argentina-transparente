@@ -12,10 +12,29 @@ function montoTotal(cs: Contrato[]): number {
   return cs.reduce((s, c) => s + c.monto, 0)
 }
 
+/**
+ * Normaliza nombres de proveedor para que variantes societarias no se
+ * cuenten como empresas distintas. "ACME S.A." y "ACME SRL" colapsan
+ * al mismo nombre raíz "ACME". También strip dobles espacios y puntos.
+ */
+export function normalizarProveedor(nombre: string): string {
+  return nombre
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .replace(/\.\s*/g, ' ')
+    .replace(
+      /\s+(S\s*A\s*S?|S\s*R\s*L|SOCIEDAD\s+(?:ANONIMA|ANÓNIMA|RESPONSABILIDAD\s+LIMITADA)|SAIIC[FA]?A?|SACICI|SAIC|UTE|U\.?\s*T\.?|SCS|SCEI|COOPERATIVA|COOP)\s*$/i,
+      '',
+    )
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function agruparPorProveedor(cs: Contrato[]): Map<string, Contrato[]> {
   const map = new Map<string, Contrato[]>()
   for (const c of cs) {
-    const k = c.proveedor.trim().toUpperCase()
+    const k = normalizarProveedor(c.proveedor)
     if (!map.has(k)) map.set(k, [])
     map.get(k)!.push(c)
   }
@@ -64,7 +83,13 @@ export function detectarConcentracion(contratos: Contrato[]): Señal | null {
   if (total === 0) return null
   const porProv = agruparPorProveedor(contratos)
   const ranking = Array.from(porProv.entries())
-    .map(([p, cs]) => ({ p, m: montoTotal(cs), n: cs.length }))
+    .map(([k, cs]) => ({
+      // displayName preserva el nombre original (ej. "GIGANTE SA") para que
+      // el usuario reconozca el proveedor como aparece en los contratos.
+      // La key normalizada (k) se usa solo para bucketing.
+      displayName: cs[0].proveedor,
+      m: montoTotal(cs), n: cs.length, _key: k,
+    }))
     .sort((a, b) => b.m - a.m)
   const top = ranking[0]
   const pct = (top.m / total) * 100
@@ -72,9 +97,9 @@ export function detectarConcentracion(contratos: Contrato[]): Señal | null {
   return {
     tipologia: 'concentracion_proveedor',
     score: Math.min(95, Math.round(50 + pct)),
-    titulo: `Concentración extrema: ${top.p} recibe el ${pct.toFixed(1)}% del gasto`,
-    resumen: `El proveedor "${top.p}" concentra ${ars(top.m)} (${pct.toFixed(1)}% del gasto total de ${ars(total)}) en ${top.n} contrato/s. Una concentración superior al 35% en un solo proveedor contradice los principios de concurrencia establecidos en la normativa.`,
-    evidencia: [{ descripcion: `${top.p}: ${ars(top.m)} (${pct.toFixed(1)}% del total)`, fuenteUrl: contratos[0].fuenteUrl }],
+    titulo: `Concentración extrema: ${top.displayName} recibe el ${pct.toFixed(1)}% del gasto`,
+    resumen: `El proveedor "${top.displayName}" concentra ${ars(top.m)} (${pct.toFixed(1)}% del gasto total de ${ars(total)}) en ${top.n} contrato/s. Una concentración superior al 35% en un solo proveedor contradice los principios de concurrencia establecidos en la normativa.`,
+    evidencia: [{ descripcion: `${top.displayName}: ${ars(top.m)} (${pct.toFixed(1)}% del total)`, fuenteUrl: contratos[0].fuenteUrl }],
     legal: {
       articulos: ['Ley Provincial 8614 art. 22 (principio de concurrencia)', 'Decreto 1338/2016'],
       severidad: pct >= 60 ? 'grave' : 'moderada',
@@ -84,8 +109,13 @@ export function detectarConcentracion(contratos: Contrato[]): Señal | null {
 }
 
 export function detectarContratacionesDirectas(contratos: Contrato[]): Señal | null {
+  // Match el FRASE completa (no substring overlap). Acepta acentos opcionales.
+  // Patrones aceptados: "CONTRATACION DIRECTA", "CONTRATACIÓN DIRECTA",
+  //   "COMPRA DIRECTA", "ADJUDICACION DIRECTA". Rechaza "DIRECCION GENERAL
+  //   DE CONTRATACIONES" (que matchearía con .includes substring).
+  const RE_DIRECTA = /\b(?:CONTRATACI[OÓ]N|COMPRA|ADJUDICACI[OÓ]N)\s+DIRECTA\b/
   const directas = contratos.filter(c =>
-    c.tipo.toUpperCase().includes('CONTRATACI') && c.tipo.toUpperCase().includes('DIRECTA')
+    RE_DIRECTA.test(c.tipo.toUpperCase()),
   )
   if (directas.length < 5) return null
   const total = montoTotal(contratos)
@@ -124,11 +154,12 @@ export function detectarMonopolioRubro(contratos: Contrato[]): Señal | null {
     const totalArea = montoTotal(cs)
     if (totalArea < 1_000_000) continue
     const porProv = agruparPorProveedor(cs)
-    for (const [prov, pcs] of porProv.entries()) {
+    for (const [, pcs] of porProv.entries()) {
       const m = montoTotal(pcs)
       const pct = (m / totalArea) * 100
+      // Mostrar nombre original (cs[0]) en lugar de la key normalizada
       if (pct >= 60 && (!mejor || pct > mejor.pct))
-        mejor = { area, proveedor: prov, pct, monto: m, total: totalArea }
+        mejor = { area, proveedor: pcs[0].proveedor, pct, monto: m, total: totalArea }
     }
   }
   if (!mejor) return null
@@ -201,23 +232,24 @@ export function detectarServiciosSinHistorial(contratos: Contrato[]): Señal | n
 }
 
 export function detectarFraccionamientoAvanzado(contratos: Contrato[]): Señal | null {
-  const porProv = new Map<string, Contrato[]>()
-  for (const c of contratos) {
-    const k = c.proveedor.trim().toUpperCase()
-    if (!porProv.has(k)) porProv.set(k, [])
-    porProv.get(k)!.push(c)
-  }
+  const porProv = agruparPorProveedor(contratos)
 
   const casos: { proveedor: string; contratos: Contrato[]; montoTotal: number; montoMax: number }[] = []
 
+  // Patrón fraccionamiento aplica a cualquier modalidad — incluido LICITACION
+  // (que el código previo excluía). Lo único que NO debe entrar son las
+  // prórrogas y ampliaciones (esas tienen detector propio).
   for (const [proveedor, cs] of porProv.entries()) {
     if (cs.length < 3) continue
 
-    const concursos = cs.filter(c =>
-      c.tipo.toUpperCase().includes('CONCURSO') ||
-      c.tipo.toUpperCase().includes('DIRECTA')
-    )
-    if (concursos.length < 3) continue
+    const candidatos = cs.filter(c => {
+      const t = c.tipo.toUpperCase()
+      const esProrroga = t.includes('PRÓRROGA') || t.includes('PRORROGA') ||
+                          t.includes('AMPLIACI') || t.includes('COMPLEMENT')
+      return !esProrroga
+    })
+    if (candidatos.length < 3) continue
+    const concursos = candidatos
 
     const total = concursos.reduce((s, c) => s + c.monto, 0)
     const montoMax = Math.max(...concursos.map(c => c.monto))
@@ -722,17 +754,28 @@ export function detectarAparicionOffshore(
   }
   const proveedoresMap = agruparPorProveedor(contratos)
 
+  // El caller arma `empresas` keyed por nombre (no necesariamente normalizado).
+  // Construimos un map auxiliar con keys normalizadas para matchear con el
+  // bucketing de proveedoresMap.
+  const empresasNorm = new Map<string, EmpresaEnriquecida>()
+  for (const [k, v] of empresas) {
+    empresasNorm.set(normalizarProveedor(k), v)
+  }
+
   type Hit = { proveedor: string; cuit: string; match: OSMatch; monto: number; cantidad: number }
   const hits: Hit[] = []
 
-  for (const [proveedor, cs] of proveedoresMap) {
-    const emp = empresas.get(proveedor)
+  for (const [, cs] of proveedoresMap) {
+    const displayName = cs[0].proveedor
+    const emp =
+      empresas.get(displayName) ??                           // exact match primero
+      empresasNorm.get(normalizarProveedor(displayName))     // fallback normalizado
     if (!emp?.cuit) continue
     const match = osMatches.get(emp.cuit)
     if (!match || !match.matched || !match.riesgo) continue
     if (!RIESGOS_OFFSHORE.includes(match.riesgo)) continue
     hits.push({
-      proveedor,
+      proveedor: displayName,
       cuit: emp.cuit,
       match,
       monto: montoTotal(cs),

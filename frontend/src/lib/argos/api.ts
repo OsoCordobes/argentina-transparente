@@ -278,7 +278,7 @@ const argosApi: ArgosApi = {
 
   async chat(
     messages: ChatMessage[],
-    _context: ChatContext | null,
+    context: ChatContext | null,
     onChunk: (chunk: ChatChunk) => void
   ): Promise<void> {
     if (!CHAT_LLM_ENABLED) {
@@ -294,12 +294,34 @@ const argosApi: ArgosApi = {
       return
     }
     try {
+      // Compactar el grafo: solo nodos esenciales (id, type, label) + edges
+      // como pares de IDs. Esto reduce el tamaño y por ende los tokens del
+      // request — el LLM no necesita las posiciones x/y ni el data crudo.
+      const compactGraph = context?.graph
+        ? {
+            nodes: context.graph.nodes.map((n) => ({
+              id: n.id,
+              type: n.type,
+              label: n.label,
+              ...(n.flags?.severidad ? { severidad: n.flags.severidad } : {}),
+            })),
+            edges: context.graph.edges.map((e) => ({
+              source: typeof e.source === 'string' ? e.source : e.source.id,
+              target: typeof e.target === 'string' ? e.target : e.target.id,
+              kind: e.kind,
+            })),
+          }
+        : undefined
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: lastUser.content,
           history: messages.slice(0, -1),
+          context: {
+            focusNodeId: context?.focusNodeId ?? null,
+            graph: compactGraph,
+          },
         }),
       })
       if (!res.ok || !res.body) {

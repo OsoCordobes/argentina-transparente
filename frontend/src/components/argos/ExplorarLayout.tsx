@@ -16,7 +16,6 @@
 import { useReducer, useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { GraphCanvas } from './GraphCanvas'
 import { NodeDetailPanel } from './NodeDetailPanel'
-import { ChatThread } from './ChatThread'
 import { Ico } from './ArgosIcons'
 import argosApi from '@/lib/argos/api'
 import type {
@@ -259,6 +258,115 @@ function makeChunkBuffer(dispatch: (a: AppAction) => void) {
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
+// ─── SidebarChat (chat embedido en el sidebar — pixel-perfect del zip) ─────
+
+interface SidebarChatProps {
+  thread: ChatMessage[]
+  streaming: boolean
+  graph: ArgosGraph
+  onChipHover: (id: string | null) => void
+  onChipClick: (id: string) => void
+  onClear: () => void
+}
+
+function renderInlineBody(
+  text: string,
+  graph: ArgosGraph,
+  onChipHover: (id: string | null) => void,
+  onChipClick: (id: string) => void,
+): React.ReactNode {
+  const parts: React.ReactNode[] = []
+  const regex = /\[\[node:([^\]]+)\]\]/g
+  let last = 0
+  let m: RegExpExecArray | null
+  let key = 0
+  while ((m = regex.exec(text))) {
+    if (m.index > last) parts.push(<span key={key++}>{text.slice(last, m.index)}</span>)
+    const id = m[1]
+    const node = graph.nodes.find((n) => n.id === id)
+    if (node) {
+      const cls = node.type === 'señal' ? 't-senal' : `t-${node.type}`
+      parts.push(
+        <span
+          key={key++}
+          className={`entity-chip ${cls}`}
+          onMouseEnter={() => onChipHover(node.id)}
+          onMouseLeave={() => onChipHover(null)}
+          onClick={() => onChipClick(node.id)}
+          role="button"
+          tabIndex={0}
+        >
+          {node.label.length > 28 ? node.label.slice(0, 26) + '…' : node.label}
+        </span>,
+      )
+    } else {
+      parts.push(
+        <span key={key++} style={{ color: 'var(--text-3)' }}>
+          [{id}]
+        </span>,
+      )
+    }
+    last = m.index + m[0].length
+  }
+  if (last < text.length) parts.push(<span key={key++}>{text.slice(last)}</span>)
+  return parts
+}
+
+function SidebarChat({
+  thread, streaming, graph, onChipHover, onChipClick, onClear,
+}: SidebarChatProps) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  }, [thread.length, streaming, thread[thread.length - 1]?.content])
+
+  if (thread.length === 0) return null
+
+  return (
+    <div ref={scrollRef} className="sidebar-chat" aria-live="polite">
+      <div
+        className="thread-head"
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          padding: '8px 14px',
+          borderBottom: '1px solid var(--stroke)',
+          fontSize: 11,
+          color: 'var(--text-3)',
+        }}
+      >
+        <span>
+          <span className={`tdot ${streaming ? 'streaming' : ''}`} />{' '}
+          ARGOS · {streaming ? 'investigando…' : `${thread.length} mensaje${thread.length === 1 ? '' : 's'}`}
+        </span>
+        <button
+          onClick={onClear}
+          className="thead-btn"
+          style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 11 }}
+          title="Limpiar"
+        >
+          Limpiar
+        </button>
+      </div>
+      {thread.map((m, i) => (
+        <div key={i} className={`msg ${m.role}`}>
+          <div className="role">{m.role === 'user' ? 'Vos' : 'ARGOS'}</div>
+          <div className="body">
+            {m.role === 'assistant'
+              ? renderInlineBody(m.content || (streaming && i === thread.length - 1 ? '' : ''), graph, onChipHover, onChipClick)
+              : m.content}
+            {streaming && i === thread.length - 1 && m.role === 'assistant' && (
+              !m.content
+                ? <span className="typing-dots"><span/><span/><span/></span>
+                : <span className="typing-cursor" />
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 interface SidebarProps {
   active: SectionId
   onNav: (s: SectionId) => void
@@ -308,10 +416,9 @@ function Sidebar({
         })}
       </nav>
       {hasChat && (
-        <ChatThread
+        <SidebarChat
           thread={thread}
           streaming={streaming}
-          fade={fadeLevel}
           graph={graph}
           onChipHover={onChipHover}
           onChipClick={onChipClick}
