@@ -103,6 +103,17 @@ export async function initDb(): Promise<void> {
     )
   `)
 
+  // ─── Trazabilidad del origen del padrón (Phase F4) ────────────────────────
+  // Permite distinguir empresas cargadas desde AFIP padrón nacional vs padrón
+  // provincial Córdoba vs derivadas de contratos. Crítico para el identity
+  // resolver tiered: Tier 1+2 confían más en CUITs de padrones oficiales.
+  // ALTER idempotente — DuckDB no soporta IF NOT EXISTS en ADD COLUMN.
+  for (const alter of [
+    `ALTER TABLE empresas ADD COLUMN fuente_padron TEXT`,
+  ]) {
+    try { await dbRun(alter) } catch { /* columna ya existe */ }
+  }
+
   await dbRun(`
     CREATE TABLE IF NOT EXISTS directores (
       id               TEXT PRIMARY KEY,
@@ -543,8 +554,13 @@ export async function upsertEmpresa(data: {
   actividadPrincipal: string | null
   fuenteUrl: string
 }): Promise<void> {
+  // Named columns (no positional) para que la operación sobreviva a ALTERs
+  // futuros (Phase F4 agregó `fuente_padron`).
   await dbRun(
-    `INSERT OR REPLACE INTO empresas VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO empresas
+     (cuit, nombre, es_empleador, inicio_actividades, estado,
+      actividad_principal, fuente_url, actualizado_en)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [data.cuit, data.nombre, data.esEmpleador, data.inicioActividades,
      data.estado, data.actividadPrincipal, data.fuenteUrl, new Date().toISOString()]
   )
