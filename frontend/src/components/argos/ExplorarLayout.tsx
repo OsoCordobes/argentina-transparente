@@ -545,8 +545,9 @@ function SidebarHallazgos({ onSelectActor }: { onSelectActor: (id: string) => vo
   const conflictos = data.conflictosPotenciales ?? []
   const topPersonas = (data.topPersonasPorEmpresas ?? []).slice(0, 3)
   const topEmpresas = (data.topEmpresasPorOpera ?? []).slice(0, 3)
+  const señales = (data.señalesActivas ?? []).slice(0, 6)
 
-  if (topPersonas.length === 0 && topEmpresas.length === 0 && conflictos.length === 0) return null
+  if (topPersonas.length === 0 && topEmpresas.length === 0 && conflictos.length === 0 && señales.length === 0) return null
 
   const itemStyle: React.CSSProperties = {
     color: 'var(--text)',
@@ -579,6 +580,36 @@ function SidebarHallazgos({ onSelectActor }: { onSelectActor: (id: string) => vo
       }}>
         Mapa del poder
       </div>
+
+      {señales.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ color: 'var(--text-2)', marginBottom: 4 }}>
+            Señales activas
+          </div>
+          {señales.map((s) => {
+            const color = s.severidad === 'grave'
+              ? '#E5484D'
+              : s.severidad === 'moderada' ? '#F5B544' : 'var(--text-3)'
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => onSelectActor(`señal:${s.id}`)}
+                style={{ ...itemStyle }}
+                title={`[${s.score}] ${s.titulo}`}
+              >
+                <span style={{ color }}>{s.score}×</span>{' '}
+                {s.tipologia.replace(/_/g, ' ').slice(0, 24)}
+                {s.empresasImplicadas > 0 && (
+                  <span style={{ color: 'var(--text-3)', fontSize: 9 }}>
+                    {' '}({s.empresasImplicadas})
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {topPersonas.length > 0 && (
         <div style={{ marginBottom: 12 }}>

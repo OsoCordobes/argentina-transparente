@@ -694,6 +694,14 @@ export interface GrafoStats {
     tier: 1 | 2 | null
     metodo: string | null
   }>
+  señalesActivas: Array<{
+    id: string
+    tipologia: string
+    titulo: string
+    score: number
+    severidad: 'grave' | 'moderada' | 'leve'
+    empresasImplicadas: number
+  }>
 }
 
 export async function getGrafoStats(): Promise<GrafoStats | null> {
@@ -796,7 +804,31 @@ export async function getGrafoStats(): Promise<GrafoStats | null> {
       }
     })
 
-    return { nodos, aristas, topPersonasPorEmpresas, topEmpresasPorOpera, conflictosPotenciales }
+    // Señales activas con conteo de empresas implicadas
+    const señalesR = await s.run(
+      `MATCH (sn:Señal)
+       OPTIONAL MATCH (sn)-[:SEÑALA]->(e:Empresa)
+       WITH sn, count(e) AS empresasCnt
+       RETURN sn, empresasCnt
+       ORDER BY sn.score DESC`
+    )
+    const señalesActivas = señalesR.records.map(rec => {
+      const sn = rec.get('sn') as { properties: Record<string, unknown> }
+      const props = sn.properties
+      const sevRaw = (props.severidad as string | null) ?? 'leve'
+      const sev: 'grave' | 'moderada' | 'leve' =
+        sevRaw === 'grave' || sevRaw === 'moderada' || sevRaw === 'leve' ? sevRaw : 'leve'
+      return {
+        id: (props.id as string) ?? '',
+        tipologia: (props.tipologia as string) ?? '',
+        titulo: (props.titulo as string) ?? '',
+        score: toNum(props.score),
+        severidad: sev,
+        empresasImplicadas: toNum(rec.get('empresasCnt')),
+      }
+    })
+
+    return { nodos, aristas, topPersonasPorEmpresas, topEmpresasPorOpera, conflictosPotenciales, señalesActivas }
   })
 }
 

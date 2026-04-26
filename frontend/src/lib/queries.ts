@@ -499,6 +499,14 @@ export interface GrafoStatsResponse {
     tier: 1 | 2 | null
     metodo: string | null
   }>
+  señalesActivas?: Array<{
+    id: string
+    tipologia: string
+    titulo: string
+    score: number
+    severidad: 'grave' | 'moderada' | 'leve'
+    empresasImplicadas: number
+  }>
 }
 
 export function useGrafoStats() {
