@@ -535,6 +535,53 @@ export async function initDb(): Promise<void> {
        WHERE cuit_resuelto IS NOT NULL`
     )
   } catch { /* idempotente */ }
+
+  // ─── Vistas universo cordobés N2 (Phase F5) ─────────────────────────────────
+  // El dataset IGJ trae 2.7M filas nationales y la mayoría son ruido para un
+  // beta acotado a Córdoba Capital. Estas views materializan el "universo
+  // relevante" (N2 = proveedores cordobeses + sus directores + co-empresas que
+  // comparten directores) para que las queries downstream filtren cheap.
+  //
+  // Wrappeado en try/catch para idempotencia: si en una primera migración
+  // todavía no existe alguna columna esperada (p.ej. identity_matches recién
+  // se crea acá arriba), el CREATE VIEW falla pero la DB queda funcional.
+  // El próximo initDb() reintenta y ya habrá columnas.
+  try {
+    await dbRun(`
+      CREATE OR REPLACE VIEW v_universo_cordobes_empresas AS
+      WITH proveedores_cordoba AS (
+        SELECT DISTINCT proveedor_norm AS nombre_norm
+        FROM contratos
+        WHERE municipio = 'cordoba-capital'
+      ),
+      con_cuit AS (
+        SELECT p.nombre_norm,
+               COALESCE(im.cuit_resuelto, e.cuit) AS cuit
+        FROM proveedores_cordoba p
+        LEFT JOIN identity_matches im ON im.proveedor_norm = p.nombre_norm
+        LEFT JOIN empresas e ON UPPER(e.nombre) = p.nombre_norm
+      ),
+      directores AS (
+        SELECT DISTINCT a.numero_documento AS dni, ie.cuit AS cuit_empresa
+        FROM con_cuit cc
+        JOIN igj_entidades ie ON ie.cuit = cc.cuit
+        JOIN igj_autoridades a ON a.numero_correlativo = ie.numero_correlativo
+      ),
+      co_empresas AS (
+        SELECT DISTINCT ie.cuit, ie.razon_social
+        FROM directores d
+        JOIN igj_autoridades a2 ON a2.numero_documento = d.dni
+        JOIN igj_entidades ie ON ie.numero_correlativo = a2.numero_correlativo
+      )
+      -- N2 = N0 (proveedores Córdoba con CUIT resuelto) ∪ co-empresas vía
+      -- directores compartidos. Ambos lados emiten (cuit, nombre).
+      SELECT cuit, nombre_norm AS nombre FROM con_cuit WHERE cuit IS NOT NULL
+      UNION
+      SELECT cuit, razon_social AS nombre FROM co_empresas
+    `)
+  } catch (err) {
+    console.warn('[db] v_universo_cordobes_empresas no creada:', (err as Error).message)
+  }
 }
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
