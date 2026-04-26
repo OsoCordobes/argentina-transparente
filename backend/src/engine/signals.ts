@@ -1,5 +1,27 @@
 import { Contrato, Señal, EmpresaEnriquecida, OSMatch } from '../types'
 import { getDirectoresCompartidos, getRedDeEmpresas, isGraphAvailable } from '../lib/graph'
+import detectorsConfigRaw from './detectors-config.json'
+import { parseDetectorConfig, type DetectorConfig } from './detectors-loader'
+
+/**
+ * Configuración legal/umbrales por detector — leída de detectors-config.json
+ * y validada con zod. La auditoría legal 2026-04-26 clasifica los 15
+ * detectores en Tier 1 (Primario) o Tier 2 (Indicio con caveat).
+ *
+ * Para usar en un detector:
+ *   const C = cfg('detectarX')
+ *   ... C.norma, C.umbral_minimo, C.caveat ...
+ *
+ * Tirar errores tempranos en startup (no en cada llamada) si el config
+ * está corrupto. Si un detector falta del config, `cfg()` lanza Error.
+ */
+const DETECTORS_CONFIG = parseDetectorConfig(detectorsConfigRaw)
+
+function cfg(name: string): DetectorConfig {
+  const c = DETECTORS_CONFIG[name]
+  if (!c) throw new Error(`Detector "${name}" sin entrada en detectors-config.json`)
+  return c
+}
 
 const ORGANISMOS = [
   'Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)',
@@ -48,6 +70,10 @@ function ars(n: number): string {
 }
 
 export function detectarProrrogas(contratos: Contrato[]): Señal | null {
+  const C = cfg('detectarProrrogas')
+  const UMBRAL_MIN = (C.umbral_minimo as number | undefined) ?? 20
+  const UMBRAL_GRAVE = (C.umbral_grave as number | undefined) ?? 40
+
   const TIPOS = ['PRÓRROGA', 'PRORROGA', 'COMPLEMENTARIOS', 'AMPLIACIÓN DE LA CONTRATACIÓN']
   const prorrogas = contratos.filter(c =>
     TIPOS.some(t => c.tipo.toUpperCase().includes(t))
@@ -56,7 +82,7 @@ export function detectarProrrogas(contratos: Contrato[]): Señal | null {
   const total = montoTotal(contratos)
   const monto = montoTotal(prorrogas)
   const pct = (monto / total) * 100
-  if (pct < 20) return null
+  if (pct < UMBRAL_MIN) return null
   const porProv = agruparPorProveedor(prorrogas)
   const ranking = Array.from(porProv.entries())
     .map(([p, cs]) => ({ p, m: montoTotal(cs) }))
@@ -71,9 +97,9 @@ export function detectarProrrogas(contratos: Contrato[]): Señal | null {
       fuenteUrl: contratos[0].fuenteUrl,
     })),
     legal: {
-      articulos: ['Ley Provincial 8614 art. 14 (licitación como principio general)', 'Ley de Contabilidad Pública art. 7'],
-      severidad: pct >= 40 ? 'grave' : 'moderada',
-      denunciarAnte: ORGANISMOS,
+      articulos: [C.norma!],
+      severidad: pct >= UMBRAL_GRAVE ? 'grave' : 'moderada',
+      denunciarAnte: (C.denunciar_ante as string[] | undefined) ?? ORGANISMOS,
     },
   }
 }
@@ -117,11 +143,15 @@ export function detectarContratacionesDirectas(contratos: Contrato[]): Señal | 
   const directas = contratos.filter(c =>
     RE_DIRECTA.test(c.tipo.toUpperCase()),
   )
-  if (directas.length < 5) return null
+  const C = cfg('detectarContratacionesDirectas')
+  const MIN_UNIDADES = (C.umbral_minimo_unidades as number | undefined) ?? 5
+  const MIN_PCT = (C.umbral_minimo_pct as number | undefined) ?? 8
+  const GRAVE_UNIDADES = (C.umbral_grave_unidades as number | undefined) ?? 20
+  if (directas.length < MIN_UNIDADES) return null
   const total = montoTotal(contratos)
   const monto = montoTotal(directas)
   const pct = (monto / total) * 100
-  if (pct < 8 && directas.length < 15) return null
+  if (pct < MIN_PCT && directas.length < 15) return null
   const top5 = [...directas].sort((a, b) => b.monto - a.monto).slice(0, 5)
   return {
     tipologia: 'contrataciones_directas',
@@ -133,9 +163,9 @@ export function detectarContratacionesDirectas(contratos: Contrato[]): Señal | 
       fuenteUrl: c.fuenteUrl,
     })),
     legal: {
-      articulos: ['Ley Provincial 8614 art. 18 (causales de excepción)', 'Ley de Contabilidad Pública art. 7 inc. b'],
-      severidad: directas.length > 20 ? 'grave' : 'moderada',
-      denunciarAnte: ORGANISMOS,
+      articulos: [C.norma!],
+      severidad: directas.length > GRAVE_UNIDADES ? 'grave' : 'moderada',
+      denunciarAnte: (C.denunciar_ante as string[] | undefined) ?? ORGANISMOS,
     },
   }
 }
@@ -260,6 +290,11 @@ export function detectarServiciosSinHistorial(contratos: Contrato[]): Señal | n
 }
 
 export function detectarFraccionamientoAvanzado(contratos: Contrato[]): Señal | null {
+  const C = cfg('detectarFraccionamientoAvanzado')
+  const MIN_CONTRATOS = (C.umbral_minimo_contratos as number | undefined) ?? 3
+  const MIN_TOTAL = (C.umbral_minimo_total_pesos as number | undefined) ?? 20_000_000
+  const MAX_PCT_TOTAL = (C.umbral_max_contrato_pct_total as number | undefined) ?? 40
+
   const porProv = agruparPorProveedor(contratos)
 
   const casos: { proveedor: string; contratos: Contrato[]; montoTotal: number; montoMax: number }[] = []
@@ -268,7 +303,7 @@ export function detectarFraccionamientoAvanzado(contratos: Contrato[]): Señal |
   // (que el código previo excluía). Lo único que NO debe entrar son las
   // prórrogas y ampliaciones (esas tienen detector propio).
   for (const [proveedor, cs] of porProv.entries()) {
-    if (cs.length < 3) continue
+    if (cs.length < MIN_CONTRATOS) continue
 
     const candidatos = cs.filter(c => {
       const t = c.tipo.toUpperCase()
@@ -276,13 +311,13 @@ export function detectarFraccionamientoAvanzado(contratos: Contrato[]): Señal |
                           t.includes('AMPLIACI') || t.includes('COMPLEMENT')
       return !esProrroga
     })
-    if (candidatos.length < 3) continue
+    if (candidatos.length < MIN_CONTRATOS) continue
     const concursos = candidatos
 
     const total = concursos.reduce((s, c) => s + c.monto, 0)
     const montoMax = Math.max(...concursos.map(c => c.monto))
 
-    if (total > 20_000_000 && montoMax < total * 0.4 && concursos.length >= 3) {
+    if (total > MIN_TOTAL && montoMax < total * (MAX_PCT_TOTAL / 100) && concursos.length >= MIN_CONTRATOS) {
       casos.push({ proveedor, contratos: concursos, montoTotal: total, montoMax })
     }
   }
@@ -300,12 +335,9 @@ export function detectarFraccionamientoAvanzado(contratos: Contrato[]): Señal |
       fuenteUrl: contratos[0].fuenteUrl,
     })),
     legal: {
-      articulos: [
-        'Ley Provincial 8614 art. 14 (prohibición de fraccionamiento)',
-        'Ordenanza Municipal de Contrataciones — art. correspondiente a umbrales',
-      ],
+      articulos: [C.norma!],
       severidad: 'moderada',
-      denunciarAnte: ['Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)'],
+      denunciarAnte: (C.denunciar_ante as string[] | undefined) ?? ['Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)'],
     },
   }
 }
@@ -499,7 +531,8 @@ export function detectarEmpresaSinEmpleados(
   contratos: Contrato[],
   empresas: Map<string, EmpresaEnriquecida>
 ): Señal | null {
-  const UMBRAL_MONTO = 10_000_000
+  const C = cfg('detectarEmpresaSinEmpleados')
+  const UMBRAL_MONTO = (C.umbral_minimo_pesos as number | undefined) ?? 10_000_000
   const sospechosos: { nombre: string; monto: number; fuenteUrl: string }[] = []
 
   for (const [nombre, data] of empresas) {
@@ -527,13 +560,9 @@ export function detectarEmpresaSinEmpleados(
       fuenteUrl: s.fuenteUrl,
     })),
     legal: {
-      articulos: [
-        'Art. 29 LCT — intermediación laboral ilícita',
-        'Ley 24.769 art. 1 — evasión tributaria',
-        'Art. 55 Ley 11.683 — responsabilidad solidaria del Estado contratante',
-      ],
+      articulos: [C.norma!],
       severidad: 'grave',
-      denunciarAnte: [
+      denunciarAnte: (C.denunciar_ante as string[] | undefined) ?? [
         ...ORGANISMOS,
         'AFIP/ARCA — División Fiscalización (afip.gob.ar)',
         'Ministerio de Trabajo — Inspección del Trabajo',
@@ -546,6 +575,7 @@ export function detectarDirectoresCompartidos(
   pares: { empresa1: string; empresa2: string; cuit1: string; cuit2: string; directores: string[] }[]
 ): Señal | null {
   if (pares.length === 0) return null
+  const C = cfg('detectarDirectoresCompartidos')
 
   return {
     tipologia: 'directores_compartidos',
@@ -557,14 +587,9 @@ export function detectarDirectoresCompartidos(
       fuenteUrl: `https://www.cuitonline.com/search.php?q=${encodeURIComponent(p.empresa1)}`,
     })),
     legal: {
-      articulos: [
-        'Art. 1 Ley 27.442 — Defensa de la Competencia (colusión en licitaciones)',
-        'Art. 210 Código Penal — asociación ilícita',
-        'Art. 265 Código Penal — negociaciones incompatibles con la función pública',
-        'Convenio OCDE — Directrices sobre colusión en compras públicas',
-      ],
+      articulos: [C.norma!],
       severidad: 'grave',
-      denunciarAnte: [
+      denunciarAnte: (C.denunciar_ante as string[] | undefined) ?? [
         ...ORGANISMOS,
         'CNDC — Comisión Nacional de Defensa de la Competencia (cndc.gob.ar)',
         'Fiscalía Federal de Córdoba',
@@ -576,6 +601,10 @@ export function detectarDirectoresCompartidos(
 // ─── Señales de comportamiento coordinado (Sprint 4) ─────────────────────────
 
 export function detectarRotacionCoordinada(contratos: Contrato[]): Señal | null {
+  const C = cfg('detectarRotacionCoordinada')
+  const MIN_ANIOS_SIN_OVERLAP = (C.umbral_min_anios_sin_overlap as number | undefined) ?? 3
+  const MIN_MONTO = (C.umbral_minimo_pesos as number | undefined) ?? 10_000_000
+
   // Only consider base-award contract types (not extensions/amendments)
   const BASE_TIPOS = ['LICITACI', 'CONCURSO', 'DIRECTA']
   const base = contratos.filter(c =>
@@ -623,8 +652,8 @@ export function detectarRotacionCoordinada(contratos: Contrato[]): Señal | null
         const [prov2, d2] = provList[j]
         const overlap = [...d1.años].filter(y => d2.años.has(y))
         if (overlap.length > 0) continue
-        // Both need meaningful presence (combined ≥3 years)
-        if (d1.años.size + d2.años.size < 3) continue
+        // Both need meaningful presence (combined ≥N years)
+        if (d1.años.size + d2.años.size < MIN_ANIOS_SIN_OVERLAP) continue
         pares.push({
           prov1, años1: [...d1.años].sort(),
           prov2, años2: [...d2.años].sort(),
@@ -634,7 +663,7 @@ export function detectarRotacionCoordinada(contratos: Contrato[]): Señal | null
 
     if (pares.length === 0) continue
     const montoTotal = cs.reduce((s, c) => s + c.monto, 0)
-    if (montoTotal < 10_000_000) continue
+    if (montoTotal < MIN_MONTO) continue
 
     casos.push({ area, pares, montoTotal })
   }
@@ -655,13 +684,9 @@ export function detectarRotacionCoordinada(contratos: Contrato[]): Señal | null
       fuenteUrl: contratos[0].fuenteUrl,
     })),
     legal: {
-      articulos: [
-        'Art. 1 Ley 27.442 — Defensa de la Competencia (colusión en licitaciones)',
-        'Art. 310 Código Penal — falsedad en licitaciones públicas',
-        'Convenio OCDE — Directrices sobre colusión en compras públicas',
-      ],
+      articulos: [C.norma!],
       severidad: 'grave',
-      denunciarAnte: [
+      denunciarAnte: (C.denunciar_ante as string[] | undefined) ?? [
         ...ORGANISMOS,
         'CNDC — Comisión Nacional de Defensa de la Competencia (cndc.gob.ar)',
       ],
@@ -670,6 +695,11 @@ export function detectarRotacionCoordinada(contratos: Contrato[]): Señal | null
 }
 
 export function detectarAdendaPostAdjudicacion(contratos: Contrato[]): Señal | null {
+  const C = cfg('detectarAdendaPostAdjudicacion')
+  const MIN_PCT = (C.umbral_minimo_pct as number | undefined) ?? 50
+  const GRAVE_PCT = (C.umbral_grave_pct as number | undefined) ?? 100
+  const MIN_BASE = (C.umbral_minimo_base_pesos as number | undefined) ?? 5_000_000
+
   const TIPOS_BASE = ['LICITACI', 'CONCURSO', 'DIRECTA']
   const TIPOS_ADENDA = ['AMPLIACI', 'COMPLEMENTARIO', 'ADICIONAL']
 
@@ -700,7 +730,7 @@ export function detectarAdendaPostAdjudicacion(contratos: Contrato[]): Señal | 
     const montoBase  = g.base.reduce((s, c) => s + c.monto, 0)
     const montoAdenda = g.adendas.reduce((s, c) => s + c.monto, 0)
     const pct = (montoAdenda / montoBase) * 100
-    if (pct < 50 || montoBase < 5_000_000) continue
+    if (pct < MIN_PCT || montoBase < MIN_BASE) continue
     const [proveedor, area, anioStr] = key.split('|||')
     hallazgos.push({ proveedor, area, anio: parseInt(anioStr), montoBase, montoAdenda, pct, fuenteUrl: g.base[0].fuenteUrl })
   }
@@ -720,13 +750,9 @@ export function detectarAdendaPostAdjudicacion(contratos: Contrato[]): Señal | 
       fuenteUrl: h.fuenteUrl,
     })),
     legal: {
-      articulos: [
-        'Ley Provincial 8614 art. 14 (prohibición de adendas que desnaturalizan el proceso)',
-        'Art. 72 Decreto 1023/2001 — modificaciones al contrato original',
-        'Principio de equivalencia de la oferta original',
-      ],
-      severidad: top.pct >= 100 ? 'grave' : 'moderada',
-      denunciarAnte: ORGANISMOS,
+      articulos: [C.norma!],
+      severidad: top.pct >= GRAVE_PCT ? 'grave' : 'moderada',
+      denunciarAnte: (C.denunciar_ante as string[] | undefined) ?? ORGANISMOS,
     },
   }
 }
@@ -735,6 +761,7 @@ export function detectarRedDeEmpresas(
   pares: { empresa1: string; empresa2: string; cuit1: string; cuit2: string; directoresCompartidos: string[] }[]
 ): Señal | null {
   if (pares.length === 0) return null
+  const C = cfg('detectarRedDeEmpresas')
 
   return {
     tipologia: 'red_de_empresas',
@@ -746,13 +773,9 @@ export function detectarRedDeEmpresas(
       fuenteUrl: `https://www.cuitonline.com/search.php?q=${encodeURIComponent(p.empresa1)}`,
     })),
     legal: {
-      articulos: [
-        'Art. 1 Ley 27.442 — Defensa de la Competencia (colusión en licitaciones)',
-        'Art. 33 Ley General de Sociedades — grupos empresarios vinculados',
-        'Art. 210 Código Penal — asociación ilícita',
-      ],
+      articulos: [C.norma!],
       severidad: 'grave',
-      denunciarAnte: [
+      denunciarAnte: (C.denunciar_ante as string[] | undefined) ?? [
         ...ORGANISMOS,
         'CNDC — Comisión Nacional de Defensa de la Competencia (cndc.gob.ar)',
         'Fiscalía Federal de Córdoba',
@@ -819,9 +842,11 @@ export function detectarAparicionOffshore(
   const tieneOffshore = hits.some(h => h.match.riesgo === 'offshore')
   const tieneSancion = hits.some(h => h.match.riesgo === 'sancionado')
 
+  const C = cfg('detectarAparicionOffshore')
+
   // Lista de organismos: extiende ORGANISMOS con UIF + Procuración cuando hay
   // offshore o sanción internacional (relevancia federal/internacional).
-  const denunciarAnte = [
+  const denunciarAnte = (C.denunciar_ante as string[] | undefined) ?? [
     ...ORGANISMOS,
     'UIF — Unidad de Información Financiera (uif.gob.ar)',
     'Procuración del Tesoro de la Nación',
@@ -837,11 +862,7 @@ export function detectarAparicionOffshore(
       fuenteUrl: h.match.entidadUrl ?? `https://www.opensanctions.org/search/?q=${encodeURIComponent(h.proveedor)}`,
     })),
     legal: {
-      articulos: [
-        'Ley 25.246 — Encubrimiento y lavado de activos de origen delictivo',
-        'Ley 27.401 — Responsabilidad penal de personas jurídicas',
-        'Convención de la OCDE contra el cohecho de funcionarios públicos extranjeros',
-      ],
+      articulos: [C.norma!],
       severidad: 'grave',
       denunciarAnte,
     },

@@ -31,6 +31,13 @@ export interface Señal {
   // CUITs de las entidades implicadas en la señal (poblado en analyze.ts).
   // Permite asociar señal↔entidad sin string matching frágil.
   cuits?: string[]
+  /**
+   * Caveat textual para detectores Tier 2 (indicio, no infracción directa).
+   * Lo carga el motor desde detectors-config.json. Se muestra en la UI para
+   * dejar claro al usuario que la señal NO equivale a delito y qué hay que
+   * verificar antes de publicar. Ausente en detectores Tier 1.
+   */
+  caveat?: string
 }
 
 export interface ComoVerificar {
