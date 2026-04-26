@@ -17,6 +17,7 @@ import { useReducer, useEffect, useRef, useState, useCallback, useMemo } from 'r
 import { GraphCanvas } from './GraphCanvas'
 import { NodeDetailPanel } from './NodeDetailPanel'
 import { InterpretationBlock } from './InterpretationBlock'
+import { Onboarding } from './Onboarding'
 import { Ico } from './ArgosIcons'
 import argosApi from '@/lib/argos/api'
 import {
@@ -955,6 +956,7 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
   if (isLoading && s.graph.nodes.length === 0) {
     return (
       <div className="app">
+        <Onboarding />
         <div className="canvas-wrap" style={{ display: 'grid', placeItems: 'center', height: '100vh' }}>
           <div className="hero">
             <div className="hero-chip"><span className="pulse" /> Cargando grafo de Córdoba…</div>
@@ -968,6 +970,7 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
   if (!isLoading && s.graph.nodes.length === 0) {
     return (
       <div className="app">
+        <Onboarding />
         <div
           className="canvas-wrap"
           style={{ display: 'grid', placeItems: 'center', height: '100vh', padding: '0 24px' }}
@@ -994,6 +997,7 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
 
   return (
     <div className="app">
+      <Onboarding />
       <Sidebar
         active={s.sidebar}
         onNav={(sec) => dispatch({ t: 'NAV', section: sec })}
