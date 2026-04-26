@@ -1,4 +1,13 @@
 import 'dotenv/config'
+
+// Cinturón de seguridad: BigInt nativo no es JSON-safe. DuckDB devuelve
+// COUNT/SUM como BigInt y aunque casteamos en cada función helper, este
+// patch evita que un campo BigInt no contemplado tire el endpoint con
+// "Do not know how to serialize a BigInt".
+;(BigInt.prototype as unknown as { toJSON: () => number }).toJSON = function (this: bigint) {
+  return Number(this)
+}
+
 import express from 'express'
 import analizarRouter from './routes/analizar'
 import historialRouter from './routes/historial'

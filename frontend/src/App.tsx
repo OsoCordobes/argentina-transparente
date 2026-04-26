@@ -114,16 +114,17 @@ export default function App() {
               </Suspense>
             }
           />
-          <Route
-            path="/explorar"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <Explorar />
-              </Suspense>
-            }
-          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
+        {/* /explorar es fullscreen — Argos v2 trae su propio sidebar y header */}
+        <Route
+          path="/explorar"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <Explorar />
+            </Suspense>
+          }
+        />
       </Routes>
     </BrowserRouter>
   )

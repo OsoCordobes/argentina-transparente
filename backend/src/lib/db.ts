@@ -657,7 +657,7 @@ export interface DashboardMunicipio {
 }
 
 export async function getDashboardMunicipios(): Promise<DashboardMunicipio[]> {
-  return dbAll<DashboardMunicipio>(`
+  const rows = await dbAll<DashboardMunicipio>(`
     SELECT
       c.municipio,
       COUNT(*) as total_contratos,
@@ -672,6 +672,15 @@ export async function getDashboardMunicipios(): Promise<DashboardMunicipio[]> {
     GROUP BY c.municipio, s.cnt
     ORDER BY monto_total DESC
   `)
+  // DuckDB devuelve COUNT/SUM/MIN/MAX como BigInt — castear a Number para JSON-safe.
+  return rows.map(r => ({
+    ...r,
+    total_contratos: Number(r.total_contratos),
+    monto_total: Number(r.monto_total),
+    anio_min: Number(r.anio_min),
+    anio_max: Number(r.anio_max),
+    total_señales: Number(r.total_señales),
+  }))
 }
 
 export interface TopEntidad {
@@ -685,7 +694,7 @@ export interface TopEntidad {
 }
 
 export async function getTopEntidades(limit = 20): Promise<TopEntidad[]> {
-  return dbAll<TopEntidad>(`
+  const rows = await dbAll<TopEntidad>(`
     SELECT
       proveedor_norm as proveedor,
       municipio,
@@ -699,11 +708,19 @@ export async function getTopEntidades(limit = 20): Promise<TopEntidad[]> {
     ORDER BY monto_total DESC
     LIMIT ?
   `, [limit])
+  return rows.map(r => ({
+    ...r,
+    total_contratos: Number(r.total_contratos),
+    monto_total: Number(r.monto_total),
+    señales: Number(r.señales),
+    anio_min: Number(r.anio_min),
+    anio_max: Number(r.anio_max),
+  }))
 }
 
 export async function searchEntidades(query: string, limit = 20): Promise<TopEntidad[]> {
   const pattern = `%${query.toUpperCase()}%`
-  return dbAll<TopEntidad>(`
+  const rows = await dbAll<TopEntidad>(`
     SELECT
       proveedor_norm as proveedor,
       municipio,
@@ -718,6 +735,14 @@ export async function searchEntidades(query: string, limit = 20): Promise<TopEnt
     ORDER BY monto_total DESC
     LIMIT ?
   `, [pattern, limit])
+  return rows.map(r => ({
+    ...r,
+    total_contratos: Number(r.total_contratos),
+    monto_total: Number(r.monto_total),
+    señales: Number(r.señales),
+    anio_min: Number(r.anio_min),
+    anio_max: Number(r.anio_max),
+  }))
 }
 
 export interface EntidadContrato {
