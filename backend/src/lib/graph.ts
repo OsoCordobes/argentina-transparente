@@ -492,23 +492,26 @@ export async function getGrafoNucleo(opts?: { limite?: number; municipio?: strin
     // Empresas con más operaciones (top 30 por monto)
     const topEmpresas = await s.run(
       `MATCH (e:Empresa {municipio: $municipio})-[op:OPERA_EN]->(r:Reparticion)
-       WITH e, sum(op.monto) AS total, collect(r) AS reparticiones
-       ORDER BY total DESC
-       LIMIT 30
+       WITH e, sum(op.monto) AS total, count(DISTINCT r) AS nrep,
+            collect(r) AS reparticiones
+       ORDER BY nrep DESC, total DESC
+       LIMIT 60
        OPTIONAL MATCH (p:PersonaFisica)-[:DIRIGE]->(e)
-       WITH e, total, reparticiones, collect(p)[0..3] AS dirigentes
-       RETURN e, reparticiones, dirigentes, total`,
+       WITH e, total, nrep, reparticiones, collect(p)[0..3] AS dirigentes
+       RETURN e, reparticiones, dirigentes, total, nrep`,
       { municipio }
     )
 
-    // Personas que dirigen ≥3 empresas (poder visible)
+    // Personas con ≥2 empresas dirigidas (más coverage). Bajamos el threshold
+    // de 3 a 2 porque incluso dirigir 2 empresas es señal de poder visible
+    // y aumenta la densidad del grafo.
     const topDirigentes = await s.run(
       `MATCH (p:PersonaFisica)-[:DIRIGE]->(e:Empresa)
        WITH p, count(e) AS cnt, collect(e)[0..5] AS empresas
-       WHERE cnt >= 3
+       WHERE cnt >= 2
        RETURN p, empresas, cnt
        ORDER BY cnt DESC
-       LIMIT 20`
+       LIMIT 40`
     )
 
     // Señales activas con sus empresas implicadas

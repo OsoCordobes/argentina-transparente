@@ -24,6 +24,9 @@ import type {
   ChatMessage,
   ChatChunk,
   ChatContext,
+  Relacion,
+  KPI,
+  Fuente,
 } from './types'
 
 // ─── Configuración ────────────────────────────────────────────────────────────
@@ -156,6 +159,147 @@ interface BackendSearchResponse {
     montoTotal?: number
     totalContratos?: number
   }>
+}
+
+// ─── /api/actores/empresa/:cuit response (Iter 8.4) ─────────────────────────
+interface ActorEmpresaApiResponse {
+  cuit: string
+  canonico: {
+    nombre: string
+    tipo_societario: string | null
+    activa: boolean | null
+  }
+  empresas: {
+    cuit: string
+    nombre: string
+    es_empleador: boolean | null
+    fuente_padron: string | null
+  } | null
+  rns: {
+    razon_social: string
+    tipo_societario: string | null
+    fecha_contrato_social: string | null
+    numero_inscripcion: string | null
+    dom_legal_provincia: string | null
+    dom_legal_localidad: string | null
+    dom_fiscal_provincia: string | null
+    dom_fiscal_localidad: string | null
+  } | null
+  igj: Array<{ numero_correlativo: number; razon_social: string; tipo_societario: string | null; activa: boolean | null }>
+  autoridades: Array<{ apellido_nombre: string; tipo_administrador: string; numero_documento: string | null }>
+  contratos: Array<{ hash: string; municipio: string; anio: number; proveedor: string; monto: number; fuente_url: string }>
+  cruce_externo: { matched: boolean; riesgo: string | null; dataset_principal: string | null; entidad_url: string | null } | null
+}
+
+function actorEmpresaToDetail(
+  nodeId: string,
+  cuit: string,
+  resp: ActorEmpresaApiResponse,
+): NodeDetail {
+  const node: ArgosNode = {
+    id: nodeId,
+    type: 'empresa',
+    label: resp.canonico.nombre || cuit,
+    subtitle: cuit,
+    weight: 0.7,
+    data: resp as unknown as Record<string, unknown>,
+  }
+
+  const totalMonto = resp.contratos.reduce((s, c) => s + (c.monto ?? 0), 0)
+  const aniosUnicos = new Set(resp.contratos.map((c) => c.anio)).size
+
+  const kpis: KPI[] = []
+  if (resp.contratos.length > 0) {
+    kpis.push({ label: 'Facturación total', format: 'currency', amount: totalMonto })
+    kpis.push({ label: 'Contratos firmados', format: 'count', value: String(resp.contratos.length) })
+  }
+  if (resp.autoridades.length > 0) {
+    const conDni = resp.autoridades.filter((a) => a.numero_documento).length
+    kpis.push({
+      label: 'Autoridades IGJ',
+      format: 'count',
+      value: String(resp.autoridades.length),
+      sub: conDni > 0 ? `${conDni} con DNI verificado` : undefined,
+    })
+  }
+  if (aniosUnicos > 0) {
+    kpis.push({ label: 'Años con actividad', format: 'count', value: String(aniosUnicos) })
+  }
+  if (resp.rns?.fecha_contrato_social) {
+    const fecha = resp.rns.fecha_contrato_social.slice(0, 10)
+    kpis.push({ label: 'Constituida', format: 'date', value: fecha })
+  }
+  if (resp.canonico.tipo_societario) {
+    kpis.push({ label: 'Tipo societario', format: 'text', value: resp.canonico.tipo_societario })
+  }
+
+  // Las relaciones que disparan el panel — autoridades como nodos director,
+  // contratos como nodos contrato.
+  const relaciones: Relacion[] = []
+  for (const a of resp.autoridades.slice(0, 30)) {
+    relaciones.push({
+      node: {
+        id: a.numero_documento ? `persona:${a.numero_documento}` : `director-${a.apellido_nombre.toLowerCase().replace(/\s+/g, '-')}`,
+        type: a.numero_documento ? 'persona' : 'director',
+        label: a.apellido_nombre,
+        subtitle: a.numero_documento ? `DNI ${a.numero_documento}` : undefined,
+        weight: 0.4,
+        data: { tipo: a.tipo_administrador },
+      },
+      via: 'dirige',
+      weight: 0.6,
+    })
+  }
+
+  const fuentes: Fuente[] = []
+  if (resp.rns) {
+    fuentes.push({
+      url: 'https://datos.jus.gob.ar/dataset/registro-nacional-de-sociedades',
+      descripcion: 'Registro Nacional de Sociedades (datos.jus.gob.ar)',
+      fechaAcceso: new Date().toISOString().slice(0, 10),
+      nivelConfianza: 'alto',
+    })
+  }
+  if (resp.igj.length > 0) {
+    fuentes.push({
+      url: 'https://datos.jus.gob.ar/dataset/entidades-constituidas-en-la-inspeccion-general-de-justicia-igj',
+      descripcion: 'Inspección General de Justicia (IGJ)',
+      fechaAcceso: new Date().toISOString().slice(0, 10),
+      nivelConfianza: 'alto',
+    })
+  }
+  if (resp.cruce_externo?.matched && resp.cruce_externo.entidad_url) {
+    fuentes.push({
+      url: resp.cruce_externo.entidad_url,
+      descripcion: `Match en ${resp.cruce_externo.dataset_principal ?? 'dataset internacional'} (riesgo: ${resp.cruce_externo.riesgo})`,
+      fechaAcceso: new Date().toISOString().slice(0, 10),
+      nivelConfianza: 'alto',
+    })
+  }
+
+  return {
+    node,
+    kpis,
+    relaciones,
+    señales: [], // El panel ya recibe señales desde el grafo si la empresa
+                  // está conectada via SEÑALA. Lo dejamos vacío acá para
+                  // no duplicar.
+    fuentes,
+    contratos: resp.contratos.slice(0, 50).map((c) => ({
+      hash: c.hash,
+      anio: c.anio,
+      area: c.municipio,
+      tipo: 'contrato',
+      descripcion: c.proveedor,
+      monto: c.monto,
+      fuenteUrl: c.fuente_url,
+    })),
+    meta: {
+      fechaActualizacion: new Date().toISOString(),
+      metodoDominante: 'API estructurada (RNS + IGJ + contratos cordobeses)',
+      topArea: null,
+    },
+  }
 }
 
 function entidadResponseToDetail(
@@ -310,12 +454,25 @@ const argosApi: ArgosApi = {
         }
         return entidadResponseToDetail(data.entidad, 'proveedor')
       }
+      // Mapa-neural cordobés (Iter 8.4): id formato `<tipo>:<clave>` viene del
+      // grafo Neo4j. Para Empresa resolvemos vía /api/actores/empresa/:cuit
+      // que trae autoridades reales (PersonaFisica DIRIGE), contratos firmados,
+      // datos RNS (constitución, domicilio), cruces externos OS/ICIJ.
+      if (type === 'empresa' && id.startsWith('empresa:')) {
+        const cuit = id.slice('empresa:'.length).replace(/\D/g, '')
+        if (!/^\d{11}$/.test(cuit)) return null
+        const data = await getJson<ActorEmpresaApiResponse>(
+          `/api/actores/empresa/${encodeURIComponent(cuit)}`
+        )
+        return actorEmpresaToDetail(id, cuit, data)
+      }
       if (type === 'contrato') {
         // /api/contrato/:hash — schema distinto, no implementado todavía
         warn(`getNodeDetail(contrato, ${id}): mapper backend→NodeDetail pendiente.`)
         return null
       }
-      // jurisdiccion / director / señal → sin endpoint dedicado todavía
+      // jurisdiccion / director / señal / funcionario / reparticion → sin
+      // endpoint dedicado todavía. El panel queda con la data del nodo.
       warn(`getNodeDetail(${type}, ${id}): sin endpoint backend, retornando null.`)
       return null
     } catch (err) {

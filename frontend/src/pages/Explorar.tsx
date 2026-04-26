@@ -23,7 +23,7 @@ export default function Explorar() {
   // Primary: grafo Neo4j (mapa-neural cordobés). Pedimos hasta 250 nodos
   // del núcleo caliente — empresas con OPERA_EN, personas que dirigen ≥3
   // empresas, conflictos detectados.
-  const grafoQuery = useGrafoNucleo(250)
+  const grafoQuery = useGrafoNucleo(350)
   const grafoNeo4j = grafoQuery.data
   const usarNeo4j = grafoNeo4j?.graphAvailable && grafoNeo4j.nodes.length > 0
 
