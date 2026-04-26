@@ -483,6 +483,31 @@ export async function initDb(): Promise<void> {
       cargado_en           TEXT NOT NULL
     )
   `)
+
+  // ─── Identity resolution tiered (Phase F3) ────────────────────────────────
+  // Cache de la resolución empresa↔CUIT por nombre normalizado. Cada match
+  // declara su tier (1=cuit_exact, 2=name_normalized, 3=name_fuzzy_high,
+  // 4=llm_ambiguous, 5=no_match) + score 0-100. Permite distinguir matches
+  // confiables (Tier 1, 100) de inferencias dudosas (Tier 4, 60-99) en la UI
+  // y evita re-escanear toda la tabla `empresas` en cada lookup.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS identity_matches (
+      proveedor_norm   TEXT PRIMARY KEY,
+      cuit_resuelto    TEXT,
+      tier             INTEGER NOT NULL,
+      score            INTEGER NOT NULL,
+      metodo           TEXT NOT NULL,
+      candidatos_alternos TEXT,
+      resuelto_en      TEXT NOT NULL
+    )
+  `)
+  try {
+    await dbRun(
+      `CREATE INDEX IF NOT EXISTS idx_identity_cuit
+       ON identity_matches(cuit_resuelto)
+       WHERE cuit_resuelto IS NOT NULL`
+    )
+  } catch { /* idempotente */ }
 }
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
