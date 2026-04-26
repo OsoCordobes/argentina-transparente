@@ -53,15 +53,21 @@ const TYPE_COLOR: Record<ArgosNodeType, string> = {
   director: '#B79CFF',
   contrato: '#62C7A0',
   'señal': '#F5B544',
+  // Mapa-neural cordobés
+  empresa: '#FFFFFF',           // blanco como proveedor
+  persona: '#FFAA5A',           // ámbar (persona física = decision maker)
+  funcionario: '#78C8C8',       // teal (servidor público)
+  reparticion: '#6FB8E8',       // celeste (jurisdicción/área del Estado)
 }
 
 function nodeBaseRadius(n: ArgosNode): number {
   const t = n.type
   const w = n.weight ?? 0.4
-  if (t === 'jurisdiccion') return 14 + w * 16
-  if (t === 'proveedor') return 6 + w * 14
+  if (t === 'jurisdiccion' || t === 'reparticion') return 14 + w * 16
+  if (t === 'proveedor' || t === 'empresa') return 6 + w * 14
   if (t === 'señal') return 7 + w * 8
-  if (t === 'director') return 5 + w * 6
+  if (t === 'director' || t === 'persona') return 6 + w * 8
+  if (t === 'funcionario') return 5 + w * 6
   return 3 + w * 5
 }
 
@@ -244,9 +250,10 @@ function GraphCanvasInner({
       .force(
         'charge',
         forceManyBody<NodeDatum>().strength((d) => {
-          if (d.type === 'jurisdiccion') return -380
-          if (d.type === 'proveedor') return -130
+          if (d.type === 'jurisdiccion' || d.type === 'reparticion') return -380
+          if (d.type === 'proveedor' || d.type === 'empresa') return -130
           if (d.type === 'señal') return -170
+          if (d.type === 'persona') return -100
           return -55
         }),
       )
@@ -259,6 +266,10 @@ function GraphCanvasInner({
             if (e.kind === 'opera_en') return 110
             if (e.kind === 'tiene_director') return 65
             if (e.kind === 'señalado_por') return 60
+            if (e.kind === 'dirige') return 70
+            if (e.kind === 'trabaja_en') return 90
+            if (e.kind === 'es_la_misma_persona') return 35
+            if (e.kind === 'conflicto_con') return 120
             return 80
           })
           .strength(0.4),
@@ -660,11 +671,18 @@ function GraphCanvasInner({
           <g className="edges-group">
             {edges.map((e, i) => {
               const stroke =
-                e.kind === 'señalado_por' ? '#F5B544'
+                e.kind === 'conflicto_con' ? '#E5484D'
+                : e.kind === 'señalado_por' ? '#F5B544'
                 : e.kind === 'tiene_director' ? '#B79CFF'
+                : e.kind === 'dirige' ? '#FFAA5A'
+                : e.kind === 'trabaja_en' ? '#78C8C8'
+                : e.kind === 'es_la_misma_persona' ? '#B79CFF'
                 : e.kind === 'gano' ? '#9BA3B4'
                 : '#6FB8E8'
-              const sw = 0.6 + (e.weight || 0.3) * 1.6
+              const sw = e.kind === 'conflicto_con'
+                ? 1.2 + (e.weight || 0.5) * 2.0
+                : 0.6 + (e.weight || 0.3) * 1.6
+              const dash = e.kind === 'conflicto_con' ? '4 3' : undefined
               return (
                 <line
                   key={i}
@@ -673,7 +691,8 @@ function GraphCanvasInner({
                   }}
                   stroke={stroke}
                   strokeWidth={sw}
-                  strokeOpacity={0.08}
+                  strokeOpacity={e.kind === 'conflicto_con' ? 0.65 : 0.08}
+                  strokeDasharray={dash}
                 />
               )
             })}

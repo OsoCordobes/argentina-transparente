@@ -466,12 +466,13 @@ interface SidebarProps {
   totalProv: number
   totalSenales: number
   totalJur: number
+  totalPersonas: number
 }
 
 function Sidebar({
   active, onNav, hasChat, hasHistory, thread, streaming, fadeLevel, graph, focusedNodeId,
   onChipHover, onChipClick, onChatClear,
-  totalProv, totalSenales, totalJur,
+  totalProv, totalSenales, totalJur, totalPersonas,
 }: SidebarProps) {
   return (
     <aside className={`sidebar ${hasChat ? 'has-chat' : ''} ${hasHistory ? 'has-history' : ''}`}>
@@ -515,7 +516,7 @@ function Sidebar({
           <span className="dot-live" /> <span className="text">Backend conectado</span>
         </div>
         <div className="text" style={{ color: 'var(--text-3)' }}>
-          {totalJur} jurisdicciones · {totalProv} proveedores · {totalSenales} señales
+          {totalJur} áreas · {totalProv} empresas · {totalPersonas} personas
         </div>
       </div>
     </aside>
@@ -997,9 +998,13 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
 
   const showGraph = s.sidebar === 'inicio' || s.sidebar === 'mapa'
 
-  // Conteos para footer (sin window.ArgosMock — derivados del grafo cargado)
+  // Conteos para footer derivados del grafo cargado.
+  // Soportan tanto el grafo dashboard-only ('proveedor', 'jurisdiccion',
+  // 'señal') como el grafo Neo4j ('empresa', 'persona', 'funcionario',
+  // 'reparticion'). Cuando aplica el grafo Neo4j (Iter6 análisis-datos),
+  // el footer muestra los conteos del mapa-neural cordobés.
   const totalProv = useMemo(
-    () => s.graph.nodes.filter((n) => n.type === 'proveedor').length,
+    () => s.graph.nodes.filter((n) => n.type === 'proveedor' || n.type === 'empresa').length,
     [s.graph.nodes],
   )
   const totalSenales = useMemo(
@@ -1007,7 +1012,11 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
     [s.graph.nodes],
   )
   const totalJur = useMemo(
-    () => s.graph.nodes.filter((n) => n.type === 'jurisdiccion').length,
+    () => s.graph.nodes.filter((n) => n.type === 'jurisdiccion' || n.type === 'reparticion').length,
+    [s.graph.nodes],
+  )
+  const totalPersonas = useMemo(
+    () => s.graph.nodes.filter((n) => n.type === 'persona' || n.type === 'director' || n.type === 'funcionario').length,
     [s.graph.nodes],
   )
 
@@ -1073,6 +1082,7 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
         totalProv={totalProv}
         totalSenales={totalSenales}
         totalJur={totalJur}
+        totalPersonas={totalPersonas}
       />
       <div className="main">
         <Header
@@ -1124,7 +1134,7 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
                 ¿Qué querés <em>investigar</em> hoy?
               </h1>
               <p className="hero-meta mono">
-                {totalJur} jurisdicciones · {totalProv} proveedores · {totalSenales} señales activas · datos al{' '}
+                {totalJur} reparticiones · {totalProv} empresas · {totalPersonas} personas · {totalSenales} señales · datos al{' '}
                 {new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
               </p>
             </div>

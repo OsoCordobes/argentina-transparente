@@ -12,8 +12,14 @@ import type {
   ArgosGraph,
   ArgosNode,
   ArgosEdge,
+  ArgosNodeType,
+  ArgosEdgeKind,
 } from './types'
-import type { DashboardResponse, EntidadDetalle, SeñalDashboard } from '../queries'
+import type {
+  DashboardResponse,
+  EntidadDetalle,
+  GrafoNeo4jResponse,
+} from '../queries'
 
 // ─── Normalización ────────────────────────────────────────────────────────────
 
@@ -24,6 +30,75 @@ export function normalizeId(s: string): string {
 
 function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v))
+}
+
+// ─── Desde Neo4j (mapa-neural cordobés) ─────────────────────────────────────
+//
+// El backend devuelve nodos {id, type, label, subtitle, weight, data} y aristas
+// {source, target, kind, weight}. Lo único que tenemos que hacer es ajustar
+// los tipos a ArgosNode/ArgosEdge (compatible) — el layout y el panel ya
+// soportan los nuevos kinds via renderers.
+
+export function graphFromNeo4j(resp: GrafoNeo4jResponse): ArgosGraph {
+  const nodes: ArgosNode[] = resp.nodes.map((n) => ({
+    id: n.id,
+    type: n.type as ArgosNodeType,
+    label: n.label,
+    subtitle: n.subtitle,
+    weight: n.weight,
+    data: n.data,
+  }))
+  const edges: ArgosEdge[] = resp.edges.map((e) => ({
+    source: e.source,
+    target: e.target,
+    kind: e.kind as ArgosEdgeKind,
+    weight: e.weight,
+  }))
+  return { nodes, edges }
+}
+
+/**
+ * Merge incremental: agrega nodes/edges del response Neo4j a un grafo existente
+ * sin duplicar. Útil para expand-on-click.
+ */
+export function mergeNeo4jIntoGraph(
+  graph: ArgosGraph,
+  resp: GrafoNeo4jResponse
+): ArgosGraph {
+  const nodeIds = new Set(graph.nodes.map((n) => n.id))
+  const edgeKeys = new Set(graph.edges.map((e) => {
+    const src = typeof e.source === 'string' ? e.source : e.source.id
+    const tgt = typeof e.target === 'string' ? e.target : e.target.id
+    return `${src}|${tgt}|${e.kind}`
+  }))
+
+  const nodes = [...graph.nodes]
+  const edges = [...graph.edges]
+
+  for (const n of resp.nodes) {
+    if (nodeIds.has(n.id)) continue
+    nodeIds.add(n.id)
+    nodes.push({
+      id: n.id,
+      type: n.type as ArgosNodeType,
+      label: n.label,
+      subtitle: n.subtitle,
+      weight: n.weight,
+      data: n.data,
+    })
+  }
+  for (const e of resp.edges) {
+    const key = `${e.source}|${e.target}|${e.kind}`
+    if (edgeKeys.has(key)) continue
+    edgeKeys.add(key)
+    edges.push({
+      source: e.source,
+      target: e.target,
+      kind: e.kind as ArgosEdgeKind,
+      weight: e.weight,
+    })
+  }
+  return { nodes, edges }
 }
 
 // ─── Desde Dashboard ─────────────────────────────────────────────────────────

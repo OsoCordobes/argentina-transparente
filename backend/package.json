@@ -34,6 +34,7 @@
     "seed:cordoba-provincia": "npx ts-node src/scripts/seed-cordoba-provincia.ts",
     "seed:cordoba-presupuesto": "npx ts-node src/scripts/seed-cordoba-presupuesto.ts",
     "seed:rns": "npx ts-node src/scripts/seed-rns.ts",
+    "seed:neo4j-actores": "npx ts-node src/scripts/seed-neo4j-actores.ts",
     "seed:boe-cba": "npx ts-node src/scripts/seed-boe-cba.ts",
     "seed:all": "npm run seed:cordoba && npm run seed:nacion && npm run seed:igj && npm run seed:afip && npm run seed:neo4j && npm run seed:opensanctions",
     "analyze": "npx ts-node src/scripts/analyze.ts",

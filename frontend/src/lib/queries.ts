@@ -450,6 +450,45 @@ export function useActorPersona(nombre: string | undefined) {
   })
 }
 
+// ─── Grafo Neo4j (mapa-neural cordobés) ─────────────────────────────────────
+// Reemplaza graphFromDashboard. Consume /api/grafo desde Neo4j: nodos
+// (Empresa, PersonaFisica, Funcionario, Reparticion) + aristas reales.
+
+export interface GrafoNeo4jNode {
+  id: string
+  type: 'empresa' | 'persona' | 'funcionario' | 'reparticion' | 'contrato' | 'señal'
+  label: string
+  subtitle?: string
+  weight: number
+  data: Record<string, unknown>
+}
+
+export interface GrafoNeo4jEdge {
+  source: string
+  target: string
+  kind: 'dirige' | 'trabaja_en' | 'gano' | 'opera_en' | 'es_la_misma_persona' | 'comparte_director' | 'conflicto_con' | 'señalada_por' | 'tiene_director'
+  weight: number
+  data?: Record<string, unknown>
+}
+
+export interface GrafoNeo4jResponse {
+  nodes: GrafoNeo4jNode[]
+  edges: GrafoNeo4jEdge[]
+  graphAvailable: boolean
+}
+
+export function useGrafoNucleo(limite = 200) {
+  return useQuery({
+    queryKey: ['grafo', 'nucleo', limite],
+    queryFn: () => fetchJSON<GrafoNeo4jResponse>(`/api/grafo/nucleo?limite=${limite}`),
+    staleTime: 5 * 60_000,
+  })
+}
+
+export async function expandirNodoGrafo(nodeId: string): Promise<GrafoNeo4jResponse> {
+  return fetchJSON<GrafoNeo4jResponse>(`/api/grafo/expand/${encodeURIComponent(nodeId)}`)
+}
+
 export function useActorEmpresa(cuit: string | undefined) {
   return useQuery({
     queryKey: ['actor', 'empresa', cuit],

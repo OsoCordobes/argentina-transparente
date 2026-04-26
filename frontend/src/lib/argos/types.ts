@@ -15,6 +15,11 @@ export type ArgosNodeType =
   | 'director'
   | 'contrato'
   | 'señal'
+  // Mapa-neural cordobés (alimentado por Neo4j vía /api/grafo)
+  | 'empresa'
+  | 'persona'         // PersonaFisica (con DNI canónico)
+  | 'funcionario'     // Cargo público
+  | 'reparticion'     // Ministerio / secretaría / dependencia
 
 export type ArgosSeveridad = 'grave' | 'moderada' | 'leve'
 
@@ -47,6 +52,11 @@ export type ArgosEdgeKind =
   | 'tiene_director'
   | 'señalado_por'
   | 'comparte_director'
+  // Aristas del mapa-neural Neo4j
+  | 'dirige'                  // PersonaFisica → Empresa
+  | 'trabaja_en'              // Funcionario → Reparticion
+  | 'es_la_misma_persona'     // Funcionario → PersonaFisica
+  | 'conflicto_con'           // Funcionario → Empresa (cruce calculado)
 
 export interface ArgosEdge {
   source: string | ArgosNode

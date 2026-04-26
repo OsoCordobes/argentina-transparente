@@ -23,6 +23,7 @@ import chatRouter from './routes/chat'
 import aiRouter from './routes/ai'
 import watchlistRouter from './routes/watchlist'
 import actoresRouter from './routes/actores'
+import grafoRouter from './routes/grafo'
 import { registrarFuente } from './lib/db'
 import { fuenteCordobaCapital } from './connectors/cordoba-capital'
 import { fuenteArgentinaCompra } from './connectors/argentina-compra'
@@ -79,6 +80,7 @@ app.use('/api/chat', chatRouter)
 app.use('/api/ai', aiRouter)
 app.use('/api/watchlist', watchlistRouter)
 app.use('/api/actores', actoresRouter)
+app.use('/api/grafo', grafoRouter)
 
 // Legacy routes (still used by current frontend)
 app.use('/analizar', analizarRouter)
