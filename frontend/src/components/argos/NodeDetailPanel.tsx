@@ -28,6 +28,7 @@
 import { useEffect, useState } from 'react'
 import type { NodeDetail, KPI, Relacion, ArgosNodeType } from '@/lib/argos/types'
 import { Ico } from '@/components/argos/ArgosIcons'
+import { sumarioProveedorMarkdown, copyToClipboard } from '@/lib/argos/sumario'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -185,6 +186,8 @@ export function NodeDetailPanel({
   // Feature B — filtros año/área sobre lista de contratos del proveedor
   const [yearFilter, setYearFilter] = useState<number | null>(null)
   const [areaFilter, setAreaFilter] = useState<string | null>(null)
+  // Feature C — feedback del botón "Copiar sumario"
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'ok' | 'fail'>('idle')
 
   // Reset de filtros al cambiar de nodo (mismo deps que el .jsx).
   useEffect(() => {
@@ -217,6 +220,16 @@ export function NodeDetailPanel({
       : n?.type
       ? n.type[0].toUpperCase() + n.type.slice(1)
       : 'Detalle'
+
+  // Feature C — Copia el sumario en Markdown al portapapeles.
+  // Toast inline de 1.6s indica éxito o falla.
+  const handleCopySumario = async () => {
+    if (!detail) return
+    const md = sumarioProveedorMarkdown(detail)
+    const ok = await copyToClipboard(md)
+    setCopyStatus(ok ? 'ok' : 'fail')
+    setTimeout(() => setCopyStatus('idle'), 1800)
+  }
 
   // Export JSON: descarga el `detail` completo como `<id>.json`.
   const exportJSON = () => {
@@ -824,18 +837,23 @@ export function NodeDetailPanel({
               <button
                 type="button"
                 className="btn primary"
-                onClick={exportJSON}
+                onClick={handleCopySumario}
+                disabled={!detail.contratos || detail.contratos.length === 0}
+                title="Copia un bloque Markdown al portapapeles, listo para pegar en Google Docs / Notion / email"
               >
-                <Ico.FileText size={14} /> Ver expediente completo
+                <Ico.Copy size={14} />{' '}
+                {copyStatus === 'ok'
+                  ? '✓ Copiado al portapapeles'
+                  : copyStatus === 'fail'
+                  ? '✗ Error al copiar'
+                  : 'Copiar sumario (Markdown)'}
               </button>
               <div className="btn-row">
-                <button type="button" className="btn">
-                  <Ico.Share size={13} /> Compartir
-                </button>
                 <button
                   type="button"
                   className="btn"
                   onClick={exportJSON}
+                  title="Descarga el detalle del nodo en JSON estructurado"
                 >
                   <Ico.Download size={13} /> Exportar JSON
                 </button>
