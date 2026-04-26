@@ -20,6 +20,7 @@ const Caso = lazy(() => import('./pages/Caso'))
 const Denuncia = lazy(() => import('./pages/Denuncia'))
 const Explorar = lazy(() => import('./pages/Explorar'))
 const Watchlist = lazy(() => import('./pages/Watchlist'))
+const Actores = lazy(() => import('./pages/Actores'))
 
 function PageLoader() {
   return (
@@ -120,6 +121,30 @@ export default function App() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <Watchlist />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/actores"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <Actores />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/actores/persona/:nombre"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <Actores />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/actores/empresa/:cuit"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <Actores />
               </Suspense>
             }
           />

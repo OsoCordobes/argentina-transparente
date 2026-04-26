@@ -323,3 +323,141 @@ export async function marcarTodasAlertasLeidas(): Promise<number> {
   const data = await res.json()
   return data.marcadas ?? 0
 }
+
+// ─── Actores (mapa del poder) ───────────────────────────────────────────────
+// Consume /api/actores/* — la primera capa de exposición de los 2.7M filas
+// dormidas (igj_autoridades, igj_entidades, rns_personas_juridicas,
+// agentes_publicos). Permite buscar funcionarios + directores + empresas en
+// un solo input y abrir un perfil unificado.
+
+export type ActorTipo = 'funcionario' | 'director' | 'empresa' | 'proveedor'
+
+export interface ActorSearchHit {
+  tipo: ActorTipo
+  nombre: string
+  identificador: string | null
+  jurisdiccion: string | null
+  detalle: string | null
+  fuente: 'agentes_publicos' | 'igj_autoridades' | 'igj_entidades' | 'rns_personas_juridicas' | 'empresas' | 'contratos'
+  href: string
+  score: number
+}
+
+export interface ActorSearchResponse {
+  hits: ActorSearchHit[]
+  total: number
+}
+
+export interface ActorPersonaCargo {
+  jurisdiccion: string
+  anio: number
+  mes: number | null
+  categoria: string
+  reparticion: string | null
+  cargo: string | null
+  bruto: number | null
+  neto: number | null
+  fuente_url: string
+}
+
+export interface ActorPersonaEntidad {
+  cuit: string | null
+  razon_social: string
+  tipo_societario: string | null
+  tipo_administrador: string
+  activa: boolean | null
+}
+
+export interface ActorPersonaContrato {
+  hash: string
+  municipio: string
+  anio: number
+  proveedor: string
+  monto: number
+  fuente_url: string
+}
+
+export interface ActorPersonaResponse {
+  nombre: string
+  identificadores: { dnis: string[]; cuits: string[] }
+  cargos_publicos: ActorPersonaCargo[]
+  entidades_dirigidas: ActorPersonaEntidad[]
+  contratos_como_proveedor: ActorPersonaContrato[]
+  cruces: {
+    es_funcionario: boolean
+    es_director: boolean
+    es_proveedor: boolean
+    conflicto_potencial: boolean
+  }
+}
+
+export interface ActorEmpresaAutoridad {
+  apellido_nombre: string
+  tipo_administrador: string
+  numero_documento: string | null
+}
+
+export interface ActorEmpresaResponse {
+  cuit: string
+  canonico: {
+    nombre: string
+    tipo_societario: string | null
+    activa: boolean | null
+  }
+  empresas: {
+    cuit: string
+    nombre: string
+    es_empleador: boolean | null
+    fuente_padron: string | null
+  } | null
+  rns: {
+    razon_social: string
+    tipo_societario: string | null
+    fecha_contrato_social: string | null
+    numero_inscripcion: string | null
+    dom_fiscal_provincia: string | null
+    dom_fiscal_localidad: string | null
+    dom_legal_provincia: string | null
+    dom_legal_localidad: string | null
+  } | null
+  igj: { numero_correlativo: number; razon_social: string; tipo_societario: string | null; activa: boolean | null }[]
+  autoridades: ActorEmpresaAutoridad[]
+  contratos: ActorPersonaContrato[]
+  cruce_externo: { matched: boolean; riesgo: string | null; dataset_principal: string | null; entidad_url: string | null } | null
+}
+
+export function useActoresSearch(query: string, tipo: ActorTipo | 'todos' = 'todos') {
+  return useQuery({
+    queryKey: ['actores', 'search', query, tipo],
+    queryFn: () =>
+      fetchJSON<ActorSearchResponse>(
+        `/api/actores/search?q=${encodeURIComponent(query)}&tipo=${tipo}&limit=30`
+      ),
+    enabled: query.trim().length >= 2,
+    staleTime: 30_000,
+  })
+}
+
+export function useActorPersona(nombre: string | undefined) {
+  return useQuery({
+    queryKey: ['actor', 'persona', nombre],
+    queryFn: () =>
+      fetchJSON<ActorPersonaResponse>(
+        `/api/actores/persona/${encodeURIComponent(nombre ?? '')}`
+      ),
+    enabled: !!nombre && nombre.length > 0,
+    staleTime: 60_000,
+  })
+}
+
+export function useActorEmpresa(cuit: string | undefined) {
+  return useQuery({
+    queryKey: ['actor', 'empresa', cuit],
+    queryFn: () =>
+      fetchJSON<ActorEmpresaResponse>(
+        `/api/actores/empresa/${encodeURIComponent(cuit ?? '')}`
+      ),
+    enabled: !!cuit && /^\d{11}$/.test((cuit ?? '').replace(/\D/g, '')),
+    staleTime: 60_000,
+  })
+}

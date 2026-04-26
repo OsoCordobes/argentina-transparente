@@ -13,6 +13,7 @@ import {
   LogIn,
   User,
   Telescope,
+  Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -65,6 +66,9 @@ export function AppShell() {
             </NavItem>
             <NavItem to="/red" icon={<Network className="h-4 w-4" />}>
               Red
+            </NavItem>
+            <NavItem to="/actores" icon={<Users className="h-4 w-4" />}>
+              Actores
             </NavItem>
             <NavItem to="/municipios" icon={<Building2 className="h-4 w-4" />}>
               Jurisdicciones
