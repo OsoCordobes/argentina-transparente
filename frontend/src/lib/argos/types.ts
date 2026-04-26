@@ -140,6 +140,25 @@ export interface NodeContrato {
   nivelConfianza?: 'alto' | 'medio' | 'bajo'
 }
 
+// ─── Watchlist ──────────────────────────────────────────────────────────────
+
+/**
+ * Item de watchlist personal del usuario. Persiste en localStorage por defecto;
+ * si hay sesión Supabase, también se replica a la tabla `watchlist`.
+ *
+ * - `proveedor_id`: ID estable del nodo proveedor (nombre normalizado).
+ * - `agregado_en` / `ultima_visita`: ISO strings para merge "latest wins".
+ * - `cuit` y `notas` son opcionales (null si no se conocen).
+ */
+export interface WatchlistItem {
+  proveedor_id: string
+  proveedor_label: string
+  cuit: string | null
+  agregado_en: string
+  ultima_visita: string
+  notas: string | null
+}
+
 export interface NodeDetail {
   node: ArgosNode
   kpis: KPI[]
