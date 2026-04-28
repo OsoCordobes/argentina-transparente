@@ -158,6 +158,7 @@ async function main() {
   let totalIndexados = 0
   let totalSkippedNoPdf = 0
   let totalQuarantine = 0
+  let crashed = false
 
   // W1 bitemporal: snapshot por corrida para trazabilidad
   const snapshotStart = Date.now()
@@ -171,87 +172,115 @@ async function main() {
   })
   const snapshotId = snapshot?.id ?? null
 
-  for (const cat of CATEGORIAS) {
-    if (args.solo && args.solo !== cat.id) continue
-
-    console.log(`\n=== Categoría ${cat.id} (gestión ${cat.gestion}) ===`)
-    const funcionarios = await listarFuncionarios(cat.id)
-    console.log(`✓ ${funcionarios.length} funcionarios listados`)
-
-    for (let i = 0; i < funcionarios.length; i++) {
-      const f = funcionarios[i]
-      const apellidoNombre = extraerApellidoNombre(f.titulo)
-
-      try {
-        const versiones = await listarVersiones(f.id)
-        await new Promise(r => setTimeout(r, 250))  // rate limit polite
-
-        for (const v of versiones) {
-          const anio = inferirAnio(v.titulo)
-          const recursos = await listarRecursos(f.id, v.id)
-          await new Promise(r => setTimeout(r, 200))
-
-          const pdf = recursos.find(r => r.icono === 'pdf')?.url ?? null
-          const xls = recursos.find(r => r.icono === 'xls')?.url ?? null
-          const csv = recursos.find(r => r.icono === 'csv')?.url ?? null
-
-          if (!pdf) {
-            totalSkippedNoPdf++
-            continue
-          }
-
-          // Normalizar URLs relativas a absolutas
-          const pdfAbs = pdf.startsWith('http') ? pdf : `${PORTAL}${pdf}`
-          const xlsAbs = xls && !xls.startsWith('http') ? `${PORTAL}${xls}` : xls
-          const csvAbs = csv && !csv.startsWith('http') ? `${PORTAL}${csv}` : csv
-
-          const fuenteUrl = `${PORTAL}/api/datos-abiertos/dato/${f.id}/version-dato/${v.id}`
-          const id = crypto.createHash('sha256')
-            .update(`cordoba-capital|${f.id}|${v.id}`)
-            .digest('hex')
-            .slice(0, 32)
-
-          if (args.dryRun) {
-            totalIndexados++
-            continue
-          }
-
-          try {
-            const now = new Date().toISOString()
-            const apellidoNombreNorm = normalizarNombrePersona(apellidoNombre)
-            await dbRun(
-              `INSERT OR REPLACE INTO declaraciones_juradas
-               (id, jurisdiccion, dato_id, version_id, gestion, apellido_nombre,
-                apellido_nombre_norm, anio_declarado, pdf_url, xls_url, csv_url,
-                ocr_procesado, cuit, dni, monto_declarado,
-                fuente_url, cargado_en,
-                t_efectivo, t_publicado, snapshot_id, superseded_by_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, NULL, NULL, NULL, ?, ?,
-                       NULL, ?, ?, NULL)`,
-              [
-                id, 'cordoba-capital', String(f.id), v.id, cat.gestion,
-                apellidoNombre, apellidoNombreNorm, anio, pdfAbs, xlsAbs, csvAbs, fuenteUrl,
-                now, now, snapshotId,
-              ]
-            )
-            totalIndexados++
-          } catch (err) {
-            console.warn(`  [quarantine] ${apellidoNombre} ${v.titulo}: ${(err as Error).message.slice(0, 80)}`)
-            totalQuarantine++
-          }
-        }
-
-        if ((i + 1) % 25 === 0) {
-          console.log(`  ${i + 1}/${funcionarios.length} funcionarios procesados — ${totalIndexados} DDJJ indexadas`)
-        }
-      } catch (err) {
-        console.warn(`  [skip] ${f.titulo}: ${(err as Error).message.slice(0, 80)}`)
-      }
-    }
+  // Helper para actualizar snapshot al final (success o failed via try/catch)
+  const updateSnapshotOnExit = async (status: 'success' | 'partial' | 'failed') => {
+    if (!snapshotId) return
+    try {
+      await dbRun(
+        `UPDATE snapshots
+            SET filas_leidas = ?, filas_insertadas = ?, filas_quarantined = ?,
+                duracion_ms = ?, status = ?
+          WHERE id = ?`,
+        [
+          totalIndexados + totalSkippedNoPdf + totalQuarantine,
+          totalIndexados,
+          totalQuarantine,
+          Date.now() - snapshotStart,
+          status,
+          snapshotId,
+        ]
+      )
+    } catch { /* swallow — proceso ya saliendo */ }
   }
 
-  // Update snapshot con counts reales
-  if (snapshotId) {
+  try {
+    for (const cat of CATEGORIAS) {
+      if (args.solo && args.solo !== cat.id) continue
+
+      console.log(`\n=== Categoría ${cat.id} (gestión ${cat.gestion}) ===`)
+      const funcionarios = await listarFuncionarios(cat.id)
+      console.log(`✓ ${funcionarios.length} funcionarios listados`)
+
+      for (let i = 0; i < funcionarios.length; i++) {
+        const f = funcionarios[i]
+        const apellidoNombre = extraerApellidoNombre(f.titulo)
+
+        try {
+          const versiones = await listarVersiones(f.id)
+          await new Promise(r => setTimeout(r, 250))  // rate limit polite
+
+          for (const v of versiones) {
+            const anio = inferirAnio(v.titulo)
+            const recursos = await listarRecursos(f.id, v.id)
+            await new Promise(r => setTimeout(r, 200))
+
+            const pdf = recursos.find(r => r.icono === 'pdf')?.url ?? null
+            const xls = recursos.find(r => r.icono === 'xls')?.url ?? null
+            const csv = recursos.find(r => r.icono === 'csv')?.url ?? null
+
+            if (!pdf) {
+              totalSkippedNoPdf++
+              continue
+            }
+
+            // Normalizar URLs relativas a absolutas
+            const pdfAbs = pdf.startsWith('http') ? pdf : `${PORTAL}${pdf}`
+            const xlsAbs = xls && !xls.startsWith('http') ? `${PORTAL}${xls}` : xls
+            const csvAbs = csv && !csv.startsWith('http') ? `${PORTAL}${csv}` : csv
+
+            const fuenteUrl = `${PORTAL}/api/datos-abiertos/dato/${f.id}/version-dato/${v.id}`
+            const id = crypto.createHash('sha256')
+              .update(`cordoba-capital|${f.id}|${v.id}`)
+              .digest('hex')
+              .slice(0, 32)
+
+            if (args.dryRun) {
+              totalIndexados++
+              continue
+            }
+
+            try {
+              const now = new Date().toISOString()
+              const apellidoNombreNorm = normalizarNombrePersona(apellidoNombre)
+              await dbRun(
+                `INSERT OR REPLACE INTO declaraciones_juradas
+                 (id, jurisdiccion, dato_id, version_id, gestion, apellido_nombre,
+                  apellido_nombre_norm, anio_declarado, pdf_url, xls_url, csv_url,
+                  ocr_procesado, cuit, dni, monto_declarado,
+                  fuente_url, cargado_en,
+                  t_efectivo, t_publicado, snapshot_id, superseded_by_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, NULL, NULL, NULL, ?, ?,
+                         NULL, ?, ?, NULL)`,
+                [
+                  id, 'cordoba-capital', String(f.id), v.id, cat.gestion,
+                  apellidoNombre, apellidoNombreNorm, anio, pdfAbs, xlsAbs, csvAbs, fuenteUrl,
+                  now, now, snapshotId,
+                ]
+              )
+              totalIndexados++
+            } catch (err) {
+              console.warn(`  [quarantine] ${apellidoNombre} ${v.titulo}: ${(err as Error).message.slice(0, 80)}`)
+              totalQuarantine++
+            }
+          }
+
+          if ((i + 1) % 25 === 0) {
+            console.log(`  ${i + 1}/${funcionarios.length} funcionarios procesados — ${totalIndexados} DDJJ indexadas`)
+          }
+        } catch (err) {
+          console.warn(`  [skip] ${f.titulo}: ${(err as Error).message.slice(0, 80)}`)
+        }
+      }
+    }
+  } catch (fatal) {
+    crashed = true
+    console.error(`\n[FATAL] ${(fatal as Error).message}`)
+    await updateSnapshotOnExit('failed')
+    throw fatal
+  }
+
+  // Update snapshot con counts reales (success path)
+  if (snapshotId && !crashed) {
     await dbRun(
       `UPDATE snapshots
          SET filas_leidas = ?, filas_insertadas = ?, filas_quarantined = ?,
