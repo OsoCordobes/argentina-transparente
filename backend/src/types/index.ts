@@ -139,3 +139,5 @@ export interface FuenteMetadata {
   nivelConfianza: NivelConfianza
   notas?: string
 }
+
+export type { IngestOpts, IngestReport, IngestStatus, QuarantineRow } from './ingest'

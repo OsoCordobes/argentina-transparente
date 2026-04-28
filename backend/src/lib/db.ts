@@ -190,6 +190,31 @@ export async function initDb(): Promise<void> {
     )
   `)
 
+  // ─── Snapshots — versionado bitemporal de ingestas (W1) ───────────────────
+  // Cada corrida de seed crea un snapshot. Datos cargados llevan snapshot_id
+  // para trazabilidad. Cuando una nueva corrida trae los mismos datos con
+  // valores diferentes (corrección oficial), se marca superseded_by.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS snapshots (
+      id              TEXT PRIMARY KEY,
+      seed_id         TEXT NOT NULL,
+      fuente_url      TEXT NOT NULL,
+      fecha_corrida   TEXT NOT NULL,
+      hash_archivo    TEXT NOT NULL,
+      filas_leidas    INTEGER NOT NULL DEFAULT 0,
+      filas_insertadas INTEGER NOT NULL DEFAULT 0,
+      filas_quarantined INTEGER NOT NULL DEFAULT 0,
+      duracion_ms     INTEGER,
+      status          TEXT NOT NULL DEFAULT 'success',
+      superseded_by   TEXT,
+      notas           TEXT
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_snapshots_seed ON snapshots(seed_id, fecha_corrida DESC)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_snapshots_hash ON snapshots(hash_archivo)`)
+  } catch { /* idempotente */ }
+
   // ─── LLM usage tracking (Fase 4) ──────────────────────────────────────────
   // Cada call a Anthropic API se registra acá para enforce hard budget cap.
   // El budget-guard.ts agrega SUM(costo_usd) WHERE timestamp > ventana
