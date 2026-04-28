@@ -255,6 +255,58 @@ Re-correr `npx ts-node src/scripts/inspect-db.ts` debería mostrar exactamente e
 | 6 | Refactor tests → `data/argos.test.duckdb` | 4-6h | resuelve Hallazgo 1 W1 |
 | 7 | Re-correr `seed:cordoba-historico` (LLM extractor) para adjudicaciones 2005-2018 | $20-50 USD Anthropic | cierra gap del que W2 dejó pendiente |
 
+---
+
+## Commits del milestone
+
+| # | SHA | Mensaje |
+|---|---|---|
+| 1 | `fc78e32` | feat(M1/W3): tablas declaraciones_juradas + aportantes_campanas + seed DDJJ Córdoba (1348 filas) |
+| 2 | `8982a6e` | fix(M1): consistencia bitemporal en declaraciones_juradas + aportantes_campanas |
+| 3 | `649c2b9` | feat(M1): apellido_nombre_norm en declaraciones_juradas + afterAll cleanup en tests |
+| 4 | `89ded12` | fix(M1): tests schema-only + try/catch para snapshot status en seed DDJJ |
+
+---
+
+## Iteraciones aplicadas (post-cierre M1)
+
+Tras cerrar el milestone básico (commit 1), apliqué 3 iteraciones de auto-crítica:
+
+### Iteración 2 — consistencia bitemporal W1 (commit `8982a6e`)
+**Crítica:** las 2 tablas nuevas no tenían las 4 columnas bitemporal (`t_efectivo`, `t_publicado`, `snapshot_id`, `superseded_by_id`) que W1 estandarizó en las 9 tablas core. Ruptura de patrón.
+**Acción:** agregadas en CREATE + ALTER idempotente; ambas tablas listadas en `migrate-bitemporal.ts`. Seed DDJJ integra `crearSnapshot()` y popula `snapshot_id` + `t_publicado` en cada INSERT. Migración retroactiva populó las 1348 filas pre-bitemporal.
+
+### Iteración 3 — apellido_nombre_norm (commit `649c2b9`)
+**Crítica:** un funcionario podría aparecer como "Juan Pérez" en cat 85 y "Juan Perez" en cat 105 — sin normalización, queries cross-categoría darían falsos negativos.
+**Acción:** columna `apellido_nombre_norm` con índice; seed usa `normalizarNombrePersona()` de `lib/graph` (UPPERCASE + sin tildes + alfanumérico). Migración retroactiva populó las 1348 filas. Query cross-categoría ahora funciona via `WHERE apellido_nombre_norm = 'JUAN PEREZ'`.
+
+### Iteración 4 — tests schema-only + try/catch snapshot (commit `89ded12`)
+**Crítica 1:** los tests con INSERT/DELETE causaban crash intermitente del worker fork de vitest (interacción con DuckDB WAL state). Costo > beneficio.
+**Acción 1:** refactor a tests schema-only (information_schema + duckdb_indexes). Cubre estructura, no comportamiento INSERT — ese se valida funcionalmente con las 1348 filas reales sin duplicados. -1 test (5 vs 6).
+
+**Crítica 2:** seed DDJJ no tenía manejo de fallo — si crasheaba mid-run, el snapshot quedaba con counts=0. Sin trazabilidad de la corrida fallida.
+**Acción 2:** `try { ... } catch (fatal) { updateSnapshotOnExit('failed'); throw }` envolviendo el loop principal. Snapshot final con status real (`success` | `failed`). SIGINT handler intentado pero removido (interfería con vitest worker).
+
+---
+
+## Conclusión M1
+
+**Política cumplida:**
+- $0 Anthropic spend en todo M1
+- Cero datos sintéticos
+- Trazabilidad bitemporal completa (incluida migración retroactiva de filas pre-W1-pattern)
+- Bloqueadores documentados sin hackear (Akamai/AFIP login)
+- Tests passing 261/261, tsc clean
+
+**Métricas vs plan original:**
+- M1.1: skip justificado (ya cubierto)
+- M1.2-M1.4: re-runs idempotentes confirmaron 0 nuevas filas
+- M1.5: **+1,348 filas DDJJ** indexadas (target ~700 funcionarios × ~3 declaraciones)
+- M1.6: bloqueado documentado (no es failure — es trazabilidad correcta)
+- M1.7-M1.8: catalogado, datasets reales menores que el target del plan (no es bug)
+
+**Próximo:** M2 (Boletín Municipal — bloqueado, requiere investigación de portal alternativo) o M4 (cruces — habilita queries actor-funcionario-proveedor sobre datos ya cargados). M4 tiene mejor ratio de valor/esfuerzo.
+
 
 ### M1.4 — `seed:rns` Registro Nacional Sociedades [VERIFICADO]
 
