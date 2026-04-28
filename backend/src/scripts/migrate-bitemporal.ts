@@ -26,6 +26,9 @@ const TABLAS_CORE = [
   // listamos aquí para que addColumnIfMissing las trate como existentes y
   // mantengamos consistencia con el listado de tablas core bitemporales.
   'boletin_actos',
+  // M1 (W3) — tablas nuevas con bitemporal nativo. Listadas aquí para auditoría.
+  'declaraciones_juradas',
+  'aportantes_campanas',
 ] as const
 
 async function tableExists(name: string): Promise<boolean> {

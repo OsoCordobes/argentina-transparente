@@ -767,6 +767,9 @@ export async function initDb(): Promise<void> {
   // (1 versión = 1 año declarado). Solo PDFs son descargables (XLS/CSV listados
   // pero rotos). Esta tabla es ÍNDICE — no descarga ni procesa los PDFs (eso
   // es OCR Tier A, fuera de alcance M1).
+  //
+  // Bitemporal columns (W1 standard) creadas inline aquí; migrate-bitemporal.ts
+  // también las lista en TABLAS_CORE para consistencia futura.
   await dbRun(`
     CREATE TABLE IF NOT EXISTS declaraciones_juradas (
       id              TEXT PRIMARY KEY,        -- sha256(jurisdiccion + dato_id + version_id)
@@ -784,7 +787,11 @@ export async function initDb(): Promise<void> {
       dni             TEXT,                    -- populated post-OCR
       monto_declarado DOUBLE,                  -- populated post-OCR
       fuente_url      TEXT NOT NULL,           -- URL canónica (portal page)
-      cargado_en      TEXT NOT NULL
+      cargado_en      TEXT NOT NULL,
+      t_efectivo      TIMESTAMP,               -- cuándo se publicó la DDJJ en el portal (W1 bitemporal)
+      t_publicado     TIMESTAMP,               -- cuándo lo supimos en ARGOS (= cargado_en si nuevo)
+      snapshot_id     TEXT,                    -- FK a snapshots (corrida del seed)
+      superseded_by_id TEXT                    -- FK a fila que la reemplaza (correcciones)
     )
   `)
   try {
@@ -792,10 +799,19 @@ export async function initDb(): Promise<void> {
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_ddjj_anio ON declaraciones_juradas(anio_declarado)`)
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_ddjj_dni ON declaraciones_juradas(dni) WHERE dni IS NOT NULL`)
   } catch { /* idempotente */ }
+  // ALTER idempotente para tablas pre-existentes (W1 pattern: capturar duplicate)
+  for (const c of [
+    `t_efectivo TIMESTAMP`, `t_publicado TIMESTAMP`,
+    `snapshot_id TEXT`, `superseded_by_id TEXT`,
+  ]) {
+    try { await dbRun(`ALTER TABLE declaraciones_juradas ADD COLUMN ${c}`) }
+    catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
+  }
 
   // ─── Aportantes a campañas electorales — CNE (M1.6) ──────────────────────────
   // Datos abiertos CNE (datos.gob.ar / electoral.gob.ar) con aportantes por
   // distrito + año electoral + partido/alianza. Filtrado a Córdoba.
+  // Bitemporal columns standard (W1).
   await dbRun(`
     CREATE TABLE IF NOT EXISTS aportantes_campanas (
       id              TEXT PRIMARY KEY,        -- sha256(distrito + anio + cuit_o_dni + partido + monto)
@@ -812,7 +828,11 @@ export async function initDb(): Promise<void> {
       monto           DOUBLE,
       fecha_aporte    TEXT,                    -- ISO YYYY-MM-DD si está
       fuente_url      TEXT NOT NULL,
-      cargado_en      TEXT NOT NULL
+      cargado_en      TEXT NOT NULL,
+      t_efectivo      TIMESTAMP,               -- fecha del aporte (W1 bitemporal)
+      t_publicado     TIMESTAMP,               -- cuándo lo supimos en ARGOS
+      snapshot_id     TEXT,                    -- FK a snapshots
+      superseded_by_id TEXT                    -- FK a fila que la reemplaza
     )
   `)
   try {
@@ -820,6 +840,13 @@ export async function initDb(): Promise<void> {
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_aport_dni ON aportantes_campanas(dni) WHERE dni IS NOT NULL`)
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_aport_anio ON aportantes_campanas(anio_electoral)`)
   } catch { /* idempotente */ }
+  for (const c of [
+    `t_efectivo TIMESTAMP`, `t_publicado TIMESTAMP`,
+    `snapshot_id TEXT`, `superseded_by_id TEXT`,
+  ]) {
+    try { await dbRun(`ALTER TABLE aportantes_campanas ADD COLUMN ${c}`) }
+    catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
+  }
 
   // ─── Vistas universo cordobés N2 (Phase F5) ─────────────────────────────────
   // El dataset IGJ trae 2.7M filas nationales y la mayoría son ruido para un

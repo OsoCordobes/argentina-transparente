@@ -21,6 +21,7 @@
 import 'dotenv/config'
 import crypto from 'crypto'
 import { initDb, dbRun, registrarFuente, registrarFuenteCatalogo } from '../lib/db'
+import { crearSnapshot } from '../lib/snapshots'
 import type { FuenteMetadata } from '../types/index'
 
 const PORTAL = 'https://gobiernoabierto.cordoba.gob.ar'
@@ -157,6 +158,18 @@ async function main() {
   let totalSkippedNoPdf = 0
   let totalQuarantine = 0
 
+  // W1 bitemporal: snapshot por corrida para trazabilidad
+  const snapshotStart = Date.now()
+  const snapshot = args.dryRun ? null : await crearSnapshot({
+    seedId: 'seed:cordoba-ddjj',
+    fuenteUrl: `${PORTAL}/data/datos-abiertos/categoria/declaraciones-juradas-de-funcionarios`,
+    hashArchivo: crypto.createHash('sha256').update(`ddjj-${snapshotStart}`).digest('hex').slice(0, 16),
+    filasLeidas: 0,  // se updatea al final
+    status: 'success',
+    notas: `Indexa categorías ${args.solo ?? '85+105'}`,
+  })
+  const snapshotId = snapshot?.id ?? null
+
   for (const cat of CATEGORIAS) {
     if (args.solo && args.solo !== cat.id) continue
 
@@ -203,17 +216,20 @@ async function main() {
           }
 
           try {
+            const now = new Date().toISOString()
             await dbRun(
               `INSERT OR REPLACE INTO declaraciones_juradas
                (id, jurisdiccion, dato_id, version_id, gestion, apellido_nombre,
                 anio_declarado, pdf_url, xls_url, csv_url,
                 ocr_procesado, cuit, dni, monto_declarado,
-                fuente_url, cargado_en)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, NULL, NULL, NULL, ?, ?)`,
+                fuente_url, cargado_en,
+                t_efectivo, t_publicado, snapshot_id, superseded_by_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, NULL, NULL, NULL, ?, ?,
+                       NULL, ?, ?, NULL)`,
               [
                 id, 'cordoba-capital', String(f.id), v.id, cat.gestion,
                 apellidoNombre, anio, pdfAbs, xlsAbs, csvAbs, fuenteUrl,
-                new Date().toISOString(),
+                now, now, snapshotId,
               ]
             )
             totalIndexados++
@@ -232,10 +248,28 @@ async function main() {
     }
   }
 
+  // Update snapshot con counts reales
+  if (snapshotId) {
+    await dbRun(
+      `UPDATE snapshots
+         SET filas_leidas = ?, filas_insertadas = ?, filas_quarantined = ?,
+             duracion_ms = ?
+       WHERE id = ?`,
+      [
+        totalIndexados + totalSkippedNoPdf + totalQuarantine,
+        totalIndexados,
+        totalQuarantine,
+        Date.now() - snapshotStart,
+        snapshotId,
+      ]
+    )
+  }
+
   console.log(`\n=== Resumen ===`)
   console.log(`DDJJ indexadas:           ${totalIndexados}`)
   console.log(`Skipped (sin PDF):        ${totalSkippedNoPdf}`)
   console.log(`Quarantined:              ${totalQuarantine}`)
+  if (snapshotId) console.log(`Snapshot ID:              ${snapshotId}`)
   console.log(`\nNOTA: solo se indexaron URLs. Procesamiento OCR de PDFs pendiente.`)
   process.exit(0)
 }
