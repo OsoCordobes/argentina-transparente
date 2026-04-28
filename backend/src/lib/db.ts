@@ -215,6 +215,28 @@ export async function initDb(): Promise<void> {
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_snapshots_hash ON snapshots(hash_archivo)`)
   } catch { /* idempotente */ }
 
+  // ─── Quarantine — filas que fallan validación durante seeds (W1) ──────────
+  // Política ARGOS: nunca abortar corrida nocturna por una fila sucia.
+  // Aislamos en quarantine, seguimos con el resto, alertamos al operador.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS quarantine (
+      id              TEXT PRIMARY KEY,
+      snapshot_id     TEXT NOT NULL,
+      tabla_destino   TEXT NOT NULL,
+      motivo          TEXT NOT NULL,
+      detalle         TEXT,            -- JSON serializado
+      fila_json       TEXT,            -- JSON serializado del row original
+      creado_en       TEXT NOT NULL,
+      resuelto_en     TEXT,
+      resolucion      TEXT NOT NULL DEFAULT 'pending'
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_quarantine_snap ON quarantine(snapshot_id)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_quarantine_tabla ON quarantine(tabla_destino)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_quarantine_estado ON quarantine(resolucion)`)
+  } catch { /* idempotente */ }
+
   // ─── LLM usage tracking (Fase 4) ──────────────────────────────────────────
   // Cada call a Anthropic API se registra acá para enforce hard budget cap.
   // El budget-guard.ts agrega SUM(costo_usd) WHERE timestamp > ventana
