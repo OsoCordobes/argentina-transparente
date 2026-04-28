@@ -533,3 +533,54 @@ export function useActorEmpresa(cuit: string | undefined) {
     staleTime: 60_000,
   })
 }
+
+// W5 — Cobertura monetaria por jurisdicción/repartición
+export interface CoberturaResponse {
+  jurisdiccion: string
+  reparticion?: string
+  monto_declarado_oficial: number
+  monto_trazado: number
+  pct_cobertura: number
+  nivel: 'alta' | 'media' | 'baja'
+  huecos_principales?: Array<{
+    nombre: string
+    monto_declarado: number
+    monto_trazado: number
+    pct_trazado: number
+  }>
+  notas?: string[]
+  metodologia_url?: string
+  error?: string
+}
+
+export interface CoberturaGlobalResponse {
+  jurisdicciones: Array<{
+    jurisdiccion: string
+    monto_declarado_oficial: number
+    monto_trazado: number
+    pct_cobertura: number
+  }>
+}
+
+export function useCobertura(jurisdiccion: string | undefined, reparticion?: string) {
+  return useQuery({
+    queryKey: ['cobertura', jurisdiccion, reparticion],
+    queryFn: () => {
+      const path = `/api/cobertura/jurisdiccion/${encodeURIComponent(jurisdiccion ?? '')}` +
+        (reparticion ? `?reparticion=${encodeURIComponent(reparticion)}` : '')
+      return fetchJSON<CoberturaResponse>(path)
+    },
+    enabled: !!jurisdiccion,
+    staleTime: 5 * 60_000,
+    retry: 0,
+  })
+}
+
+export function useCoberturaGlobal() {
+  return useQuery({
+    queryKey: ['cobertura', 'global'],
+    queryFn: () => fetchJSON<CoberturaGlobalResponse>('/api/cobertura'),
+    staleTime: 5 * 60_000,
+    retry: 0,
+  })
+}
