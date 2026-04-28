@@ -35,6 +35,7 @@
     "seed:cordoba-presupuesto": "npx ts-node src/scripts/seed-cordoba-presupuesto.ts",
     "seed:cordoba-ddjj": "npx ts-node src/scripts/seed-cordoba-ddjj.ts",
     "seed:aportantes-cne": "npx ts-node src/scripts/seed-aportantes-cne.ts",
+    "detect:conflictos": "npx ts-node src/scripts/detect-conflictos.ts",
     "inspect:presupuesto": "npx ts-node src/scripts/inspect-presupuesto-debug.ts",
     "seed:rns": "npx ts-node src/scripts/seed-rns.ts",
     "seed:neo4j-actores": "npx ts-node src/scripts/seed-neo4j-actores.ts",
