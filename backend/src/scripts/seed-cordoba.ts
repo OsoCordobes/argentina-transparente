@@ -1,85 +1,58 @@
-// seed-cordoba.ts — Carga TODOS los contratos de Córdoba Capital en DuckDB
+// seed-cordoba.ts — Wrapper sobre ingestCordobaCapital con CLI args.
 //
-// Descarga XLSX de gobiernoabierto.cordoba.gob.ar (2019 → año actual).
-// Años posteriores al último publicado son intentados con discovery dinámico
-// (fetcher.ts L52-63); si la API responde 400, el seed continúa con los demás.
-// Deduplica por hash y almacena permanentemente.
+// Ejecutar: npm run seed:cordoba [-- --force] [-- --dry-run] [-- --desde 2015 --hasta 2026]
 //
-// Ejecutar: npm run seed:cordoba
-// Con --force: recarga desde cero
+// Comportamiento (W1 Task 8):
+//   - Sin --force: si el hash del payload coincide con el último snapshot, salta
+//   - Con --force: re-procesa, marca el snapshot anterior como superseded
+//   - Con --dry-run: cuenta filas pero no inserta
 
 import 'dotenv/config'
-import { initDb, getContratosCount, clearContratos, insertContratoBatch } from '../lib/db'
-import { fetchRawRows } from '../connectors/cordoba-capital/fetcher'
-import { parseRows } from '../connectors/cordoba-capital/parser'
-import { cordobaCapitalConnector } from '../connectors/cordoba-capital'
+import { ingestCordobaCapital } from '../connectors/cordoba-capital'
+import { listSnapshots } from '../lib/snapshots'
 
-const MUNICIPIO = 'cordoba-capital'
+function parseArgs(): { force: boolean; dryRun: boolean; desde?: number; hasta?: number } {
+  const a = process.argv.slice(2)
+  const out: { force: boolean; dryRun: boolean; desde?: number; hasta?: number } = {
+    force: a.includes('--force'),
+    dryRun: a.includes('--dry-run'),
+  }
+  const desdeIdx = a.indexOf('--desde')
+  if (desdeIdx >= 0 && a[desdeIdx + 1]) out.desde = Number(a[desdeIdx + 1])
+  const hastaIdx = a.indexOf('--hasta')
+  if (hastaIdx >= 0 && a[hastaIdx + 1]) out.hasta = Number(a[hastaIdx + 1])
+  return out
+}
 
 async function main() {
-  console.log('=== ARGOS — Seed Córdoba Capital ===\n')
+  console.log('=== ARGOS — Seed Córdoba Capital (W1 IngestReport) ===\n')
+  const opts = parseArgs()
+  console.log(`Opciones: ${JSON.stringify(opts)}\n`)
 
-  await initDb()
+  const report = await ingestCordobaCapital(opts)
 
-  const existing = await getContratosCount(MUNICIPIO)
-  const force = process.argv.includes('--force')
-
-  if (existing > 0 && !force) {
-    console.log(`Ya hay ${existing.toLocaleString()} contratos cargados para ${MUNICIPIO}.`)
-    console.log('Use --force para recargar.\n')
-    process.exit(0)
-  }
-
-  if (existing > 0 && force) {
-    console.log(`Limpiando ${existing.toLocaleString()} contratos existentes...`)
-    await clearContratos(MUNICIPIO)
-  }
-
-  let totalInserted = 0
-  const seenHashes = new Set<string>()
-
-  const aniosDisponibles = cordobaCapitalConnector.aniosDisponibles
-  console.log(`Años a descargar: ${aniosDisponibles.join(', ')}`)
-  console.log(`(Años no publicados aún en el portal serán saltados con warning.)\n`)
-
-  for (const anio of aniosDisponibles) {
-    try {
-      console.log(`[${anio}] Descargando XLSX...`)
-      const rawRows = await fetchRawRows(anio)
-      console.log(`[${anio}] ${rawRows.length} filas crudas`)
-
-      const contratos = parseRows(rawRows, anio)
-      console.log(`[${anio}] ${contratos.length} contratos parseados`)
-
-      // Dedup: los XLSX del portal son cumulativos — filtrar duplicados
-      const nuevos = contratos.filter(c => {
-        const key = `${MUNICIPIO}|${c.anio}|${c.tipo}|${c.proveedor}|${c.area}|${c.monto}`
-        if (seenHashes.has(key)) return false
-        seenHashes.add(key)
-        return true
-      })
-
-      if (nuevos.length < contratos.length) {
-        console.log(`[${anio}] ${contratos.length - nuevos.length} duplicados filtrados`)
-      }
-
-      const inserted = await insertContratoBatch(MUNICIPIO, nuevos)
-      totalInserted += inserted
-      console.log(`[${anio}] ✓ ${inserted} contratos insertados\n`)
-    } catch (err) {
-      console.warn(`[${anio}] ✗ Error: ${(err as Error).message}\n`)
+  console.log(`\n=== Reporte ===`)
+  console.log(`  Snapshot ID:         ${report.snapshotId}`)
+  console.log(`  Status:              ${report.status}`)
+  console.log(`  Filas leídas:        ${report.filasLeidas.toLocaleString()}`)
+  console.log(`  Filas insertadas:    ${report.filasInsertadas.toLocaleString()}`)
+  console.log(`  Filas quarantined:   ${report.filasQuarantined}`)
+  console.log(`  Hash archivo:        ${report.hashArchivo.slice(0, 16)}...`)
+  console.log(`  Duración:            ${report.duracionMs}ms`)
+  if (report.errores.length > 0) {
+    console.log(`\n  Errores (${report.errores.length}):`)
+    for (const e of report.errores.slice(0, 5)) {
+      console.log(`    - ${e.motivo}`)
     }
   }
 
-  const finalCount = await getContratosCount(MUNICIPIO)
-  console.log(`=== Resultado ===`)
-  console.log(`Total contratos en DB: ${finalCount.toLocaleString()}`)
-  console.log(`Insertados en esta ejecución: ${totalInserted.toLocaleString()}`)
-  console.log(`\n✓ Seed completado. Los datos están listos para análisis.`)
+  // Mostrar últimos 5 snapshots de este seed
+  const snaps = await listSnapshots('seed:cordoba', 5)
+  console.log(`\n=== Últimas corridas (top 5) ===`)
+  for (const s of snaps) {
+    console.log(`  ${s.fechaCorrida}  ${s.status.padEnd(20)}  ins=${s.filasInsertadas}  ${s.id.slice(0, 8)}`)
+  }
   process.exit(0)
 }
 
-main().catch(err => {
-  console.error('Error fatal:', err)
-  process.exit(1)
-})
+main().catch(err => { console.error('Error fatal:', err); process.exit(1) })
