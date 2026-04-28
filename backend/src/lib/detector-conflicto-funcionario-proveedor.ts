@@ -108,14 +108,13 @@ export async function encontrarCrucesCandidatos(opts: {
       contratos_agg AS (
         SELECT proveedor_norm, municipio,
                COUNT(*) AS cnt,
-               SUM(monto) AS tot,
-               LIST(DISTINCT fuente_url) AS urls
+               SUM(monto) AS tot
           FROM contratos
          GROUP BY proveedor_norm, municipio
       )
     SELECT cr.funcionario, cr.funcionario_norm, cr.jurisdiccion,
            cr.unique_dnis_igj, cr.empresa, cr.cuit_empresa,
-           cr.dni_director, c.cnt, c.tot, c.urls
+           cr.dni_director, c.cnt, c.tot
       FROM cruces_raw cr
       JOIN contratos_agg c
         ON (UPPER(cr.empresa) = c.proveedor_norm
@@ -129,10 +128,7 @@ export async function encontrarCrucesCandidatos(opts: {
   const grouped = new Map<string, CruceCandidato>()
   for (const r of rows) {
     const key = `${r.funcionario_norm}||${r.cuit_empresa}||${r.jurisdiccion}`
-    const existing = grouped.get(key)
-    if (existing) {
-      // Las reparticiones/cargos no vienen en este SELECT — query separada abajo
-    } else {
+    if (!grouped.has(key)) {
       grouped.set(key, {
         funcionario: r.funcionario,
         funcionario_norm: r.funcionario_norm,
@@ -145,12 +141,12 @@ export async function encontrarCrucesCandidatos(opts: {
         dni_director: r.dni_director,
         contratos_count: Number(r.cnt),
         monto_total: Number(r.tot),
-        fuente_url_contratos: Array.isArray(r.urls) ? r.urls.slice(0, 5) : [],
+        fuente_url_contratos: [],  // populated below via separate query
       })
     }
   }
 
-  // Enriquecer cada candidato con sus reparticiones/cargos distintos
+  // Enriquecer cada candidato con sus reparticiones/cargos + URLs específicas
   for (const c of grouped.values()) {
     const meta = await dbAll<{ reparticion: string | null; cargo: string | null }>(
       `SELECT DISTINCT reparticion, cargo
@@ -161,6 +157,17 @@ export async function encontrarCrucesCandidatos(opts: {
     )
     c.reparticiones = [...new Set(meta.map(m => m.reparticion).filter((x): x is string => !!x))].slice(0, 5)
     c.cargos = [...new Set(meta.map(m => m.cargo).filter((x): x is string => !!x))].slice(0, 5)
+
+    // URLs reales de los contratos de la empresa con este municipio
+    const urls = await dbAll<{ fuente_url: string }>(
+      `SELECT DISTINCT fuente_url
+         FROM contratos
+        WHERE municipio = ?
+          AND (proveedor_norm = ? OR proveedor_norm = ?)
+        LIMIT 5`,
+      [c.jurisdiccion, c.empresa.toUpperCase(), c.empresa.toUpperCase().replace(/\./g, '')]
+    )
+    c.fuente_url_contratos = urls.map(u => u.fuente_url).filter(u => !!u)
   }
 
   return [...grouped.values()].sort((a, b) => b.monto_total - a.monto_total)
