@@ -719,6 +719,7 @@ export interface GrafoStats {
     empresaOperaEn: string
     tier: 1 | 2 | null
     metodo: string | null
+    homonimos: number
   }>
   señalesActivas: Array<{
     id: string
@@ -808,13 +809,27 @@ export async function getGrafoStats(): Promise<GrafoStats | null> {
     // PersonaFisica → DIRIGE → Empresa → OPERA_EN → Reparticion. Si
     // además el Funcionario TRABAJA_EN la misma reparticion, es Tier
     // verificado. Si no, es potencial.
+    //
+    // Filtros anti-homonimia (post-audit 2026-04-26):
+    // 1) tier=2 + nombreNorm con >3 PersonaFisica distintos → descarta
+    //    (homonimia razonable, no apuntable). Tier 1 (CUIT/DNI exact) pasa siempre.
+    // 2) DISTINCT por (funcionario, empresa) para no duplicar pares iguales por
+    //    diferentes reparticiones operadoras.
     const confR = await s.run(
       `MATCH (f:Funcionario)-[link:ES_LA_MISMA_PERSONA]->(p:PersonaFisica)
             -[:DIRIGE]->(e:Empresa)-[:OPERA_EN]->(r2:Reparticion)
+       WITH f, link, p, e, r2,
+            CASE WHEN link.tier = 1 THEN 1 ELSE
+              size([(otro:PersonaFisica) WHERE otro.nombreNorm = p.nombreNorm | otro])
+            END AS homonimos
+       WHERE homonimos <= 3
        OPTIONAL MATCH (f)-[:TRABAJA_EN]->(r1:Reparticion)
-       RETURN f.nombre AS funcionario, r1.nombre AS funcRep,
-              e.nombre AS empresa, r2.nombre AS empOpera,
-              link.tier AS tier, link.metodo AS metodo
+       WITH f, e, link, homonimos, head(collect(r1.nombre)) AS funcRep, head(collect(r2.nombre)) AS empOpera
+       RETURN f.nombre AS funcionario, funcRep,
+              e.nombre AS empresa, empOpera,
+              link.tier AS tier, link.metodo AS metodo,
+              homonimos
+       ORDER BY link.tier ASC, homonimos ASC
        LIMIT 20`
     )
     const conflictosPotenciales = confR.records.map(r => {
@@ -827,6 +842,7 @@ export async function getGrafoStats(): Promise<GrafoStats | null> {
         empresaOperaEn: (r.get('empOpera') as string) ?? '',
         tier,
         metodo: (r.get('metodo') as string | null) ?? null,
+        homonimos: toNum(r.get('homonimos')),
       }
     })
 

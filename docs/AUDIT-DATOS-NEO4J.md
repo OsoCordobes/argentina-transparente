@@ -193,8 +193,9 @@ Cuando el dataset publique DNI (vía AFIP padrón empleadores con suscripción, 
 | 4 | 333 funcionarios sin reparticion | Baja | Aceptado — el dataset original tiene `reparticion=NULL` en esos casos |
 | 5 | "PEREYRA ALBERTO DAVID dirige 20 empresas" | OK | **Verificado real** — DNI 8533203 aparece en 20 entradas IGJ distintas. Los CUITs son distintos (33707397999, 30708554096, 30707560432, 30707964835, 30707396349, ...) |
 | 6 | 21 grupos de homónimos por nombreNorm con 22-45 DNIs distintos cada uno (FERNANDEZ JUAN CARLOS, etc.) | OK | **Personas reales distintas** — cada DNI es una persona diferente en Argentina con ese mismo nombre. El UNIQUE constraint en DNI los mantiene separados. |
-| 7 | ES_LA_MISMA_PERSONA Tier 2 puede causar falsos positivos por homonimia | Media | El frontend muestra "⚠ N cruces potenciales (Tier 2)" con caveat explícito. Resolución definitiva requiere DNI de Funcionario → padrón AFIP o Boletín OCR. |
+| 7 | ES_LA_MISMA_PERSONA Tier 2 puede causar falsos positivos por homonimia | Media | ✅ **Refinado** — Eliminadas 5,017 aristas Tier 2 con homonimia masiva (target nombreNorm con >5 DNIs distintos). Quedan 8,561 aristas (51 con homonimia única + 14 con homonimia 2-3 + 14 con homonimia 4-5 + restantes sin DIRIGE). El frontend muestra el caveat explícito de Tier 2. Resolución definitiva sigue requiriendo DNI de Funcionario → padrón AFIP o Boletín OCR. |
 | 8 | 1,307 contratos cordobeses no llegan al grafo (sin CUIT resuelto) | Media | Mitigado — `npm run resolve:identities` con tier 1-3 RNS+IGJ baja a ~50% no resueltos. Los restantes son personas físicas, UTEs, fideicomisos sin CUIT publicado. |
+| 9 | Funcionario ES_LA_MISMA_PERSONA siempre Tier 2 (cero CUIT/DNI en datasets cordobeses) | Alta | Pendiente — bloqueado por ingesta Boletín OCR. Mientras tanto, los 51 pares con homonimia única (1 sola persona con ese nombre) son los conflictos más sólidos detectables; los demás llevan caveat. |
 
 ---
 
@@ -263,10 +264,63 @@ Cada elemento que el usuario ve en el frontend tiene este pipeline trackeable:
 
 ---
 
-## 8. Conclusión
+## 8. Refinamientos post-audit (2026-04-26 22:55)
+
+### 8.1 Cleanup de homonimia masiva en Tier 2
+
+**Problema detectado:** 5,017 aristas `Funcionario-[ES_LA_MISMA_PERSONA tier=2]->PersonaFisica` apuntaban a personas con nombre demasiado común (>5 DNIs distintos compartiendo el mismo `nombreNorm`). Eso llenaba el grafo con falsos positivos del tipo *"cualquier funcionario JUAN PEREZ → cualquier persona JUAN PEREZ con empresa"*.
+
+**Fix aplicado:**
+```cypher
+CALL apoc.periodic.iterate(
+  "MATCH (f:Funcionario)-[link:ES_LA_MISMA_PERSONA]->(p:PersonaFisica)
+   WHERE link.tier = 2
+   WITH p.nombreNorm AS nn, collect(link) AS links, count(DISTINCT p) AS distinct_dnis
+   WHERE distinct_dnis > 5
+   UNWIND links AS l RETURN l",
+  "DELETE l", {batchSize: 1000}
+)
+```
+
+**Resultado:**
+- Aristas `ES_LA_MISMA_PERSONA` Tier 2: **13,578 → 8,561** (-37%)
+- Pares conflicto Funcionario↔Empresa: **distribución mejorada**
+  - 51 con homonimia única (alta confianza)
+  - 14 con homonimia 2-3 (confianza media)
+  - 14 con homonimia 4-5 (confianza baja)
+- Top conflictos sólidos: OLMOS MARIA ISABEL (DNI 6431986, 12 empresas), BATTISTELLI CARLOS LUIS (16673613, 2 empresas), NAHUM MOISES EDUARDO (12245849, 2 empresas).
+
+### 8.2 Snapshot final del grafo (2026-04-26 22:55)
+
+| Nodo | Cantidad |
+|---|---|
+| PersonaFisica | 782,350 |
+| Funcionario | 142,851 |
+| Empresa | 101,641 |
+| Contrato | 1,114 |
+| Reparticion | 450 |
+| Señal | 12 |
+| **Total nodos** | **1,028,418** |
+
+| Arista | Cantidad |
+|---|---|
+| TRABAJA_EN | 142,518 |
+| ES_LA_MISMA_PERSONA | 8,561 |
+| DIRIGE | 8,057 |
+| EMITE | 1,114 |
+| GANÓ | 911 |
+| OPERA_EN | 453 |
+| SEÑALA | 65 |
+| **Total aristas** | **161,679** |
+
+---
+
+## 9. Conclusión
 
 El grafo cordobés en Neo4j cumple los principios declarados: **identidades únicas, trazabilidad completa, tier de confianza explícito, cero alucinaciones**. Los hallazgos del audit fueron resueltos o aceptados con justificación. El caso "PEREYRA dirige 20 empresas" es **realmente verdadero** — el algoritmo de canonicalización por DNI funciona correctamente.
 
+El refinamiento de homonimia masiva (sección 8.1) elevó la calidad del Tier 2: ahora cuando el sistema dice *"funcionario X cruza con empresa Y vía nombreNorm"*, hay como mucho 5 personas con ese nombre — no 45 — lo que reduce la fricción cognitiva del caveat de homonimia y mejora la señal/ruido.
+
 Próximo paso: ingesta de DNI/CUIT de funcionarios cordobeses (Boletín OCR) para subir todos los `ES_LA_MISMA_PERSONA` Tier 2 → Tier 1 y disparar conflictos verificados automáticamente.
 
-*Generado por audit estructural automático. Validado contra Neo4j en docker-compose argos-neo4j. Última actualización: 2026-04-26.*
+*Generado por audit estructural automático. Validado contra Neo4j en docker-compose argos-neo4j. Última actualización: 2026-04-26 22:55.*
