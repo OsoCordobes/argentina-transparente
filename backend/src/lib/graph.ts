@@ -39,6 +39,12 @@ export async function initGraph(): Promise<void> {
       await session.run(`CREATE CONSTRAINT reparticion_id IF NOT EXISTS FOR (r:Reparticion) REQUIRE r.id IS UNIQUE`)
       await session.run(`CREATE INDEX reparticion_jurisdiccion IF NOT EXISTS FOR (r:Reparticion) ON (r.jurisdiccion)`)
       await session.run(`CREATE CONSTRAINT senal_id IF NOT EXISTS FOR (s:Señal) REQUIRE s.id IS UNIQUE`)
+
+      // Schema W1 — nodos raíz Estado + Programa presupuestario
+      await session.run(`CREATE CONSTRAINT estado_id IF NOT EXISTS FOR (e:Estado) REQUIRE e.id IS UNIQUE`)
+      await session.run(`CREATE INDEX estado_tipo IF NOT EXISTS FOR (e:Estado) ON (e.tipo)`)
+      await session.run(`CREATE CONSTRAINT programa_id IF NOT EXISTS FOR (p:Programa) REQUIRE p.id IS UNIQUE`)
+      await session.run(`CREATE INDEX programa_anio IF NOT EXISTS FOR (p:Programa) ON (p.anio)`)
     } finally {
       await session.close()
     }
@@ -1138,6 +1144,157 @@ export async function getRedCytoscape(municipio: string): Promise<CytoElements> 
 
     return { nodes: Array.from(nodeMap.values()), edges }
   })
+}
+
+// ─── Mapa estatal — nodos raíz Estado y Programa (W1) ───────────────────────
+
+export async function upsertEstado(data: {
+  id: string
+  nombre: string
+  tipo: 'nacion' | 'provincia' | 'municipio'
+  nivel: 0 | 1 | 2
+  cuit?: string | null
+  fuenteUrl: string
+}): Promise<void> {
+  if (!_available) return
+  await withSession(s => s.run(
+    `MERGE (e:Estado {id: $id})
+     SET e.nombre = $nombre, e.tipo = $tipo, e.nivel = $nivel,
+         e.cuit = $cuit, e.fuenteUrl = $fuenteUrl`,
+    { ...data, cuit: data.cuit ?? null }
+  ))
+}
+
+export async function upsertContieneReparticion(data: {
+  estadoId: string
+  reparticionId: string
+  tipoRelacion?: 'dependencia_directa' | 'organo_descentralizado'
+  fuenteUrl?: string | null
+}): Promise<void> {
+  if (!_available) return
+  await withSession(s => s.run(
+    `MATCH (e:Estado {id: $estadoId}), (r:Reparticion {id: $reparticionId})
+     MERGE (e)-[c:CONTIENE]->(r)
+     SET c.tipoRelacion = $tipoRelacion, c.fuenteUrl = $fuenteUrl`,
+    {
+      ...data,
+      tipoRelacion: data.tipoRelacion ?? 'dependencia_directa',
+      fuenteUrl: data.fuenteUrl ?? null,
+    }
+  ))
+}
+
+export async function upsertTransferencia(data: {
+  origenEstadoId: string
+  destinoEstadoId: string
+  anio: number
+  monto: number
+  concepto?: string | null
+  leyMarco?: string | null
+  fuenteUrl: string
+}): Promise<void> {
+  if (!_available) return
+  await withSession(s => s.run(
+    `MATCH (a:Estado {id: $origenEstadoId}), (b:Estado {id: $destinoEstadoId})
+     MERGE (a)-[t:TRANSFIERE {anio: $anio, concepto: $concepto}]->(b)
+     SET t.monto = $monto, t.leyMarco = $leyMarco, t.fuenteUrl = $fuenteUrl`,
+    {
+      ...data,
+      concepto: data.concepto ?? '',
+      leyMarco: data.leyMarco ?? null,
+    }
+  ))
+}
+
+export async function upsertPrograma(data: {
+  id: string
+  nombre: string
+  anio: number
+  estadoId: string
+  reparticionId?: string | null
+  montoAsignado?: number | null
+  montoDevengado?: number | null
+  fuenteUrl: string
+}): Promise<void> {
+  if (!_available) return
+  await withSession(async s => {
+    await s.run(
+      `MERGE (p:Programa {id: $id})
+       SET p.nombre = $nombre, p.anio = $anio, p.estadoId = $estadoId,
+           p.fuenteUrl = $fuenteUrl`,
+      data
+    )
+    await s.run(
+      `MATCH (p:Programa {id: $id}), (e:Estado {id: $estadoId})
+       MERGE (e)-[:CONTIENE_PROGRAMA]->(p)`,
+      { id: data.id, estadoId: data.estadoId }
+    )
+    if (data.reparticionId && (data.montoAsignado != null || data.montoDevengado != null)) {
+      await s.run(
+        `MATCH (r:Reparticion {id: $reparticionId}), (p:Programa {id: $programaId})
+         MERGE (r)-[rel:RECIBE_PRESUPUESTO {anio: $anio}]->(p)
+         SET rel.montoAsignado = $montoAsignado,
+             rel.montoDevengado = $montoDevengado,
+             rel.fuenteUrl = $fuenteUrl`,
+        {
+          reparticionId: data.reparticionId,
+          programaId: data.id,
+          anio: data.anio,
+          montoAsignado: data.montoAsignado ?? null,
+          montoDevengado: data.montoDevengado ?? null,
+          fuenteUrl: data.fuenteUrl,
+        }
+      )
+    }
+  })
+}
+
+export async function upsertOcupaCargo(data: {
+  personaDni: string
+  reparticionId: string
+  cargo: string
+  desde?: string | null
+  hasta?: string | null
+  electivo?: boolean
+  fuenteUrl: string
+}): Promise<void> {
+  if (!_available) return
+  await withSession(s => s.run(
+    `MATCH (p:PersonaFisica {dni: $personaDni}), (r:Reparticion {id: $reparticionId})
+     MERGE (p)-[oc:OCUPA_CARGO {cargo: $cargo, desde: $desde}]->(r)
+     SET oc.hasta = $hasta, oc.electivo = $electivo, oc.fuenteUrl = $fuenteUrl`,
+    {
+      ...data,
+      desde: data.desde ?? null,
+      hasta: data.hasta ?? null,
+      electivo: data.electivo ?? false,
+    }
+  ))
+}
+
+export async function upsertPagaNominaResumen(data: {
+  reparticionId: string
+  personaDni: string
+  anio: number
+  cargo?: string | null
+  status?: 'activo' | 'pasivo'
+  montoTotal: number
+  mesesPagados: number
+  fuenteUrl: string
+}): Promise<void> {
+  if (!_available) return
+  await withSession(s => s.run(
+    `MATCH (r:Reparticion {id: $reparticionId}), (p:PersonaFisica {dni: $personaDni})
+     MERGE (r)-[pn:PAGA_NOMINA {anio: $anio}]->(p)
+     SET pn.cargo = $cargo, pn.status = $status,
+         pn.montoTotal = $montoTotal, pn.mesesPagados = $mesesPagados,
+         pn.fuenteUrl = $fuenteUrl`,
+    {
+      ...data,
+      cargo: data.cargo ?? null,
+      status: data.status ?? 'activo',
+    }
+  ))
 }
 
 export async function closeGraph(): Promise<void> {
