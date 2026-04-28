@@ -4,11 +4,21 @@
 // que pueden tener cientos de páginas. Anthropic permite hasta 100 páginas
 // por request — splitamos en chunks de 50 para tener margen + paralelizar.
 
+import fs from 'fs/promises'
+import { fileURLToPath } from 'url'
 import { PDFDocument } from 'pdf-lib'
 
 const TIMEOUT_MS = 120_000  // 2min para PDFs grandes
 
 export async function descargarPDF(url: string): Promise<Buffer> {
+  // Soporte file:// para smoke tests / fixtures locales (W2 cierre).
+  // Node fetch en algunas versiones no maneja file:// nativamente; resolvemos
+  // con fs.readFile sobre el path absoluto.
+  if (url.startsWith('file://')) {
+    const path = fileURLToPath(url)
+    return await fs.readFile(path)
+  }
+
   const ctl = new AbortController()
   const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS)
   try {
