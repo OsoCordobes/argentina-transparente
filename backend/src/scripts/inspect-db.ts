@@ -14,6 +14,8 @@ async function main() {
     'auditorias_tribunal_cuentas', 'boe_cba_pdfs', 'ocr_jobs', 'alertas',
     'igj_entidades', 'igj_autoridades', 'directores',
     'fuentes_publicas_catalogo', 'scrapers_health',
+    'rns_personas_juridicas', 'empresas_padron_provincial',
+    'declaraciones_juradas', 'aportantes_campanas',
   ]
 
   console.log('Tabla'.padEnd(40), 'Filas'.padStart(10))

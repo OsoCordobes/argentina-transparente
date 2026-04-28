@@ -33,6 +33,8 @@
     "seed:cordoba-sueldos": "npx ts-node src/scripts/seed-cordoba-sueldos.ts",
     "seed:cordoba-provincia": "npx ts-node src/scripts/seed-cordoba-provincia.ts",
     "seed:cordoba-presupuesto": "npx ts-node src/scripts/seed-cordoba-presupuesto.ts",
+    "seed:cordoba-ddjj": "npx ts-node src/scripts/seed-cordoba-ddjj.ts",
+    "seed:aportantes-cne": "npx ts-node src/scripts/seed-aportantes-cne.ts",
     "inspect:presupuesto": "npx ts-node src/scripts/inspect-presupuesto-debug.ts",
     "seed:rns": "npx ts-node src/scripts/seed-rns.ts",
     "seed:neo4j-actores": "npx ts-node src/scripts/seed-neo4j-actores.ts",

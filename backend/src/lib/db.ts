@@ -761,6 +761,66 @@ export async function initDb(): Promise<void> {
     )
   } catch { /* idempotente */ }
 
+  // ─── Declaraciones Juradas funcionarios Córdoba (M1.5) ───────────────────────
+  // Categorías 85 (gestión 2016-2019) + 105 (gestión 2020-2023) del portal
+  // gobiernoabierto.cordoba.gob.ar. Cada funcionario tiene 1 dato + N versiones
+  // (1 versión = 1 año declarado). Solo PDFs son descargables (XLS/CSV listados
+  // pero rotos). Esta tabla es ÍNDICE — no descarga ni procesa los PDFs (eso
+  // es OCR Tier A, fuera de alcance M1).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS declaraciones_juradas (
+      id              TEXT PRIMARY KEY,        -- sha256(jurisdiccion + dato_id + version_id)
+      jurisdiccion    TEXT NOT NULL,           -- 'cordoba-capital'
+      dato_id         TEXT NOT NULL,           -- ID del funcionario en el portal
+      version_id      TEXT NOT NULL,           -- ID de la declaración (1 por año)
+      gestion         TEXT NOT NULL,           -- '2016-2019' | '2020-2023'
+      apellido_nombre TEXT NOT NULL,
+      anio_declarado  INTEGER,                 -- año al que refiere la declaración
+      pdf_url         TEXT,                    -- único formato funcional
+      xls_url         TEXT,                    -- linked en API pero suele 404
+      csv_url         TEXT,                    -- linked en API pero suele 404
+      ocr_procesado   BOOLEAN DEFAULT FALSE,   -- worker OCR setea true cuando extrae
+      cuit            TEXT,                    -- populated post-OCR
+      dni             TEXT,                    -- populated post-OCR
+      monto_declarado DOUBLE,                  -- populated post-OCR
+      fuente_url      TEXT NOT NULL,           -- URL canónica (portal page)
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_ddjj_apellido ON declaraciones_juradas(apellido_nombre)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_ddjj_anio ON declaraciones_juradas(anio_declarado)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_ddjj_dni ON declaraciones_juradas(dni) WHERE dni IS NOT NULL`)
+  } catch { /* idempotente */ }
+
+  // ─── Aportantes a campañas electorales — CNE (M1.6) ──────────────────────────
+  // Datos abiertos CNE (datos.gob.ar / electoral.gob.ar) con aportantes por
+  // distrito + año electoral + partido/alianza. Filtrado a Córdoba.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS aportantes_campanas (
+      id              TEXT PRIMARY KEY,        -- sha256(distrito + anio + cuit_o_dni + partido + monto)
+      distrito        TEXT NOT NULL,           -- 'CORDOBA'
+      anio_electoral  INTEGER NOT NULL,        -- 2019 | 2021 | 2023 | 2025
+      cuit            TEXT,                    -- aportante PJ
+      dni             TEXT,                    -- aportante PF
+      apellido_nombre TEXT,
+      razon_social    TEXT,
+      partido         TEXT,
+      alianza         TEXT,
+      categoria       TEXT,                    -- 'Diputado Nacional' | 'Senador' | etc.
+      tipo_aporte     TEXT,                    -- 'monetario' | 'no_monetario' | 'especie'
+      monto           DOUBLE,
+      fecha_aporte    TEXT,                    -- ISO YYYY-MM-DD si está
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_aport_cuit ON aportantes_campanas(cuit) WHERE cuit IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_aport_dni ON aportantes_campanas(dni) WHERE dni IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_aport_anio ON aportantes_campanas(anio_electoral)`)
+  } catch { /* idempotente */ }
+
   // ─── Vistas universo cordobés N2 (Phase F5) ─────────────────────────────────
   // El dataset IGJ trae 2.7M filas nationales y la mayoría son ruido para un
   // beta acotado a Córdoba Capital. Estas views materializan el "universo
