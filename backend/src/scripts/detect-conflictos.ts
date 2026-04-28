@@ -20,14 +20,16 @@ interface Args {
   maxDnis: number
   minMonto: number
   municipios: string[] | undefined
+  minEmpresasPatron: number
 }
 function parseArgs(): Args {
   const a = process.argv.slice(2)
-  const out: Args = { reemplazar: false, maxDnis: 3, minMonto: 0, municipios: undefined }
+  const out: Args = { reemplazar: false, maxDnis: 3, minMonto: 0, municipios: undefined, minEmpresasPatron: 2 }
   for (let i = 0; i < a.length; i++) {
     if (a[i] === '--reemplazar') out.reemplazar = true
     else if (a[i] === '--max-dnis') { out.maxDnis = parseInt(a[i + 1]); i++ }
     else if (a[i] === '--min-monto') { out.minMonto = parseFloat(a[i + 1]); i++ }
+    else if (a[i] === '--min-empresas-patron') { out.minEmpresasPatron = parseInt(a[i + 1]); i++ }
     else if (a[i] === '--municipio') {
       out.municipios ??= []
       out.municipios.push(a[i + 1]); i++
@@ -45,6 +47,7 @@ async function main() {
   console.log(`  reemplazarExistentes: ${args.reemplazar}`)
   console.log(`  maxDnisIGJ:           ${args.maxDnis}  (apellidos con > N DNIs IGJ se descartan por homonimia)`)
   console.log(`  minMonto:             $${args.minMonto.toLocaleString('es-AR')}`)
+  console.log(`  minEmpresasPatron:    ${args.minEmpresasPatron}  (≥N empresas distintas para emitir señal sistémica)`)
   console.log(`  municipios:           ${args.municipios?.join(', ') ?? '(todos)'}\n`)
 
   const result = await ejecutarDetector({
@@ -52,12 +55,14 @@ async function main() {
     maxDnisIGJ: args.maxDnis,
     minMonto: args.minMonto,
     reemplazarExistentes: args.reemplazar,
+    minEmpresasPatron: args.minEmpresasPatron,
   })
 
   console.log(`\n=== Resultado ===`)
-  console.log(`Snapshot ID:        ${result.snapshotId}`)
-  console.log(`Candidatos hallados: ${result.candidatos}`)
-  console.log(`Señales insertadas:  ${result.insertadas} (en señales_cache, tipologia=conflicto_funcionario_proveedor)`)
+  console.log(`Snapshot ID:           ${result.snapshotId}`)
+  console.log(`Candidatos hallados:   ${result.candidatos}`)
+  console.log(`Patrones sistémicos:   ${result.patronesSistemicos} (≥${args.minEmpresasPatron} empresas distintas)`)
+  console.log(`Señales insertadas:    ${result.insertadas} (en señales_cache: 'conflicto_funcionario_proveedor' + 'conflicto_funcionario_multiproveedor')`)
   console.log(`\nSiguiente: \`npx ts-node src/scripts/inspect-db.ts\` o consultar señales_cache directamente.`)
   process.exit(0)
 }

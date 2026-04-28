@@ -272,29 +272,197 @@ export function candidatoASeñal(c: CruceCandidato): Señal {
   }
 }
 
+// ============================================================================
+// M4.1 Iter #6 — Patrón sistémico (señal compuesta)
+//
+// Cuando un mismo funcionario aparece con apellido coincidente con directores
+// de ≥2 empresas distintas que son proveedoras del mismo municipio, eso es
+// evidencia más fuerte que un cruce individual: deja de ser "una coincidencia
+// rara" y empieza a parecer un patrón sistémico.
+//
+// Esta señal compuesta NO reemplaza las individuales — convive con ellas en
+// señales_cache (tipologia distinta) para que el dashboard muestre tanto la
+// pieza agregada como las piezas individuales como evidencia.
+// ============================================================================
+
+export interface PatronEmpresa {
+  razon_social: string
+  cuit: string
+  dni_director: string
+  contratos_count: number
+  monto: number
+  fuente_urls: string[]
+  anios_contrato: number[]
+}
+
+export interface CrucePatronSistemico {
+  funcionario: string
+  funcionario_norm: string
+  jurisdiccion: string
+  reparticiones: string[]
+  cargos: string[]
+  anios_funcionario: number[]
+  unique_dnis_igj: number
+  empresas: PatronEmpresa[]
+  empresas_count: number
+  contratos_total: number
+  monto_total: number
+}
+
 /**
- * Pipeline completo: encontrar candidatos → convertir a señales → persistir
- * en señales_cache. Crea snapshot para trazabilidad.
+ * Agrupa candidatos por (funcionario_norm, jurisdiccion) y emite un patrón
+ * sistémico cuando hay ≥`minEmpresas` empresas distintas. Las empresas vienen
+ * ordenadas por monto descendente.
+ */
+export function aggregarPatronesSistemicos(
+  candidatos: CruceCandidato[],
+  minEmpresas = 2,
+): CrucePatronSistemico[] {
+  const grupos = new Map<string, CruceCandidato[]>()
+  for (const c of candidatos) {
+    const key = `${c.funcionario_norm}||${c.jurisdiccion}`
+    const arr = grupos.get(key) ?? []
+    arr.push(c)
+    grupos.set(key, arr)
+  }
+
+  const patrones: CrucePatronSistemico[] = []
+  for (const [, group] of grupos) {
+    // Una empresa puede aparecer dos veces vía nombre+nombre-sin-puntos; dedup por CUIT
+    const porCuit = new Map<string, CruceCandidato[]>()
+    for (const g of group) {
+      const arr = porCuit.get(g.cuit_empresa) ?? []
+      arr.push(g)
+      porCuit.set(g.cuit_empresa, arr)
+    }
+    if (porCuit.size < minEmpresas) continue
+
+    const head = group[0]
+    const reparticiones = [...new Set(group.flatMap(g => g.reparticiones))].slice(0, 8)
+    const cargos = [...new Set(group.flatMap(g => g.cargos))].slice(0, 8)
+    const aniosFunc = [...new Set(group.flatMap(g => g.anios_funcionario))].sort()
+
+    const empresas: PatronEmpresa[] = [...porCuit.entries()].map(([cuit, items]) => {
+      const monto = items.reduce((s, x) => s + x.monto_total, 0)
+      const contratos = items.reduce((s, x) => s + x.contratos_count, 0)
+      return {
+        razon_social: items[0].empresa,
+        cuit,
+        dni_director: items[0].dni_director,
+        contratos_count: contratos,
+        monto,
+        fuente_urls: [...new Set(items.flatMap(x => x.fuente_url_contratos))].slice(0, 5),
+        anios_contrato: [...new Set(items.flatMap(x => x.anios_contrato))].sort(),
+      }
+    }).sort((a, b) => b.monto - a.monto)
+
+    patrones.push({
+      funcionario: head.funcionario,
+      funcionario_norm: head.funcionario_norm,
+      jurisdiccion: head.jurisdiccion,
+      reparticiones,
+      cargos,
+      anios_funcionario: aniosFunc,
+      unique_dnis_igj: head.unique_dnis_igj,
+      empresas,
+      empresas_count: empresas.length,
+      contratos_total: empresas.reduce((s, e) => s + e.contratos_count, 0),
+      monto_total: empresas.reduce((s, e) => s + e.monto, 0),
+    })
+  }
+
+  return patrones.sort((a, b) => b.monto_total - a.monto_total)
+}
+
+/**
+ * Convierte un patrón sistémico en una Señal compuesta.
+ *
+ * Scoring (más alto que el individual porque hay múltiples empresas como evidencia):
+ *   - Base: 50 (Tier 2 + patrón replicado)
+ *   - Monto: log10(monto_total) * 6, max 30
+ *   - Rareza apellido: (4 - dnis) * 6, max 24
+ *   - Cantidad de empresas: (empresas_count - 1) * 5, max 25
+ *   - Cargo con poder: +15
+ *   - Cap: 95 (sigue sin DNI verificado)
+ */
+export function patronASeñal(p: CrucePatronSistemico): Señal {
+  const scoreMonto = Math.min(30, Math.log10(Math.max(p.monto_total, 1)) * 6)
+  const scoreRareza = Math.min(24, (4 - p.unique_dnis_igj) * 6)
+  const scoreCantidad = Math.min(25, (p.empresas_count - 1) * 5)
+  const scoreCargo = bonusPorCargo(p.cargos)
+  const score = Math.min(95, Math.round(50 + scoreMonto + scoreRareza + scoreCantidad + scoreCargo))
+
+  const severidad: 'grave' | 'moderada' | 'leve' =
+    score >= 75 ? 'grave' : score >= 55 ? 'moderada' : 'leve'
+
+  const aniosFuncStr = p.anios_funcionario.length > 0
+    ? `activo ${p.anios_funcionario[0]}-${p.anios_funcionario[p.anios_funcionario.length - 1]}`
+    : 'sin años registrados'
+
+  const empresasResumen = p.empresas
+    .map(e => `${e.razon_social} (CUIT ${e.cuit}, DNI dir. ${e.dni_director}, $${Math.round(e.monto).toLocaleString('es-AR')})`)
+    .join('; ')
+
+  const evidencia: EvidenciaItem[] = [
+    {
+      descripcion: `PATRÓN SISTÉMICO: el funcionario "${p.funcionario}" (${p.jurisdiccion}, áreas: ${p.reparticiones.join(', ') || 'sin datos'}, ${aniosFuncStr}) comparte apellido_nombre normalizado con directores de ${p.empresas_count} empresas distintas que son proveedoras del mismo municipio. Total agregado: ${p.contratos_total} contrato(s) por $${Math.round(p.monto_total).toLocaleString('es-AR')}. Empresas: ${empresasResumen}.`,
+      fuenteUrl: p.empresas[0]?.fuente_urls[0] ?? '',
+    },
+    ...p.empresas.flatMap(e => e.fuente_urls.slice(0, 2).map(url => ({
+      descripcion: `Contrato municipio↔${e.razon_social}.`,
+      fuenteUrl: url,
+    }))),
+    {
+      descripcion: `IMPORTANTE — VERIFICACIÓN REQUERIDA: el match es por apellido_nombre normalizado, no por DNI directo. El patrón de ${p.empresas_count} empresas distintas con el mismo apellido raro (${p.unique_dnis_igj} DNI(s) IGJ) reduce la probabilidad de coincidencia por homonimia, pero no la elimina. Confirmar DNI del funcionario antes de denunciar.`,
+      fuenteUrl: 'https://datos.jus.gob.ar/dataset/da045e06-35cb-4bdd-9b5e-ddee6712c86c',
+    },
+  ]
+
+  return {
+    tipologia: 'conflicto_funcionario_multiproveedor',
+    score,
+    titulo: `Patrón sistémico: ${p.funcionario} (${p.jurisdiccion}) y ${p.empresas_count} empresas ($${Math.round(p.monto_total).toLocaleString('es-AR')})`,
+    resumen: `Posible patrón sistémico de conflicto de intereses: el funcionario ${p.funcionario} comparte apellido (${p.unique_dnis_igj} DNI(s) coinciden en IGJ) con directores de ${p.empresas_count} empresas distintas que reciben en conjunto ${p.contratos_total} contrato(s) por $${Math.round(p.monto_total).toLocaleString('es-AR')} del mismo municipio. La replicación del patrón aumenta la fuerza de la señal sobre un cruce individual.`,
+    evidencia,
+    legal: {
+      severidad,
+      articulos: MARCO_LEGAL_BASE,
+      denunciarAnte: ORGANISMOS_DENUNCIA,
+    },
+  }
+}
+
+/**
+ * Pipeline completo: encontrar candidatos → convertir a señales individuales
+ * + agregar patrones sistémicos → persistir en señales_cache. Crea snapshot.
  */
 export async function ejecutarDetector(opts: {
   municipios?: string[]
   maxDnisIGJ?: number
   minMonto?: number
   reemplazarExistentes?: boolean
-} = {}): Promise<{ snapshotId: string; insertadas: number; candidatos: number }> {
+  minEmpresasPatron?: number   // mínimo empresas distintas para emitir señal sistémica (default 2)
+} = {}): Promise<{
+  snapshotId: string
+  insertadas: number
+  candidatos: number
+  patronesSistemicos: number
+}> {
   const start = Date.now()
+  const minEmpresasPatron = opts.minEmpresasPatron ?? 2
   const snap = await crearSnapshot({
     seedId: 'detector:conflicto_funcionario_proveedor',
     fuenteUrl: 'internal://duckdb',
     hashArchivo: crypto.createHash('sha256').update(`detector-${start}`).digest('hex').slice(0, 16),
     filasLeidas: 0,
-    notas: `maxDnisIGJ=${opts.maxDnisIGJ ?? 3}, minMonto=${opts.minMonto ?? 0}, mun=${(opts.municipios ?? ['*']).join(',')}`,
+    notas: `maxDnisIGJ=${opts.maxDnisIGJ ?? 3}, minMonto=${opts.minMonto ?? 0}, mun=${(opts.municipios ?? ['*']).join(',')}, minEmpresasPatron=${minEmpresasPatron}`,
   })
 
   const candidatos = await encontrarCrucesCandidatos(opts)
 
   if (opts.reemplazarExistentes) {
     await dbRun(`DELETE FROM señales_cache WHERE tipologia = 'conflicto_funcionario_proveedor'`)
+    await dbRun(`DELETE FROM señales_cache WHERE tipologia = 'conflicto_funcionario_multiproveedor'`)
   }
 
   let insertadas = 0
@@ -305,6 +473,17 @@ export async function ejecutarDetector(opts: {
     insertadas++
   }
 
+  // Iter #6: señales compuestas por patrón sistémico
+  const patrones = aggregarPatronesSistemicos(candidatos, minEmpresasPatron)
+  let patronesInsertados = 0
+  for (const p of patrones) {
+    if (opts.municipios?.length && !opts.municipios.includes(p.jurisdiccion)) continue
+    const señal = patronASeñal(p)
+    await insertSeñalCache(p.jurisdiccion, señal)
+    patronesInsertados++
+    insertadas++
+  }
+
   await dbRun(
     `UPDATE snapshots
         SET filas_leidas = ?, filas_insertadas = ?, duracion_ms = ?, status = ?
@@ -312,5 +491,10 @@ export async function ejecutarDetector(opts: {
     [candidatos.length, insertadas, Date.now() - start, 'success', snap.id]
   )
 
-  return { snapshotId: snap.id, insertadas, candidatos: candidatos.length }
+  return {
+    snapshotId: snap.id,
+    insertadas,
+    candidatos: candidatos.length,
+    patronesSistemicos: patronesInsertados,
+  }
 }
