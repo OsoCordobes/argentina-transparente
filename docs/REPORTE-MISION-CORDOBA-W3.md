@@ -307,6 +307,44 @@ Tras cerrar el milestone básico (commit 1), apliqué 3 iteraciones de auto-crí
 
 **Próximo:** M2 (Boletín Municipal — bloqueado, requiere investigación de portal alternativo) o M4 (cruces — habilita queries actor-funcionario-proveedor sobre datos ya cargados). M4 tiene mejor ratio de valor/esfuerzo.
 
+---
+
+## Exploración M4.1 — Cruce funcionario ↔ director de proveedor (commit `5fc...`)
+
+**Pregunta:** ¿hay funcionarios cordobeses cuyo `apellido_nombre` coincide con directores IGJ de empresas que aparecen como proveedores en contratos del mismo municipio?
+
+**Script exploratorio:** `backend/src/scripts/explore-cruce-funcionario-proveedor.ts` (no inserta señales — solo demuestra viabilidad).
+
+**Resultados (sobre datos M1 cargados):**
+
+| Métrica | Valor |
+|---|---|
+| Funcionarios únicos (apellido_nombre) | 124,812 |
+| Directores IGJ únicos (apellido_nombre) | 1,436,551 |
+| Proveedores únicos (proveedor_norm) | 633 |
+| Identity matches resueltos | 433 |
+
+**Top matches por monto contrato:**
+- "GONZALEZ JOSE LUIS" (DIRECCION DE TRANSPORTE Capital) → director de "BECHER Y ASOCIADOS" (CUIT 30-65919981-1, $1.3M contrato Capital)
+- "FERNANDEZ ALEJANDRA BEATRIZ" (NIVEL INICIAL Capital) → director "BECHER Y ASOCIADOS" (mismo proveedor)
+- "LOPEZ JUAN JOSE" (AGENCIA CORDOBA CULTURA) → director de "GRIENSU" ($786K Capital)
+- (otros funcionarios con cruces similares vía matching exacto razon_social ↔ proveedor_norm)
+
+**Diagnóstico crítico — alto riesgo false positives:**
+- Nombres comunes ("Gonzalez Jose Luis") matchearán muchos funcionarios distintos.
+- agentes_publicos tiene misma persona en múltiples meses → resultados inflados (la query no DISTINCT por persona).
+- Match por apellido_nombre solo (sin DNI) NO es legalmente defendible.
+
+**Camino correcto para M4.1 (formalizar como detector):**
+1. **Cruce por DNI**, no por apellido. agentes_publicos tiene `numero_documento` en muchas filas; igj_autoridades también lo tiene. Match exacto DNI elimina prácticamente todos los false positives.
+2. **Resolución de identidad**: usar `identity_matches.cuit_resuelto` para matchear proveedor_norm → CUIT (en lugar de match por razon_social que pierde "S.A." vs "S.A").
+3. **Restricción geográfica**: solo flagear si `funcionario.jurisdiccion = contrato.municipio`. Funcionario provincial dirigiendo proveedor del Capital es señal débil; del mismo municipio es señal fuerte.
+4. **Score por rareza**: ponderar por frecuencia del DNI/apellido en la población.
+5. **Insertar como `Señal{tipologia: 'conflicto_funcionario_proveedor', ...}` en `señales_cache`** con `evidencia_json` que liste cada cruce verificado.
+
+**Estado:** viabilidad demostrada. Implementación formal requiere ~1 día de trabajo + tests. Queda listada como **M4.1** del plan maestro original.
+
+
 
 ### M1.4 — `seed:rns` Registro Nacional Sociedades [VERIFICADO]
 
