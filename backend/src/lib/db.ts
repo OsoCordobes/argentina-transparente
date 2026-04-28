@@ -265,6 +265,37 @@ export async function initDb(): Promise<void> {
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_identidad_b ON identidad_candidates(LOWER(identificador_b))`)
   } catch { /* idempotente */ }
 
+  // ─── Entes estatales Córdoba (W1) ─────────────────────────────────────────
+  // Lista canónica de organismos públicos cordobeses (Provincia + Capital +
+  // empresas estatales + universidades + concesionarios + cooperativas con
+  // aporte público). Diferentes de :Empresa porque NO son privadas — modelan
+  // como :Reparticion en el grafo.
+  // La lista se popula vía build-organigrama-cordoba.ts (W3) desde organigrama
+  // oficial. W1 solo crea la tabla y carga 10 entes pivote para tests.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS entes_estatales_cordoba (
+      id              TEXT PRIMARY KEY,
+      cuit            TEXT,
+      nombre          TEXT NOT NULL,
+      jurisdiccion    TEXT NOT NULL,         -- 'cordoba-provincia' | 'cordoba-capital'
+      tipo            TEXT NOT NULL,         -- 'ministerio'|'secretaria'|'estatal'|
+                                              -- 'universidad'|'concesion'|'cooperativa'|
+                                              -- 'tribunal'|'legislatura'|'caja'
+      poder           TEXT NOT NULL,         -- 'ejecutivo'|'legislativo'|'judicial'|
+                                              -- 'descentralizado'
+      depende_de_id   TEXT,                  -- FK a otro ente (jerarquía interna)
+      ley_creacion    TEXT,
+      sitio_web       TEXT,
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_entes_jur ON entes_estatales_cordoba(jurisdiccion)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_entes_tipo ON entes_estatales_cordoba(tipo)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_entes_cuit ON entes_estatales_cordoba(cuit) WHERE cuit IS NOT NULL`)
+  } catch { /* idempotente */ }
+
   // ─── LLM usage tracking (Fase 4) ──────────────────────────────────────────
   // Cada call a Anthropic API se registra acá para enforce hard budget cap.
   // El budget-guard.ts agrega SUM(costo_usd) WHERE timestamp > ventana
