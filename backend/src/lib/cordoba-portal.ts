@@ -79,16 +79,26 @@ export async function listarRecursosVersion(datasetId: string, versionId: string
 }
 
 // Encuentra el primer recurso con formato preferido y descarga su contenido.
+//
+// IMPORTANTE: la API de gobiernoabierto.cordoba.gob.ar serializa `formato`
+// como **el string literal `"undefined"`** (no JS undefined), por lo que el
+// ?? no fallback-ea a `icono`. Tratamos el literal "undefined" + cadenas
+// vacías como ausentes y caemos a `icono` que es el campo realmente
+// poblado (valores: "xls", "xlsx", "csv", "pdf", "drive", "ods", etc.).
 export async function descargarRecursoDeVersion(
   datasetId: string, versionId: string,
   formatosPref: string[] = ['xls', 'csv'],
 ): Promise<{ buffer: Buffer; recurso: RecursoPortal } | null> {
   const recursos = await listarRecursosVersion(datasetId, versionId)
+  const resolverFormato = (rs: RecursoPortal): string => {
+    const f = (rs.formato ?? '') as string
+    const fNorm = f.trim().toLowerCase()
+    const fValido = fNorm && fNorm !== 'undefined' && fNorm !== 'null'
+    const fallback = ((rs.icono ?? '') as string).toLowerCase()
+    return fValido ? fNorm : fallback
+  }
   for (const fmtPref of formatosPref) {
-    const r = recursos.find(rs => {
-      const fmt = ((rs.formato ?? rs.icono ?? '') as string).toLowerCase()
-      return fmt.includes(fmtPref.toLowerCase())
-    })
+    const r = recursos.find(rs => resolverFormato(rs).includes(fmtPref.toLowerCase()))
     if (!r) continue
     const res = await fetchWithTimeout(r.url)
     if (!res.ok) continue
