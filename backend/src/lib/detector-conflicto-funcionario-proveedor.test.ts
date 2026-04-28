@@ -21,6 +21,7 @@ describe('M4.1 — detector conflicto_funcionario_proveedor', () => {
       contratos_count: 5,
       monto_total: 50_000_000,
       fuente_url_contratos: ['https://x/contrato.xls'],
+      anios_funcionario: [2020, 2021, 2022], anios_contrato: [2022], overlap_temporal: true,
     }
     const señal = candidatoASeñal(c)
     expect(señal.tipologia).toBe('conflicto_funcionario_proveedor')
@@ -48,6 +49,7 @@ describe('M4.1 — detector conflicto_funcionario_proveedor', () => {
       contratos_count: 1,
       monto_total: 50_000,
       fuente_url_contratos: [],
+      anios_funcionario: [2020], anios_contrato: [2020], overlap_temporal: true,
     }
     const señal = candidatoASeñal(c)
     expect(señal.score).toBeLessThan(75)
@@ -68,6 +70,7 @@ describe('M4.1 — detector conflicto_funcionario_proveedor', () => {
       contratos_count: 100,
       monto_total: 1_000_000_000_000,  // 1 billón
       fuente_url_contratos: [],
+      anios_funcionario: [2022], anios_contrato: [2022], overlap_temporal: true,
     }
     const señal = candidatoASeñal(c)
     expect(señal.score).toBeLessThanOrEqual(95)
@@ -81,6 +84,7 @@ describe('M4.1 — detector conflicto_funcionario_proveedor', () => {
       unique_dnis_igj: 3, empresa: 'E', cuit_empresa: '30-1-1',
       dni_director: '1', contratos_count: 1, monto_total: 50_000,
       fuente_url_contratos: [],
+      anios_funcionario: [2022], anios_contrato: [2022], overlap_temporal: true,
     }
     const senalSinCargo = candidatoASeñal(baseCandidate)
     const senalConDirector = candidatoASeñal({ ...baseCandidate, cargos: ['Director de Compras'] })

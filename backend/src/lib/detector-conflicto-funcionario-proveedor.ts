@@ -45,6 +45,9 @@ export interface CruceCandidato {
   jurisdiccion: string                // jurisdiccion del funcionario (= municipio del contrato)
   reparticiones: string[]             // áreas/oficinas donde figura como agente
   cargos: string[]                    // cargos distintos que ostenta
+  anios_funcionario: number[]         // años distintos donde aparece como agente
+  anios_contrato: number[]            // años distintos de los contratos con la empresa
+  overlap_temporal: boolean           // ¿hay solapamiento de años? (con tolerancia ±2)
   unique_dnis_igj: number             // # DNIs distintos en IGJ con este apellido (medida de rareza)
   empresa: string                     // razón social
   cuit_empresa: string
@@ -63,11 +66,15 @@ const NORM_SQL = (col: string) =>
  */
 export async function encontrarCrucesCandidatos(opts: {
   municipios?: string[]
-  maxDnisIGJ?: number          // descartar apellidos demasiado comunes (default 3)
-  minMonto?: number            // descartar contratos muy chicos (default 0)
+  maxDnisIGJ?: number              // descartar apellidos demasiado comunes (default 3)
+  minMonto?: number                // descartar contratos muy chicos (default 0)
+  toleranciaAniosTemporal?: number // ±N años entre actividad funcionario y año contrato (default 2)
+  excluirSinOverlap?: boolean      // si true, descarta cruces sin overlap temporal (default true)
 } = {}): Promise<CruceCandidato[]> {
   const maxDnis = opts.maxDnisIGJ ?? 3
   const minMonto = opts.minMonto ?? 0
+  const tolerancia = opts.toleranciaAniosTemporal ?? 2
+  const excluirSinOverlap = opts.excluirSinOverlap ?? true
   const municipiosFilter = opts.municipios?.length
     ? `AND f.jurisdiccion IN (${opts.municipios.map(m => `'${m.replace(/'/g, "''")}'`).join(',')})`
     : ''
@@ -135,6 +142,9 @@ export async function encontrarCrucesCandidatos(opts: {
         jurisdiccion: r.jurisdiccion,
         reparticiones: [],
         cargos: [],
+        anios_funcionario: [],
+        anios_contrato: [],
+        overlap_temporal: false,
         unique_dnis_igj: Number(r.unique_dnis_igj),
         empresa: r.empresa,
         cuit_empresa: r.cuit_empresa,
@@ -146,10 +156,10 @@ export async function encontrarCrucesCandidatos(opts: {
     }
   }
 
-  // Enriquecer cada candidato con sus reparticiones/cargos + URLs específicas
+  // Enriquecer cada candidato con metadata + URLs + años (filtro temporal)
   for (const c of grouped.values()) {
-    const meta = await dbAll<{ reparticion: string | null; cargo: string | null }>(
-      `SELECT DISTINCT reparticion, cargo
+    const meta = await dbAll<{ reparticion: string | null; cargo: string | null; anio: number | null }>(
+      `SELECT DISTINCT reparticion, cargo, anio
          FROM agentes_publicos
         WHERE ${NORM_SQL('apellido_nombre')} = ?
           AND jurisdiccion = ?`,
@@ -157,20 +167,30 @@ export async function encontrarCrucesCandidatos(opts: {
     )
     c.reparticiones = [...new Set(meta.map(m => m.reparticion).filter((x): x is string => !!x))].slice(0, 5)
     c.cargos = [...new Set(meta.map(m => m.cargo).filter((x): x is string => !!x))].slice(0, 5)
+    c.anios_funcionario = [...new Set(meta.map(m => m.anio).filter((x): x is number => x != null))].sort()
 
-    // URLs reales de los contratos de la empresa con este municipio
-    const urls = await dbAll<{ fuente_url: string }>(
-      `SELECT DISTINCT fuente_url
+    // URLs + años reales de los contratos de la empresa con este municipio
+    const urls = await dbAll<{ fuente_url: string; anio: number }>(
+      `SELECT DISTINCT fuente_url, anio
          FROM contratos
         WHERE municipio = ?
           AND (proveedor_norm = ? OR proveedor_norm = ?)
-        LIMIT 5`,
+        LIMIT 50`,
       [c.jurisdiccion, c.empresa.toUpperCase(), c.empresa.toUpperCase().replace(/\./g, '')]
     )
-    c.fuente_url_contratos = urls.map(u => u.fuente_url).filter(u => !!u)
+    c.fuente_url_contratos = [...new Set(urls.map(u => u.fuente_url).filter(u => !!u))].slice(0, 5)
+    c.anios_contrato = [...new Set(urls.map(u => u.anio).filter((x): x is number => x != null))].sort()
+
+    // Overlap temporal: hay al menos un año del funcionario dentro de [contrato.min - tolerancia, contrato.max + tolerancia]
+    if (c.anios_funcionario.length > 0 && c.anios_contrato.length > 0) {
+      const cMin = c.anios_contrato[0] - tolerancia
+      const cMax = c.anios_contrato[c.anios_contrato.length - 1] + tolerancia
+      c.overlap_temporal = c.anios_funcionario.some(a => a >= cMin && a <= cMax)
+    }
   }
 
-  return [...grouped.values()].sort((a, b) => b.monto_total - a.monto_total)
+  const all = [...grouped.values()].sort((a, b) => b.monto_total - a.monto_total)
+  return excluirSinOverlap ? all.filter(c => c.overlap_temporal) : all
 }
 
 // Cargos con poder real de adjudicación o influencia sobre contratos.
@@ -215,9 +235,15 @@ export function candidatoASeñal(c: CruceCandidato): Señal {
   const severidad: 'grave' | 'moderada' | 'leve' =
     score >= 75 ? 'grave' : score >= 55 ? 'moderada' : 'leve'
 
+  const aniosFuncStr = c.anios_funcionario.length > 0
+    ? `activo en ${c.anios_funcionario[0]}-${c.anios_funcionario[c.anios_funcionario.length - 1]}`
+    : 'sin años registrados'
+  const aniosContratoStr = c.anios_contrato.length > 0
+    ? `${c.anios_contrato[0]}-${c.anios_contrato[c.anios_contrato.length - 1]}`
+    : 'sin año'
   const evidencia: EvidenciaItem[] = [
     {
-      descripcion: `Funcionario "${c.funcionario}" (${c.jurisdiccion}, áreas: ${c.reparticiones.join(', ') || 'sin datos'}) tiene apellido_nombre normalizado idéntico al del director DNI ${c.dni_director} de la empresa "${c.empresa}" (CUIT ${c.cuit_empresa}). Esa empresa recibió ${c.contratos_count} contrato(s) por $${Math.round(c.monto_total).toLocaleString('es-AR')} del mismo municipio del funcionario.`,
+      descripcion: `Funcionario "${c.funcionario}" (${c.jurisdiccion}, áreas: ${c.reparticiones.join(', ') || 'sin datos'}, ${aniosFuncStr}) tiene apellido_nombre normalizado idéntico al del director DNI ${c.dni_director} de la empresa "${c.empresa}" (CUIT ${c.cuit_empresa}). Esa empresa recibió ${c.contratos_count} contrato(s) por $${Math.round(c.monto_total).toLocaleString('es-AR')} del mismo municipio en ${aniosContratoStr}. Overlap temporal: ${c.overlap_temporal ? 'SÍ' : 'NO'}.`,
       fuenteUrl: c.fuente_url_contratos[0] ?? '',
     },
     ...c.fuente_url_contratos.slice(1).map(url => ({
