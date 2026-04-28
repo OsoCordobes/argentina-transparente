@@ -12,7 +12,7 @@
 // para que el frontend pueda fallback a un mensaje "grafo no disponible".
 
 import { Router, Request, Response } from 'express'
-import { getGrafoNucleo, expandirNodo, getGrafoStats, isGraphAvailable } from '../lib/graph'
+import { getGrafoNucleo, expandirNodo, getGrafoStats, isGraphAvailable, listarConflictos } from '../lib/graph'
 
 const grafoRouter = Router()
 export default grafoRouter
@@ -38,6 +38,25 @@ grafoRouter.get('/stats', async (_req: Request, res: Response) => {
   try {
     const stats = await getGrafoStats()
     res.json({ ...stats, graphAvailable: true })
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message })
+  }
+})
+
+// W4 Iter#5: lista de :Conflicto detectados (M4.1 + futuras señales relacionales)
+// Query params: jurisdiccion, tipologia, minScore, limit (default 100)
+grafoRouter.get('/conflictos', async (req: Request, res: Response) => {
+  if (!isGraphAvailable()) {
+    return res.json({ conflictos: [], graphAvailable: false })
+  }
+  try {
+    const conflictos = await listarConflictos({
+      jurisdiccion: req.query.jurisdiccion ? String(req.query.jurisdiccion) : undefined,
+      tipologia: req.query.tipologia ? String(req.query.tipologia) : undefined,
+      minScore: req.query.minScore ? parseInt(String(req.query.minScore)) : undefined,
+      limit: req.query.limit ? parseInt(String(req.query.limit)) : 100,
+    })
+    res.json({ conflictos, graphAvailable: true })
   } catch (err) {
     res.status(500).json({ error: (err as Error).message })
   }

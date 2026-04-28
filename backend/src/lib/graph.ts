@@ -45,6 +45,15 @@ export async function initGraph(): Promise<void> {
       await session.run(`CREATE INDEX estado_tipo IF NOT EXISTS FOR (e:Estado) ON (e.tipo)`)
       await session.run(`CREATE CONSTRAINT programa_id IF NOT EXISTS FOR (p:Programa) REQUIRE p.id IS UNIQUE`)
       await session.run(`CREATE INDEX programa_anio IF NOT EXISTS FOR (p:Programa) ON (p.anio)`)
+
+      // Schema W4 Iter#5 — :Conflicto como nodo (no solo arista)
+      // Permite UI navegable que liste/filtre conflictos por tipologia/score/jurisdiccion
+      // sin reconstruir el match cada vez. Aristas :DETECTADO_EN conectan
+      // Funcionario, Empresa (y opcionalmente PersonaFisica si DNI conocido)
+      // al nodo :Conflicto.
+      await session.run(`CREATE CONSTRAINT conflicto_id IF NOT EXISTS FOR (c:Conflicto) REQUIRE c.id IS UNIQUE`)
+      await session.run(`CREATE INDEX conflicto_jurisdiccion IF NOT EXISTS FOR (c:Conflicto) ON (c.jurisdiccion)`)
+      await session.run(`CREATE INDEX conflicto_tipologia IF NOT EXISTS FOR (c:Conflicto) ON (c.tipologia)`)
     } finally {
       await session.close()
     }
@@ -286,6 +295,178 @@ export async function upsertContratoConReparticion(data: {
        ON MATCH  SET op.contratos = op.contratos + 1, op.monto = op.monto + $monto`,
       data
     )
+  })
+}
+
+// ─── W4 Iter#5: nodo :Conflicto + aristas :DETECTADO_EN ─────────────────────
+
+export interface ConflictoNodeData {
+  id: string                          // sha256(funcionario_norm + cuit_empresa? + jurisdiccion + tipologia)
+  tipologia: string                   // 'conflicto_funcionario_proveedor' | 'conflicto_funcionario_multiproveedor' | …
+  jurisdiccion: string
+  funcionarioNombre: string
+  funcionarioNorm: string
+  funcionarioDni?: string | null      // si conocido
+  score: number                       // 0-100
+  severidad: 'grave' | 'moderada' | 'leve'
+  contratosTotal: number
+  montoTotal: number
+  empresasCount: number               // 1 para individual, ≥2 para sistémico
+  detectadoEn: string                 // ISO timestamp
+  snapshotId: string
+  fuenteUrls?: string[]
+}
+
+export interface ConflictoEmpresaLink {
+  cuitEmpresa: string
+  empresaNombre: string
+  dniDirector: string | null
+  contratos: number
+  monto: number
+}
+
+/**
+ * Persiste un :Conflicto como nodo del grafo + aristas :DETECTADO_EN
+ * desde Funcionario, Empresas y opcionalmente PersonaFisica.
+ *
+ * Idempotente vía MERGE por id. Si Neo4j no está disponible, noop.
+ *
+ * Modelo:
+ *   (Funcionario {nombreNorm: X})-[:DETECTADO_EN {rol:'sospechoso'}]->(Conflicto)
+ *   (Empresa {cuit: Y})-[:DETECTADO_EN {rol:'proveedor'}]->(Conflicto)
+ *   (PersonaFisica {dni: Z})-[:DETECTADO_EN {rol:'director'}]->(Conflicto)  // si DNI conocido
+ *
+ * El Funcionario se matchea por nombreNorm + jurisdiccion (no por id, que es
+ * por-cargo) — así un mismo conflicto agrupa todos los registros del funcionario.
+ */
+export async function upsertConflicto(
+  data: ConflictoNodeData,
+  empresas: ConflictoEmpresaLink[],
+): Promise<void> {
+  if (!_available) return
+  await withSession(async s => {
+    // 1) Upsert :Conflicto node
+    await s.run(
+      `MERGE (c:Conflicto {id: $id})
+       SET c.tipologia       = $tipologia,
+           c.jurisdiccion    = $jurisdiccion,
+           c.funcionarioNombre = $funcionarioNombre,
+           c.funcionarioNorm   = $funcionarioNorm,
+           c.funcionarioDni    = $funcionarioDni,
+           c.score           = $score,
+           c.severidad       = $severidad,
+           c.contratosTotal  = $contratosTotal,
+           c.montoTotal      = $montoTotal,
+           c.empresasCount   = $empresasCount,
+           c.detectadoEn     = $detectadoEn,
+           c.snapshotId      = $snapshotId,
+           c.fuenteUrls      = $fuenteUrls`,
+      {
+        ...data,
+        funcionarioDni: data.funcionarioDni ?? null,
+        fuenteUrls: data.fuenteUrls ?? [],
+      }
+    )
+
+    // 2) Aristas Funcionario → Conflicto. Match por nombreNorm + jurisdiccion
+    // (todos los registros de cargo del funcionario conectan al mismo conflicto).
+    await s.run(
+      `MATCH (c:Conflicto {id: $id})
+       MATCH (f:Funcionario {nombreNorm: $funcionarioNorm, jurisdiccion: $jurisdiccion})
+       MERGE (f)-[:DETECTADO_EN {rol: 'sospechoso'}]->(c)`,
+      { id: data.id, funcionarioNorm: data.funcionarioNorm, jurisdiccion: data.jurisdiccion }
+    )
+
+    // 3) PersonaFisica → Conflicto si DNI conocido
+    if (data.funcionarioDni) {
+      await s.run(
+        `MATCH (c:Conflicto {id: $id})
+         MATCH (p:PersonaFisica {dni: $dni})
+         MERGE (p)-[:DETECTADO_EN {rol: 'sospechoso'}]->(c)`,
+        { id: data.id, dni: data.funcionarioDni }
+      )
+    }
+
+    // 4) Aristas Empresa → Conflicto + DNI del director si conocido
+    for (const e of empresas) {
+      await s.run(
+        `MATCH (c:Conflicto {id: $id})
+         MATCH (em:Empresa {cuit: $cuit})
+         MERGE (em)-[link:DETECTADO_EN {rol: 'proveedor'}]->(c)
+         SET link.contratos = $contratos, link.monto = $monto`,
+        { id: data.id, cuit: e.cuitEmpresa, contratos: e.contratos, monto: e.monto }
+      )
+      if (e.dniDirector) {
+        await s.run(
+          `MATCH (c:Conflicto {id: $id})
+           MERGE (p:PersonaFisica {dni: $dni})
+           ON CREATE SET p.nombre = $empresaNombre  // placeholder, mejor data llega vía seed-igj
+           MERGE (p)-[:DETECTADO_EN {rol: 'director'}]->(c)`,
+          { id: data.id, dni: e.dniDirector, empresaNombre: e.empresaNombre }
+        )
+      }
+    }
+  })
+}
+
+export interface ConflictoListItem {
+  id: string
+  tipologia: string
+  jurisdiccion: string
+  funcionarioNombre: string
+  score: number
+  severidad: string
+  empresasCount: number
+  montoTotal: number
+  detectadoEn: string
+}
+
+export async function listarConflictos(opts: {
+  jurisdiccion?: string
+  tipologia?: string
+  minScore?: number
+  limit?: number
+} = {}): Promise<ConflictoListItem[]> {
+  if (!_available) return []
+  return withSession(async s => {
+    const params: Record<string, unknown> = { limit: opts.limit ?? 100 }
+    const where: string[] = []
+    if (opts.jurisdiccion) {
+      where.push('c.jurisdiccion = $jurisdiccion')
+      params.jurisdiccion = opts.jurisdiccion
+    }
+    if (opts.tipologia) {
+      where.push('c.tipologia = $tipologia')
+      params.tipologia = opts.tipologia
+    }
+    if (opts.minScore != null) {
+      where.push('c.score >= $minScore')
+      params.minScore = opts.minScore
+    }
+    const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''
+
+    const result = await s.run(
+      `MATCH (c:Conflicto)
+       ${whereSql}
+       RETURN c.id AS id, c.tipologia AS tipologia, c.jurisdiccion AS jurisdiccion,
+              c.funcionarioNombre AS funcionarioNombre, c.score AS score,
+              c.severidad AS severidad, c.empresasCount AS empresasCount,
+              c.montoTotal AS montoTotal, c.detectadoEn AS detectadoEn
+       ORDER BY c.score DESC
+       LIMIT $limit`,
+      params
+    )
+    return result.records.map(r => ({
+      id: r.get('id') as string,
+      tipologia: r.get('tipologia') as string,
+      jurisdiccion: r.get('jurisdiccion') as string,
+      funcionarioNombre: r.get('funcionarioNombre') as string,
+      score: Number(r.get('score')),
+      severidad: r.get('severidad') as string,
+      empresasCount: Number(r.get('empresasCount')),
+      montoTotal: Number(r.get('montoTotal')),
+      detectadoEn: r.get('detectadoEn') as string,
+    }))
   })
 }
 

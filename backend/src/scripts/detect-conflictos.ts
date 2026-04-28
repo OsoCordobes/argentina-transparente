@@ -13,6 +13,7 @@
 
 import 'dotenv/config'
 import { initDb } from '../lib/db'
+import { initGraph, isGraphAvailable } from '../lib/graph'
 import { ejecutarDetector } from '../lib/detector-conflicto-funcionario-proveedor'
 
 interface Args {
@@ -42,6 +43,7 @@ async function main() {
   console.log('=== ARGOS — Detector M4.1: Conflicto Funcionario ↔ Proveedor ===\n')
   const args = parseArgs()
   await initDb()
+  await initGraph()  // best-effort — si Neo4j no corre, el detector skippea grafo
 
   console.log(`Configuración:`)
   console.log(`  reemplazarExistentes: ${args.reemplazar}`)
@@ -63,6 +65,7 @@ async function main() {
   console.log(`Candidatos hallados:   ${result.candidatos}`)
   console.log(`Patrones sistémicos:   ${result.patronesSistemicos} (≥${args.minEmpresasPatron} empresas distintas)`)
   console.log(`Señales insertadas:    ${result.insertadas} (en señales_cache: 'conflicto_funcionario_proveedor' + 'conflicto_funcionario_multiproveedor')`)
+  console.log(`Nodos :Conflicto:      ${result.nodosGrafoCreados} en Neo4j (grafo ${isGraphAvailable() ? 'ON' : 'OFF, skipped'})`)
   console.log(`\nSiguiente: \`npx ts-node src/scripts/inspect-db.ts\` o consultar señales_cache directamente.`)
   process.exit(0)
 }

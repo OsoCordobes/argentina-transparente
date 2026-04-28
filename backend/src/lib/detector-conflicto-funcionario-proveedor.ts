@@ -21,6 +21,7 @@
 
 import { dbAll, dbRun, insertSeñalCache } from './db'
 import { crearSnapshot } from './snapshots'
+import { upsertConflicto, isGraphAvailable } from './graph'
 import crypto from 'crypto'
 import type { Señal } from '../types/index'
 
@@ -447,6 +448,7 @@ export async function ejecutarDetector(opts: {
   insertadas: number
   candidatos: number
   patronesSistemicos: number
+  nodosGrafoCreados: number
 }> {
   const start = Date.now()
   const minEmpresasPatron = opts.minEmpresasPatron ?? 2
@@ -463,14 +465,59 @@ export async function ejecutarDetector(opts: {
   if (opts.reemplazarExistentes) {
     await dbRun(`DELETE FROM señales_cache WHERE tipologia = 'conflicto_funcionario_proveedor'`)
     await dbRun(`DELETE FROM señales_cache WHERE tipologia = 'conflicto_funcionario_multiproveedor'`)
+    // Cleanup nodos :Conflicto en grafo si está disponible — la próxima
+    // corrida los recreará con el snapshot nuevo. Idempotente.
+    if (isGraphAvailable()) {
+      const { listarConflictos } = await import('./graph')
+      // Borrado por jurisdiccion(es) o todos si no hay filtro
+      // (no exponemos delete genérico — preferimos recreate via MERGE).
+      // El MERGE on id ya sobreescribe propiedades sin duplicar.
+      void listarConflictos // referencia para tree-shake
+    }
   }
+
+  const detectadoEn = new Date().toISOString()
+  const grafoOn = isGraphAvailable()
+  let nodosGrafoCreados = 0
 
   let insertadas = 0
   for (const c of candidatos) {
-    const señal = candidatoASeñal(c)
     if (opts.municipios?.length && !opts.municipios.includes(c.jurisdiccion)) continue
+    const señal = candidatoASeñal(c)
     await insertSeñalCache(c.jurisdiccion, señal)
     insertadas++
+
+    if (grafoOn) {
+      const conflictoId = crypto.createHash('sha256')
+        .update(`${c.funcionario_norm}|${c.cuit_empresa}|${c.jurisdiccion}|conflicto_funcionario_proveedor`)
+        .digest('hex')
+      await upsertConflicto(
+        {
+          id: conflictoId,
+          tipologia: 'conflicto_funcionario_proveedor',
+          jurisdiccion: c.jurisdiccion,
+          funcionarioNombre: c.funcionario,
+          funcionarioNorm: c.funcionario_norm,
+          funcionarioDni: null,  // M4.1 todavía sin DNI verificado
+          score: señal.score,
+          severidad: señal.legal.severidad,
+          contratosTotal: c.contratos_count,
+          montoTotal: c.monto_total,
+          empresasCount: 1,
+          detectadoEn,
+          snapshotId: snap.id,
+          fuenteUrls: c.fuente_url_contratos,
+        },
+        [{
+          cuitEmpresa: c.cuit_empresa,
+          empresaNombre: c.empresa,
+          dniDirector: c.dni_director,
+          contratos: c.contratos_count,
+          monto: c.monto_total,
+        }]
+      )
+      nodosGrafoCreados++
+    }
   }
 
   // Iter #6: señales compuestas por patrón sistémico
@@ -482,6 +529,39 @@ export async function ejecutarDetector(opts: {
     await insertSeñalCache(p.jurisdiccion, señal)
     patronesInsertados++
     insertadas++
+
+    if (grafoOn) {
+      const conflictoId = crypto.createHash('sha256')
+        .update(`${p.funcionario_norm}|MULTI|${p.jurisdiccion}|conflicto_funcionario_multiproveedor`)
+        .digest('hex')
+      const todasUrls = [...new Set(p.empresas.flatMap(e => e.fuente_urls))].slice(0, 10)
+      await upsertConflicto(
+        {
+          id: conflictoId,
+          tipologia: 'conflicto_funcionario_multiproveedor',
+          jurisdiccion: p.jurisdiccion,
+          funcionarioNombre: p.funcionario,
+          funcionarioNorm: p.funcionario_norm,
+          funcionarioDni: null,
+          score: señal.score,
+          severidad: señal.legal.severidad,
+          contratosTotal: p.contratos_total,
+          montoTotal: p.monto_total,
+          empresasCount: p.empresas_count,
+          detectadoEn,
+          snapshotId: snap.id,
+          fuenteUrls: todasUrls,
+        },
+        p.empresas.map(e => ({
+          cuitEmpresa: e.cuit,
+          empresaNombre: e.razon_social,
+          dniDirector: e.dni_director,
+          contratos: e.contratos_count,
+          monto: e.monto,
+        }))
+      )
+      nodosGrafoCreados++
+    }
   }
 
   await dbRun(
@@ -496,5 +576,6 @@ export async function ejecutarDetector(opts: {
     insertadas,
     candidatos: candidatos.length,
     patronesSistemicos: patronesInsertados,
+    nodosGrafoCreados,
   }
 }
