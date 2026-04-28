@@ -153,4 +153,24 @@ Si el DNI no matchea → falsos positivos por homonimia. La señal lo dice expl�
 - ✅ Cada señal trazable a fuente_url del contrato + DNI IGJ
 - ✅ Disclaimer explícito de verificación pendiente (cap score 95)
 - ✅ No bypass de bloqueadores legales (apellido match + filtro rareza es honesta heurística)
-- ✅ Tests passing 265/265
+- ✅ Tests passing 266/266
+
+---
+
+## Hallazgo bonus: calidad identity_matches Tier 4-5
+
+Investigué usar `identity_matches.cuit_resuelto` como path alternativo (M4.2) para JOIN por CUIT en lugar de razon_social. Hallazgos:
+
+**Coverage:** 279/632 proveedores cordobeses tienen CUIT resuelto (44%).
+
+**Problema crítico:** Tier 4 (41 matches LLM ambiguos) tiene CUITs MAL asignados. Ejemplos verificados:
+
+- proveedor `"DANIEL ALBERTO NIETO"` → CUIT de `"DANIEL ALBERTO OTERO"` (apellidos distintos!)
+- proveedor `"GOBIERNO DE LA PROVINCIA DE CÓRDOBA"` → CUIT de `"GOBIERNO DE LA PROVINCIA DE LA RIOJA"` (jurisdicción equivocada!)
+- proveedor `"FIDEICOMISO DE ADMINISTRACIÓN TYKA"` → CUIT de `"FIDEICOMISO DE ADMINISTRACION RONAS"` (entidades distintas!)
+
+**Recomendación:** **NO usar Tier 4-5 en detectores de M4.x**. Usar solo Tier 1-2-3 (CUIT exacto / nombre normalizado / fuzzy alto). Tier 4 requiere auditoría manual o re-corrida del identity resolver con mejor prompt.
+
+**Para M4.1 actual:** mantengo el match por razon_social string (no usa identity_matches Tier 4). Si en el futuro se quiere upgrade a CUIT-based, restringir a `WHERE im.tier <= 3`.
+
+Esto va a documentación de deuda de identity_matches — auditar Tier 4 es trabajo separado de M4.x.
