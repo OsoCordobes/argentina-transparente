@@ -173,14 +173,44 @@ export async function encontrarCrucesCandidatos(opts: {
   return [...grouped.values()].sort((a, b) => b.monto_total - a.monto_total)
 }
 
+// Cargos con poder real de adjudicación o influencia sobre contratos.
+// Sumar bonus de score si el funcionario ostenta alguno.
+const CARGOS_CON_PODER = [
+  'DIRECTOR', 'DIRECTORA',
+  'SECRETARIO', 'SECRETARIA',
+  'SUBSECRETARIO', 'SUBSECRETARIA',
+  'JEFE', 'JEFA',
+  'GERENTE',
+  'COORDINADOR', 'COORDINADORA',
+  'INTENDENTE',
+  'CONCEJAL', 'CONCEJALA',
+  'MINISTRO', 'MINISTRA',
+  'PRESIDENTE', 'PRESIDENTA',
+]
+
+function bonusPorCargo(cargos: string[]): number {
+  const norm = cargos.map(c => c.toUpperCase())
+  for (const palabra of CARGOS_CON_PODER) {
+    if (norm.some(c => c.includes(palabra))) return 15
+  }
+  return 0
+}
+
 /**
  * Convierte un candidato en una Señal estándar de ARGOS.
+ *
+ * Scoring:
+ *   - Base: 30 puntos (señal Tier 2 sin verificación DNI)
+ *   - Monto: log10(monto) * 6, max 50
+ *   - Rareza: (4 - dnis) * 8, max 24
+ *   - Cargo con poder de adjudicación: +15
+ *   - Cap: 95 (nunca 100 hasta DNI verificado)
  */
 export function candidatoASeñal(c: CruceCandidato): Señal {
-  // Score: monto + rareza apellido. Cap a 95 (nunca 100 sin verificación DNI).
   const scoreMonto = Math.min(50, Math.log10(Math.max(c.monto_total, 1)) * 6)
-  const scoreRareza = (4 - c.unique_dnis_igj) * 8  // 24/16/8 puntos por 1/2/3 DNIs
-  const score = Math.min(95, Math.round(scoreMonto + scoreRareza + 30))
+  const scoreRareza = (4 - c.unique_dnis_igj) * 8
+  const scoreCargo = bonusPorCargo(c.cargos)
+  const score = Math.min(95, Math.round(scoreMonto + scoreRareza + scoreCargo + 30))
 
   const severidad: 'grave' | 'moderada' | 'leve' =
     score >= 75 ? 'grave' : score >= 55 ? 'moderada' : 'leve'

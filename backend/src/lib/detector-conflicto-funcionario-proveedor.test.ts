@@ -73,6 +73,25 @@ describe('M4.1 — detector conflicto_funcionario_proveedor', () => {
     expect(señal.score).toBeLessThanOrEqual(95)
   })
 
+  it('candidatoASeñal: bonus +15 por cargo con poder (Director, Secretario, etc)', () => {
+    // Valores chicos para evitar cap 95
+    const baseCandidate: CruceCandidato = {
+      funcionario: 'X', funcionario_norm: 'X', jurisdiccion: 'cordoba-capital',
+      reparticiones: [], cargos: [],
+      unique_dnis_igj: 3, empresa: 'E', cuit_empresa: '30-1-1',
+      dni_director: '1', contratos_count: 1, monto_total: 50_000,
+      fuente_url_contratos: [],
+    }
+    const senalSinCargo = candidatoASeñal(baseCandidate)
+    const senalConDirector = candidatoASeñal({ ...baseCandidate, cargos: ['Director de Compras'] })
+    const senalConJefe = candidatoASeñal({ ...baseCandidate, cargos: ['Jefe de Personal'] })
+    const senalConDocente = candidatoASeñal({ ...baseCandidate, cargos: ['Docente Auxiliar'] })
+
+    expect(senalConDirector.score - senalSinCargo.score).toBe(15)
+    expect(senalConJefe.score - senalSinCargo.score).toBe(15)
+    expect(senalConDocente.score).toBe(senalSinCargo.score)  // sin bonus
+  })
+
   it('detector está registrado en señales_cache cuando ya corrió', async () => {
     // Soft check — no requiere que haya corrido, pero si corrió, debe estar bien
     const r = await dbAll<{ c: number }>(
