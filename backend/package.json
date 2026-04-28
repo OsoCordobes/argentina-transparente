@@ -41,6 +41,7 @@
     "migrate:bitemporal": "npx ts-node src/scripts/migrate-bitemporal.ts",
     "build:organigrama": "npx ts-node src/scripts/build-organigrama-cordoba.ts",
     "seed:boe-cba": "npx ts-node src/scripts/seed-boe-cba.ts",
+    "worker:boletin-ocr": "npx ts-node src/scripts/worker-boletin-ocr.ts",
     "seed:all": "npm run seed:cordoba && npm run seed:nacion && npm run seed:igj && npm run seed:afip && npm run seed:neo4j && npm run seed:opensanctions",
     "analyze": "npx ts-node src/scripts/analyze.ts",
     "alertas:check": "npx ts-node src/scripts/check-alertas.ts",
