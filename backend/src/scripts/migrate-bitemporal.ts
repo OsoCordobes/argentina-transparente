@@ -22,6 +22,10 @@ const TABLAS_CORE = [
   'obras_publicas',
   'transferencias',
   'presupuesto_ejecucion',
+  // boletin_actos ya nace con columnas bitemporal (creadas en initDb), pero
+  // listamos aquí para que addColumnIfMissing las trate como existentes y
+  // mantengamos consistencia con el listado de tablas core bitemporales.
+  'boletin_actos',
 ] as const
 
 async function tableExists(name: string): Promise<boolean> {

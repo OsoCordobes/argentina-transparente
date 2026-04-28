@@ -296,6 +296,70 @@ export async function initDb(): Promise<void> {
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_entes_cuit ON entes_estatales_cordoba(cuit) WHERE cuit IS NOT NULL`)
   } catch { /* idempotente */ }
 
+  // ─── Boletines Oficiales — extractos OCR (W2 Task B) ─────────────────────
+  // Una row por PDF procesado. hash_pdf = sha256 del buffer original (estable
+  // entre re-corridas → idempotencia). Si re-procesamos un PDF y el hash
+  // cambia (versión actualizada del boletín), el viejo extract queda
+  // marcado como superseded por el nuevo (analogía con snapshot supersession).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS boletin_extractos (
+      hash_pdf              TEXT PRIMARY KEY,
+      jurisdiccion          TEXT NOT NULL,
+      fuente_url            TEXT NOT NULL,
+      fecha_publicacion     TEXT,
+      total_paginas         INTEGER NOT NULL,
+      metodo_usado          TEXT NOT NULL,
+      confidence_avg        DOUBLE NOT NULL,
+      texto_completo        TEXT,
+      paginas_problematicas TEXT,
+      duracion_ms           INTEGER,
+      snapshot_id           TEXT,
+      procesado_en          TEXT NOT NULL
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_boletin_extractos_jur ON boletin_extractos(jurisdiccion)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_boletin_extractos_fecha ON boletin_extractos(fecha_publicacion)`)
+  } catch { /* idempotente */ }
+
+  // ─── Boletines Oficiales — actos administrativos extraídos (W2 Task B) ───
+  // Una row por ActoAdministrativoExtraido. id = sha256(hash_pdf|pagina|tipo|
+  // numero|cuit|monto) — idempotente, INSERT OR IGNORE deduplica al re-procesar
+  // el mismo PDF. Columnas bitemporal (t_efectivo/t_publicado/superseded_by_id)
+  // creadas acá para evitar pasada de migrate-bitemporal.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS boletin_actos (
+      id                     TEXT PRIMARY KEY,
+      hash_pdf               TEXT NOT NULL,
+      jurisdiccion           TEXT NOT NULL,
+      pagina                 INTEGER NOT NULL,
+      tipo_acto              TEXT,
+      numero_acto            TEXT,
+      numero_expediente      TEXT,
+      fecha_acto             TEXT,
+      cuit                   TEXT,
+      dni                    TEXT,
+      proveedor_razon_social TEXT,
+      reparticion            TEXT,
+      monto                  DOUBLE,
+      texto_crudo            TEXT,
+      metodo_extraccion      TEXT NOT NULL,
+      confidence             DOUBLE NOT NULL,
+      snapshot_id            TEXT,
+      insertado_en           TEXT NOT NULL,
+      t_efectivo             TEXT,
+      t_publicado            TEXT,
+      superseded_by_id       TEXT
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_boletin_actos_hash ON boletin_actos(hash_pdf)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_boletin_actos_cuit ON boletin_actos(cuit) WHERE cuit IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_boletin_actos_dni ON boletin_actos(dni) WHERE dni IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_boletin_actos_jur ON boletin_actos(jurisdiccion)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_boletin_actos_fecha ON boletin_actos(fecha_acto)`)
+  } catch { /* idempotente */ }
+
   // ─── LLM usage tracking (Fase 4) ──────────────────────────────────────────
   // Cada call a Anthropic API se registra acá para enforce hard budget cap.
   // El budget-guard.ts agrega SUM(costo_usd) WHERE timestamp > ventana
