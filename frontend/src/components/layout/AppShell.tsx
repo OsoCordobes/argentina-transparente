@@ -14,6 +14,7 @@ import {
   User,
   Telescope,
   Users,
+  Gauge,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -72,6 +73,9 @@ export function AppShell() {
             </NavItem>
             <NavItem to="/municipios" icon={<Building2 className="h-4 w-4" />}>
               Jurisdicciones
+            </NavItem>
+            <NavItem to="/cobertura" icon={<Gauge className="h-4 w-4" />}>
+              Cobertura
             </NavItem>
             <NavItem to="/casos" icon={<FolderOpen className="h-4 w-4" />}>
               Casos
