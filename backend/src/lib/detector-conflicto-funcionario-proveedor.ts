@@ -50,6 +50,7 @@ export interface CruceCandidato {
   anios_contrato: number[]            // años distintos de los contratos con la empresa
   overlap_temporal: boolean           // ¿hay solapamiento de años? (con tolerancia ±2)
   unique_dnis_igj: number             // # DNIs distintos en IGJ con este apellido (medida de rareza)
+  apellido_freq_agentes: number       // # filas en agentes_publicos con apellido_nombre normalizado idéntico (base rate proxy)
   empresa: string                     // razón social
   cuit_empresa: string
   dni_director: string                // DNI tal como en igj_autoridades
@@ -147,6 +148,7 @@ export async function encontrarCrucesCandidatos(opts: {
         anios_contrato: [],
         overlap_temporal: false,
         unique_dnis_igj: Number(r.unique_dnis_igj),
+        apellido_freq_agentes: 0,  // populated abajo (base rate)
         empresa: r.empresa,
         cuit_empresa: r.cuit_empresa,
         dni_director: r.dni_director,
@@ -188,6 +190,16 @@ export async function encontrarCrucesCandidatos(opts: {
       const cMax = c.anios_contrato[c.anios_contrato.length - 1] + tolerancia
       c.overlap_temporal = c.anios_funcionario.some(a => a >= cMin && a <= cMax)
     }
+
+    // Base rate: cuántos agentes_publicos comparten el mismo apellido_nombre
+    // normalizado. Proxy de "rareza poblacional". 178K agentes total.
+    // Si N=1 → posiblemente único; si N>20 → apellido común aunque IGJ diga raro.
+    const fr = await dbAll<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM agentes_publicos
+        WHERE ${NORM_SQL('apellido_nombre')} = ?`,
+      [c.funcionario_norm]
+    )
+    c.apellido_freq_agentes = Number(fr[0]?.n ?? 0)
   }
 
   const all = [...grouped.values()].sort((a, b) => b.monto_total - a.monto_total)
@@ -218,6 +230,26 @@ function bonusPorCargo(cargos: string[]): number {
 }
 
 /**
+ * Iter #4: factor de ajuste por base rate del apellido en agentes_publicos.
+ * El conteo es un proxy poblacional (178K agentes provincia + capital).
+ *
+ * - apellido_freq ≤ 5    → factor 1.25 (apellido raro en padrón → matchea más)
+ * - apellido_freq ≤ 20   → factor 1.0  (mid-rango, sin ajuste)
+ * - apellido_freq ≤ 100  → factor 0.85 (común, baja confianza ligeramente)
+ * - apellido_freq > 100  → factor 0.65 (muy común, baja confianza fuerte)
+ *
+ * Nota: el filtro IGJ (maxDnisIGJ ≤ 3) ya filtra apellidos raros en IGJ,
+ * pero "raro en IGJ" puede coexistir con "muy común en padrón" — apellidos
+ * humildes que no aparecen como directores de SA. Este factor ataca ese gap.
+ */
+export function factorBaseRate(apellido_freq_agentes: number): number {
+  if (apellido_freq_agentes <= 5) return 1.25
+  if (apellido_freq_agentes <= 20) return 1.0
+  if (apellido_freq_agentes <= 100) return 0.85
+  return 0.65
+}
+
+/**
  * Convierte un candidato en una Señal estándar de ARGOS.
  *
  * Scoring:
@@ -229,7 +261,8 @@ function bonusPorCargo(cargos: string[]): number {
  */
 export function candidatoASeñal(c: CruceCandidato): Señal {
   const scoreMonto = Math.min(50, Math.log10(Math.max(c.monto_total, 1)) * 6)
-  const scoreRareza = (4 - c.unique_dnis_igj) * 8
+  const factor = factorBaseRate(c.apellido_freq_agentes)
+  const scoreRareza = (4 - c.unique_dnis_igj) * 8 * factor
   const scoreCargo = bonusPorCargo(c.cargos)
   const score = Math.min(95, Math.round(scoreMonto + scoreRareza + scoreCargo + 30))
 
@@ -386,9 +419,10 @@ export function aggregarPatronesSistemicos(
  *   - Cargo con poder: +15
  *   - Cap: 95 (sigue sin DNI verificado)
  */
-export function patronASeñal(p: CrucePatronSistemico): Señal {
+export function patronASeñal(p: CrucePatronSistemico, apellidoFreqAgentes = 1): Señal {
   const scoreMonto = Math.min(30, Math.log10(Math.max(p.monto_total, 1)) * 6)
-  const scoreRareza = Math.min(24, (4 - p.unique_dnis_igj) * 6)
+  const factor = factorBaseRate(apellidoFreqAgentes)
+  const scoreRareza = Math.min(24, (4 - p.unique_dnis_igj) * 6 * factor)
   const scoreCantidad = Math.min(25, (p.empresas_count - 1) * 5)
   const scoreCargo = bonusPorCargo(p.cargos)
   const score = Math.min(95, Math.round(50 + scoreMonto + scoreRareza + scoreCantidad + scoreCargo))
@@ -525,7 +559,13 @@ export async function ejecutarDetector(opts: {
   let patronesInsertados = 0
   for (const p of patrones) {
     if (opts.municipios?.length && !opts.municipios.includes(p.jurisdiccion)) continue
-    const señal = patronASeñal(p)
+    // Pasamos el freq mínimo entre todos los candidatos del patrón —
+    // si UN candidato es muy común, el patrón compuesto debe heredar la
+    // confianza menor (más estricto).
+    const freqMin = Math.min(...candidatos
+      .filter(c => c.funcionario_norm === p.funcionario_norm && c.jurisdiccion === p.jurisdiccion)
+      .map(c => c.apellido_freq_agentes), Infinity)
+    const señal = patronASeñal(p, isFinite(freqMin) ? freqMin : 1)
     await insertSeñalCache(p.jurisdiccion, señal)
     patronesInsertados++
     insertadas++

@@ -6,6 +6,7 @@ import {
   candidatoASeñal,
   aggregarPatronesSistemicos,
   patronASeñal,
+  factorBaseRate,
   type CruceCandidato,
 } from './detector-conflicto-funcionario-proveedor'
 
@@ -16,6 +17,7 @@ const baseC = (overrides: Partial<CruceCandidato> = {}): CruceCandidato => ({
   reparticiones: ['SECRETARIA OBRAS'],
   cargos: ['Director'],
   unique_dnis_igj: 1,
+  apellido_freq_agentes: 3,  // por default raro (factor 1.25)
   empresa: 'X SA',
   cuit_empresa: '30-1-1',
   dni_director: '1',
@@ -46,6 +48,7 @@ describe('M4.1 — detector conflicto_funcionario_proveedor', () => {
       monto_total: 50_000_000,
       fuente_url_contratos: ['https://x/contrato.xls'],
       anios_funcionario: [2020, 2021, 2022], anios_contrato: [2022], overlap_temporal: true,
+      apellido_freq_agentes: 3,
     }
     const señal = candidatoASeñal(c)
     expect(señal.tipologia).toBe('conflicto_funcionario_proveedor')
@@ -74,6 +77,7 @@ describe('M4.1 — detector conflicto_funcionario_proveedor', () => {
       monto_total: 50_000,
       fuente_url_contratos: [],
       anios_funcionario: [2020], anios_contrato: [2020], overlap_temporal: true,
+      apellido_freq_agentes: 50,  // común → factor 0.85
     }
     const señal = candidatoASeñal(c)
     expect(señal.score).toBeLessThan(75)
@@ -95,6 +99,7 @@ describe('M4.1 — detector conflicto_funcionario_proveedor', () => {
       monto_total: 1_000_000_000_000,  // 1 billón
       fuente_url_contratos: [],
       anios_funcionario: [2022], anios_contrato: [2022], overlap_temporal: true,
+      apellido_freq_agentes: 1,
     }
     const señal = candidatoASeñal(c)
     expect(señal.score).toBeLessThanOrEqual(95)
@@ -109,6 +114,7 @@ describe('M4.1 — detector conflicto_funcionario_proveedor', () => {
       dni_director: '1', contratos_count: 1, monto_total: 50_000,
       fuente_url_contratos: [],
       anios_funcionario: [2022], anios_contrato: [2022], overlap_temporal: true,
+      apellido_freq_agentes: 3,
     }
     const senalSinCargo = candidatoASeñal(baseCandidate)
     const senalConDirector = candidatoASeñal({ ...baseCandidate, cargos: ['Director de Compras'] })
@@ -206,6 +212,35 @@ describe('M4.1 — detector conflicto_funcionario_proveedor', () => {
     const [pBase] = aggregarPatronesSistemicos(csBase, 2)
     const [pPoder] = aggregarPatronesSistemicos(csConPoder, 2)
     expect(patronASeñal(pPoder).score - patronASeñal(pBase).score).toBe(15)
+  })
+
+  it('factorBaseRate: apellido raro (≤5) → 1.25', () => {
+    expect(factorBaseRate(0)).toBe(1.25)
+    expect(factorBaseRate(5)).toBe(1.25)
+  })
+
+  it('factorBaseRate: mid-rango (6-20) → 1.0', () => {
+    expect(factorBaseRate(6)).toBe(1.0)
+    expect(factorBaseRate(20)).toBe(1.0)
+  })
+
+  it('factorBaseRate: común (21-100) → 0.85', () => {
+    expect(factorBaseRate(50)).toBe(0.85)
+    expect(factorBaseRate(100)).toBe(0.85)
+  })
+
+  it('factorBaseRate: muy común (>100) → 0.65', () => {
+    expect(factorBaseRate(101)).toBe(0.65)
+    expect(factorBaseRate(5000)).toBe(0.65)
+  })
+
+  it('candidatoASeñal: apellido común reduce score vs apellido raro', () => {
+    // Mismo input excepto apellido_freq_agentes
+    const baseRare = baseC({ apellido_freq_agentes: 3, monto_total: 100_000, unique_dnis_igj: 2, cargos: ['docente'] })
+    const baseCommon = baseC({ apellido_freq_agentes: 200, monto_total: 100_000, unique_dnis_igj: 2, cargos: ['docente'] })
+    const sRare = candidatoASeñal(baseRare).score
+    const sCommon = candidatoASeñal(baseCommon).score
+    expect(sCommon).toBeLessThan(sRare)
   })
 
   it('detector está registrado en señales_cache cuando ya corrió', async () => {
