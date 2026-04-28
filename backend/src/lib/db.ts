@@ -237,6 +237,34 @@ export async function initDb(): Promise<void> {
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_quarantine_estado ON quarantine(resolucion)`)
   } catch { /* idempotente */ }
 
+  // ─── Identity Resolution candidates (W1) ──────────────────────────────────
+  // T1 (DNI/CUIT exact) entran al grafo Neo4j público.
+  // T2/T3 quedan acá hasta verificación humana (UI /admin/identidades).
+  // Por LAI argentina, toda arista pública debe ser T1.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS identidad_candidates (
+      id                    TEXT PRIMARY KEY,
+      tipo                  TEXT NOT NULL,
+      fuente_a              TEXT NOT NULL,
+      identificador_a       TEXT NOT NULL,
+      fuente_b              TEXT NOT NULL,
+      identificador_b       TEXT NOT NULL,
+      tier                  INTEGER NOT NULL,
+      metodo                TEXT NOT NULL,
+      score                 DOUBLE NOT NULL,
+      verificado_por_humano BOOLEAN NOT NULL DEFAULT false,
+      verificado_en         TEXT,
+      verificado_por        TEXT,
+      notas                 TEXT,
+      created_at            TEXT NOT NULL
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_identidad_tipo ON identidad_candidates(tipo, tier)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_identidad_a ON identidad_candidates(LOWER(identificador_a))`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_identidad_b ON identidad_candidates(LOWER(identificador_b))`)
+  } catch { /* idempotente */ }
+
   // ─── LLM usage tracking (Fase 4) ──────────────────────────────────────────
   // Cada call a Anthropic API se registra acá para enforce hard budget cap.
   // El budget-guard.ts agrega SUM(costo_usd) WHERE timestamp > ventana
