@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useContrato, type SeñalAsociada } from '@/lib/queries'
+import { CadenaDePago, type Paso } from '@/components/argos/CadenaDePago'
 import { fmtARS } from '@/lib/format'
 import { AddToCase } from '@/components/caso/AddToCase'
 
@@ -168,6 +169,54 @@ export default function Contrato() {
               </CardContent>
             </Card>
           </section>
+
+          {/* W5: cadena de pago — del Estado a la empresa beneficiaria */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Cadena de pago</CardTitle>
+              <CardDescription>
+                Ruta del dinero desde el Estado hasta la persona beneficiaria
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <CadenaDePago
+                pasos={[
+                  {
+                    tipo: 'estado',
+                    nombre: data.contrato.municipio === 'cordoba-capital'
+                      ? 'Municipalidad de Córdoba'
+                      : (data.contrato.municipio ?? 'Estado'),
+                    fuenteTier: 0,
+                    fuenteSource: 'CKAN Córdoba',
+                  },
+                  {
+                    tipo: 'reparticion',
+                    nombre: data.contrato.area,
+                    detalle: 'Área contratante',
+                    fuenteTier: 0,
+                    fuenteSource: 'CKAN Córdoba',
+                  },
+                  {
+                    tipo: 'contrato',
+                    nombre: `Contrato ${data.contrato.tipo}`,
+                    detalle: `Año ${data.contrato.anio}`,
+                    monto: data.contrato.monto,
+                    fuenteTier: 0,
+                    fuenteSource: 'CKAN Córdoba',
+                    fuenteUrl: data.cadenaCustodia.fuenteUrl,
+                  },
+                  {
+                    tipo: 'empresa',
+                    nombre: data.contrato.proveedor,
+                    detalle: data.afip?.cuit ? `CUIT ${data.afip.cuit}` : 'Sin CUIT verificado',
+                    fuenteTier: data.afip ? 1 : 5,
+                    fuenteSource: data.afip ? 'AFIP / ARCA' : 'Sin verificación',
+                    identidadTier: data.afip ? 1 : 5,
+                  } satisfies Paso,
+                ]}
+              />
+            </CardContent>
+          </Card>
 
           {data.afip && (
             <Card>

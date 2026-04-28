@@ -39,6 +39,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useEntidad, type ContratoDetalle } from '@/lib/queries'
+import { CoberturaBanner } from '@/components/argos/CoberturaBanner'
 import { fmtARS, fmtCompactARS, fmtNumber, fmtFecha } from '@/lib/format'
 import { AddToCase } from '@/components/caso/AddToCase'
 
@@ -102,6 +103,16 @@ export default function Entidad() {
                 }}
               />
             </div>
+
+            {/* W5: banner de cobertura para la primera jurisdicción donde
+                aparece la entidad. Comunica al usuario qué porción del
+                gasto declarado en esa jurisdicción está trazada. */}
+            {entidad.municipios[0] && (
+              <CoberturaBanner
+                jurisdiccion={entidad.municipios[0]}
+                reparticion={entidad.nombre}
+              />
+            )}
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <Stat label="Monto total" value={fmtCompactARS(entidad.montoTotal)} />
