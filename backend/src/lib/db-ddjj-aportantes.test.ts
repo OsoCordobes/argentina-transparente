@@ -1,10 +1,18 @@
 // Tests for tables added in M1.5/M1.6: declaraciones_juradas + aportantes_campanas.
 // Verifica creación, idempotencia INSERT OR REPLACE, índices, constraints.
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
+//
+// NOTA: tests acoplados a DB productiva (Hallazgo 1 W1). Mitigamos con prefijos
+// _test_/_TEST_ + afterAll cleanup para no dejar residuos.
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest'
 import { initDb, dbAll, dbRun } from './db'
 import crypto from 'crypto'
 
 beforeAll(async () => { await initDb() })
+afterAll(async () => {
+  // Cleanup global: borra cualquier residuo de los inserts de los tests.
+  await dbRun('DELETE FROM declaraciones_juradas WHERE jurisdiccion = ?', ['_test_'])
+  await dbRun('DELETE FROM aportantes_campanas WHERE distrito = ?', ['_TEST_'])
+})
 
 describe('M1.5 — declaraciones_juradas table', () => {
   beforeEach(async () => { await dbRun('DELETE FROM declaraciones_juradas WHERE jurisdiccion = ?', ['_test_']) })

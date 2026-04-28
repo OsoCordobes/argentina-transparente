@@ -22,6 +22,7 @@ import 'dotenv/config'
 import crypto from 'crypto'
 import { initDb, dbRun, registrarFuente, registrarFuenteCatalogo } from '../lib/db'
 import { crearSnapshot } from '../lib/snapshots'
+import { normalizarNombrePersona } from '../lib/graph'
 import type { FuenteMetadata } from '../types/index'
 
 const PORTAL = 'https://gobiernoabierto.cordoba.gob.ar'
@@ -217,18 +218,19 @@ async function main() {
 
           try {
             const now = new Date().toISOString()
+            const apellidoNombreNorm = normalizarNombrePersona(apellidoNombre)
             await dbRun(
               `INSERT OR REPLACE INTO declaraciones_juradas
                (id, jurisdiccion, dato_id, version_id, gestion, apellido_nombre,
-                anio_declarado, pdf_url, xls_url, csv_url,
+                apellido_nombre_norm, anio_declarado, pdf_url, xls_url, csv_url,
                 ocr_procesado, cuit, dni, monto_declarado,
                 fuente_url, cargado_en,
                 t_efectivo, t_publicado, snapshot_id, superseded_by_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, NULL, NULL, NULL, ?, ?,
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, NULL, NULL, NULL, ?, ?,
                        NULL, ?, ?, NULL)`,
               [
                 id, 'cordoba-capital', String(f.id), v.id, cat.gestion,
-                apellidoNombre, anio, pdfAbs, xlsAbs, csvAbs, fuenteUrl,
+                apellidoNombre, apellidoNombreNorm, anio, pdfAbs, xlsAbs, csvAbs, fuenteUrl,
                 now, now, snapshotId,
               ]
             )

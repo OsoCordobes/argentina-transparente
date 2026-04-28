@@ -778,6 +778,7 @@ export async function initDb(): Promise<void> {
       version_id      TEXT NOT NULL,           -- ID de la declaración (1 por año)
       gestion         TEXT NOT NULL,           -- '2016-2019' | '2020-2023'
       apellido_nombre TEXT NOT NULL,
+      apellido_nombre_norm TEXT,               -- normalizado: UPPERCASE sin tildes, para join cross-categoría (populated por seed; NULL en pre-bitemporal antes de migración)
       anio_declarado  INTEGER,                 -- año al que refiere la declaración
       pdf_url         TEXT,                    -- único formato funcional
       xls_url         TEXT,                    -- linked en API pero suele 404
@@ -796,6 +797,7 @@ export async function initDb(): Promise<void> {
   `)
   try {
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_ddjj_apellido ON declaraciones_juradas(apellido_nombre)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_ddjj_apellido_norm ON declaraciones_juradas(apellido_nombre_norm)`)
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_ddjj_anio ON declaraciones_juradas(anio_declarado)`)
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_ddjj_dni ON declaraciones_juradas(dni) WHERE dni IS NOT NULL`)
   } catch { /* idempotente */ }
@@ -803,6 +805,9 @@ export async function initDb(): Promise<void> {
   for (const c of [
     `t_efectivo TIMESTAMP`, `t_publicado TIMESTAMP`,
     `snapshot_id TEXT`, `superseded_by_id TEXT`,
+    // Iteración: apellido_nombre_norm (default vacío para no romper rows preexistentes,
+    // se popula via UPDATE migration o re-run del seed con dedup).
+    `apellido_nombre_norm TEXT DEFAULT ''`,
   ]) {
     try { await dbRun(`ALTER TABLE declaraciones_juradas ADD COLUMN ${c}`) }
     catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
