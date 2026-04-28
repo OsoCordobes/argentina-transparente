@@ -26,7 +26,10 @@ import {
   registrarOCRJob, ocrJobYaProcesado, getOCRJobsResumen,
 } from '../lib/db'
 import { descargarPDF } from '../lib/pdf'
-import { extraerBoletin } from '../lib/ocr'
+// NOTA: este script bulk usa el pipeline LLM (Sonnet 4.6). Se mantiene como
+// path opt-in legacy. El default zero-cost vive en lib/ocr.ts y se invoca via
+// scripts/seed-boletin-ocr.ts.
+import { extraerBoletinViaLLM as extraerBoletin } from '../lib/ocr-llm'
 import { descubrirBoletines, type BoletinDisponible } from '../lib/boletin-cordoba'
 import type { FuenteMetadata } from '../types'
 
