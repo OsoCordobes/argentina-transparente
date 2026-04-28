@@ -22,6 +22,7 @@ const Explorar = lazy(() => import('./pages/Explorar'))
 const Watchlist = lazy(() => import('./pages/Watchlist'))
 const Actores = lazy(() => import('./pages/Actores'))
 const Cobertura = lazy(() => import('./pages/Cobertura'))
+const Huecos = lazy(() => import('./pages/Huecos'))
 
 function PageLoader() {
   return (
@@ -154,6 +155,14 @@ export default function App() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <Cobertura />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/huecos"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <Huecos />
               </Suspense>
             }
           />
