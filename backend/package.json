@@ -49,7 +49,10 @@
     "analyze": "npx ts-node src/scripts/analyze.ts",
     "alertas:check": "npx ts-node src/scripts/check-alertas.ts",
     "ckan:explore": "npx ts-node src/scripts/ckan-explore.ts",
-    "build:universo": "ts-node src/scripts/build-universo-cordobes.ts"
+    "build:universo": "ts-node src/scripts/build-universo-cordobes.ts",
+    "audit:no-pollution": "ts-node src/scripts/audit-no-pollution.ts",
+    "audit:tier4": "ts-node src/scripts/audit-tier4.ts",
+    "cleanup:test-pollution": "ts-node src/scripts/cleanup-test-pollution.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.79.0",

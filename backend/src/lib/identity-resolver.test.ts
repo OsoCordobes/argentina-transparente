@@ -30,8 +30,11 @@ const NOMBRE_B = `BETA SOLUTIONS SA${TEST_SUFFIX}`
 const NOMBRE_C = `GAMMA SERVICIOS${TEST_SUFFIX}`
 
 async function cleanup(): Promise<void> {
-  await dbRun(`DELETE FROM empresas WHERE cuit LIKE '991%'`)
-  await dbRun(`DELETE FROM identity_matches WHERE proveedor_norm LIKE '%${TEST_SUFFIX}'`)
+  // Borrar TODA pollution test, no solo la de esta corrida — corridas previas
+  // dejaban filas huérfanas. CUITs canónicos de fixture: 991* (Tier 1-3) +
+  // 99999999999 (cache hit test). Patrón de nombre: cualquier __TEST_F*.
+  await dbRun(`DELETE FROM empresas WHERE cuit LIKE '991%' OR cuit LIKE '999%'`)
+  await dbRun(`DELETE FROM identity_matches WHERE proveedor_norm LIKE '%__TEST_F%' OR cuit_resuelto LIKE '991%' OR cuit_resuelto LIKE '999%'`)
 }
 
 beforeAll(async () => {

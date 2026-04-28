@@ -45,6 +45,12 @@ jobs:
         # Cada señal debe tener evidencia + fuente_url. Sanity check.
         run: npx ts-node src/scripts/verify-hallazgos.ts
 
+      - name: Audit no test pollution
+        # Fail si hay fixtures (__TEST_F*, FIXTURE, CUITs 991/999/111)
+        # contaminando tablas productivas (hallazgo W4 2026-04-28: 967 filas
+        # test residuales en empresas/identity_matches/igj_entidades, etc.).
+        run: npm run audit:no-pollution
+
   frontend:
     name: Frontend (typecheck + build)
     runs-on: ubuntu-latest
