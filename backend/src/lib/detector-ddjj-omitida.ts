@@ -85,7 +85,10 @@ export async function encontrarPuestosSinDDJJ(opts: {
     bruto_promedio: number | null
     fuente_url: string
   }
-  const funcionarios = await dbAll<FuncObligado>(`
+  // Review #2 C3: integra A4. Si agentes_publicos.dni está poblado para este
+  // funcionario+jurisdicción, lo subimos al CrucePuestoSinDDJJ — el scoring
+  // sube de cap-60 a cap-75 cuando hay 3+ años omitidos consecutivos.
+  const funcionarios = await dbAll<FuncObligado & { dni: string | null }>(`
     SELECT apellido_nombre,
            ${NORM_SQL('apellido_nombre')} AS apellido_nombre_norm,
            jurisdiccion,
@@ -93,7 +96,8 @@ export async function encontrarPuestosSinDDJJ(opts: {
            ANY_VALUE(reparticion) AS reparticion,
            LIST(DISTINCT anio) AS anios,
            AVG(bruto) AS bruto_promedio,
-           ANY_VALUE(fuente_url) AS fuente_url
+           ANY_VALUE(fuente_url) AS fuente_url,
+           ANY_VALUE(dni) AS dni
       FROM agentes_publicos
      WHERE apellido_nombre IS NOT NULL
        AND cargo IS NOT NULL
@@ -103,21 +107,27 @@ export async function encontrarPuestosSinDDJJ(opts: {
      GROUP BY apellido_nombre, jurisdiccion, cargo
   `)
 
-  // DDJJ por (apellido_nombre_norm, año declarado)
-  type DDJJEntry = { apellido_nombre_norm: string; anios: number[] | string }
+  // Review #2 C3: agrupar DDJJ por (apellido_nombre_norm, jurisdiccion) en
+  // lugar de solo por norm. Antes: un funcionario que ocupó ministerio en
+  // provincia y concejal en capital se beneficiaba de la DDJJ provincial
+  // como si cubriera la capital (false negative). Ahora: cada cruce evalúa
+  // solo DDJJ de su misma jurisdicción.
+  type DDJJEntry = { apellido_nombre_norm: string; jurisdiccion: string; anios: number[] | string }
   const ddjjs = await dbAll<DDJJEntry>(`
     SELECT apellido_nombre_norm,
+           jurisdiccion,
            LIST(DISTINCT anio_declarado) AS anios
       FROM declaraciones_juradas
      WHERE apellido_nombre_norm IS NOT NULL
        AND apellido_nombre_norm != ''
        AND anio_declarado IS NOT NULL
-     GROUP BY apellido_nombre_norm
+       AND jurisdiccion IS NOT NULL
+     GROUP BY apellido_nombre_norm, jurisdiccion
   `)
-  const ddjjPorNorm = new Map<string, Set<number>>()
+  const ddjjPorNormJur = new Map<string, Set<number>>()
   for (const d of ddjjs) {
     const arr = Array.isArray(d.anios) ? d.anios : []
-    ddjjPorNorm.set(d.apellido_nombre_norm, new Set(arr.map(Number)))
+    ddjjPorNormJur.set(`${d.apellido_nombre_norm}||${d.jurisdiccion}`, new Set(arr.map(Number)))
   }
 
   // Cruce
@@ -126,7 +136,7 @@ export async function encontrarPuestosSinDDJJ(opts: {
     const aniosCargoArr = Array.isArray(f.anios) ? f.anios.map(Number) : []
     if (aniosCargoArr.length === 0) continue
     const aniosCargo = new Set(aniosCargoArr)
-    const aniosDDJJ = ddjjPorNorm.get(f.apellido_nombre_norm) ?? new Set<number>()
+    const aniosDDJJ = ddjjPorNormJur.get(`${f.apellido_nombre_norm}||${f.jurisdiccion}`) ?? new Set<number>()
     const aniosOmitidos = [...aniosCargo].filter(a => !aniosDDJJ.has(a)).sort()
     if (aniosOmitidos.length < minAnios) continue
     candidatos.push({
@@ -140,7 +150,10 @@ export async function encontrarPuestosSinDDJJ(opts: {
       anios_omitidos: aniosOmitidos,
       bruto_promedio: f.bruto_promedio !== null ? Number(f.bruto_promedio) : null,
       fuente_url: f.fuente_url,
-      dni_funcionario: null, // populado por A4-A5 cuando aplique
+      // Review #2 C3: levanta DNI directo de A4 backfill. Si A4 no corrió o
+      // este funcionario quedó como name_only_unmatched, dni queda en null y
+      // la señal se mantiene en cap-60.
+      dni_funcionario: (f as { dni?: string | null }).dni ?? null,
     })
   }
   return candidatos.sort((a, b) => b.anios_omitidos.length - a.anios_omitidos.length)
