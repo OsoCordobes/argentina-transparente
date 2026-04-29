@@ -42,6 +42,8 @@ const ActoresD6 = lazy(() => import('./pages/ActoresD6'))
 // PLAN-UI D7 — Casos / Caso (workspace)
 const CasosD7 = lazy(() => import('./pages/CasosD7'))
 const CasoD7 = lazy(() => import('./pages/CasoD7'))
+// PLAN-UI D8 — Watchlist
+const WatchlistD8 = lazy(() => import('./pages/WatchlistD8'))
 
 function PageLoader() {
   return (
@@ -107,6 +109,15 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoader />}>
               <CasoD7 />
+            </Suspense>
+          }
+        />
+        {/* PLAN-UI D8: Watchlist (sobreescribe legacy) */}
+        <Route
+          path="/watchlist"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <WatchlistD8 />
             </Suspense>
           }
         />
@@ -179,14 +190,7 @@ export default function App() {
               </Suspense>
             }
           />
-          <Route
-            path="/watchlist"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <Watchlist />
-              </Suspense>
-            }
-          />
+          {/* /watchlist legacy reemplazado por D8 fuera del AppShell */}
           {/* /actores legacy reemplazado por D6 fuera del AppShell.
               Mantengo la ruta por nombre pero apuntando a la legacy
               hasta que el flujo by-name se migre. */}
