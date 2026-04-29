@@ -252,27 +252,13 @@ export async function encontrarCrucesCandidatos(opts: {
   return all
 }
 
-// Cargos con poder real de adjudicación o influencia sobre contratos.
-// Sumar bonus de score si el funcionario ostenta alguno.
-const CARGOS_CON_PODER = [
-  'DIRECTOR', 'DIRECTORA',
-  'SECRETARIO', 'SECRETARIA',
-  'SUBSECRETARIO', 'SUBSECRETARIA',
-  'JEFE', 'JEFA',
-  'GERENTE',
-  'COORDINADOR', 'COORDINADORA',
-  'INTENDENTE',
-  'CONCEJAL', 'CONCEJALA',
-  'MINISTRO', 'MINISTRA',
-  'PRESIDENTE', 'PRESIDENTA',
-]
+// Cargos con poder real de adjudicación delegada a lib/cargos-conocidos.ts
+// (review #1 C3 extracción). Bonus +15 si cualquier cargo del funcionario
+// ostenta poder real.
+import { tieneCargoConPoder } from './cargos-conocidos'
 
 function bonusPorCargo(cargos: string[]): number {
-  const norm = cargos.map(c => c.toUpperCase())
-  for (const palabra of CARGOS_CON_PODER) {
-    if (norm.some(c => c.includes(palabra))) return 15
-  }
-  return 0
+  return cargos.some(c => tieneCargoConPoder(c)) ? 15 : 0
 }
 
 /**

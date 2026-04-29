@@ -16,28 +16,14 @@ import { dbAll, dbRun, insertSeñalCache } from './db'
 import { crearSnapshot } from './snapshots'
 import crypto from 'crypto'
 import type { Señal } from '../types/index'
+import {
+  CARGOS_OBLIGADOS_DDJJ_PATRONES,
+  esCargoAltoRango,
+  sqlCargoLike,
+} from './cargos-conocidos'
 
 const NORM_SQL = (col: string) =>
   `regexp_replace(strip_accents(UPPER(${col})), '[^A-Z\\s]', ' ', 'g')`
-
-// Cargos que exige el Anexo III Ley 25.188 (nacional) y Ley Provincial 8.835
-// para presentar DDJJ patrimonial integral. Lista normalizada en MAYÚSCULAS,
-// sin tildes — match contra apellido_nombre normalizado.
-const CARGOS_OBLIGADOS_PATRONES = [
-  'PRESIDENTE', 'PRESIDENTA',
-  'VICEPRESIDENTE', 'VICEPRESIDENTA',
-  'MINISTRO', 'MINISTRA',
-  'SECRETARIO', 'SECRETARIA',
-  'SUBSECRETARIO', 'SUBSECRETARIA',
-  'DIRECTOR', 'DIRECTORA',
-  'JEFE DE GABINETE',
-  'INTENDENTE', 'INTENDENTA',
-  'CONCEJAL', 'CONCEJALA',
-  'JUEZ', 'JUEZA', 'FISCAL',
-  'CONTROLADOR', 'CONTROLADORA',
-  'GERENTE',
-  'AUDITOR', 'AUDITORA',
-]
 
 const ORGANISMOS_DENUNCIA_C3 = [
   'Oficina Anticorrupción Nacional',
@@ -85,10 +71,8 @@ export async function encontrarPuestosSinDDJJ(opts: {
     ? `AND jurisdiccion IN (${opts.jurisdicciones.map(j => `'${j.replace(/'/g, "''")}'`).join(',')})`
     : ''
 
-  // Filtro de cargos obligados — UN único OR de patrones LIKE.
-  const cargoLike = CARGOS_OBLIGADOS_PATRONES.map(p =>
-    `UPPER(cargo) LIKE '%${p}%'`
-  ).join(' OR ')
+  // Filtro de cargos obligados — usa helper compartido (lib/cargos-conocidos.ts)
+  const cargoLike = sqlCargoLike('cargo', CARGOS_OBLIGADOS_DDJJ_PATRONES)
 
   // Funcionarios obligados (en agentes_publicos)
   type FuncObligado = {
@@ -174,9 +158,7 @@ export async function encontrarPuestosSinDDJJ(opts: {
  *     (patrón sostenido + identidad verificada empieza a ser dolo)
  */
 export function puestoSinDDJJASeñal(c: CrucePuestoSinDDJJ): Señal {
-  const cargoUpper = c.cargo.toUpperCase()
-  const altoRango = ['MINISTRO', 'DIRECTOR', 'SECRETARIO', 'SUBSECRETARIO', 'CONCEJAL', 'INTENDENTE', 'PRESIDENTE', 'JUEZ', 'FISCAL']
-    .some(p => cargoUpper.includes(p))
+  const altoRango = esCargoAltoRango(c.cargo)
   const scoreCargo = altoRango ? 15 : 0
   const scoreAnios = Math.min(30, c.anios_omitidos.length * 5)
   const cap = (c.dni_funcionario && c.anios_omitidos.length >= 3) ? 75 : 60
