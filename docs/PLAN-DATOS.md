@@ -97,51 +97,53 @@ Modalidades: licitación pública > licitación privada > concurso de precios > 
 
 ## 6. Plan de ejecución (5 fases)
 
-### Fase A — Identidad canónica (1 semana — bloquea todo lo demás)
+**Estado al 2026-04-29: A1-A7 completos con review #2. B1-B6 completos con review #2. C1-C5 completos con review #2. E1-E4 completos con review #2 (excepto E4 que es docs continuos). Fase D parcial: stubs de Profile + cola E2 hechos; superficies completas pendientes.**
 
-| Paso | Qué | Por qué |
+### Fase A — Identidad canónica (1 semana — bloquea todo lo demás) ✅
+
+| Paso | Qué | Por qué | Estado |
+|---|---|---|---|
+| A1 | Tabla `personas_fisicas {dni PK, cuit, apellido_nombre, apellido_nombre_norm, fuentes_url[], primer_visto, ultimo_visto}` | Entidad canónica para "el funcionario" | ✅ +review #1 #2 (ON CONFLICT, no auto-deriva género) |
+| A2 | Tabla `personas_juridicas {cuit PK, razon_social, alias[], dom_fiscal_provincia, dom_fiscal_localidad, fecha_constitucion, tipo_societario, fuentes_url[]}` consolidando `empresas` + `igj_entidades` + `rns_personas_juridicas` | Una empresa = una fila, no tres | ✅ +review #1 #2 (ON CONFLICT) |
+| A3 | Validador módulo-11 CUIT/DNI en seeds. Toda fila inválida → `quarantine` con razón | Filtra basura OCR/scraping en origen | ✅ +review #1 (helpers ergonomía: formatDNI, categorizarCUIT, mismoDNI) |
+| A4 | Backfill DNI a `agentes_publicos` cruzando con DDJJ → boletín municipal post-OCR → padrón electoral si hay acceso. Cada DNI poblado lleva `fuente_dni_url` | Cierra el agujero del 100% NULL | ✅ Tier 1 estricto (DNI módulo-11 + match único + name normalizado por jurisdicción). `npm run backfill:agentes-dni`. C1/C3 ya levantan dni desde acá automáticamente |
+| A5 | Migrar referencias por nombre a FK hacia `personas_fisicas/juridicas` cuando hay match Tier 1-3. Sin DNI/CUIT confirmado → flag `name_only_unmatched=TRUE` | Marca lo verificado vs. lo inferido | ✅ Flag aplicado a `agentes_publicos`, `contratos`, `transferencias`. `npm run flag:name-only` |
+| A6 | Tabla `cargos_funcionarios {dni FK, jurisdiccion, cargo, reparticion, vigente_desde, vigente_hasta, facultades, fuente_url}` | Trayectoria explícita en lugar de N filas anuales en `agentes_publicos`. Requerido por UI Profile + bonus por cargo en detector M4.1 | ✅ +review #1 (filtros temporales) #2 (ON CONFLICT) |
+| A7 | Columna `estado_verificacion TEXT NOT NULL DEFAULT 'sin_verificar'` en `señales_cache` con CHECK ∈ {verificada, sin_verificar, descartada, bloqueada}. Más `verificado_por TEXT` y `verificado_en TIMESTAMP` | Soporta el badge de verificación universal del UI. Sin esto la disciplina de verificación no es enforceable | ✅ +review #1 (queue + breakdown estado×severidad) #2 (defensa señal inexistente) |
+
+### Fase B — Cadena del dinero canónica (1 semana) ✅
+
+| Paso | Qué | Estado |
 |---|---|---|
-| A1 | Tabla `personas_fisicas {dni PK, cuit, apellido_nombre, apellido_nombre_norm, fuentes_url[], primer_visto, ultimo_visto}` | Entidad canónica para "el funcionario" |
-| A2 | Tabla `personas_juridicas {cuit PK, razon_social, alias[], dom_fiscal_provincia, dom_fiscal_localidad, fecha_constitucion, tipo_societario, fuentes_url[]}` consolidando `empresas` + `igj_entidades` + `rns_personas_juridicas` | Una empresa = una fila, no tres |
-| A3 | Validador módulo-11 CUIT/DNI en seeds. Toda fila inválida → `quarantine` con razón | Filtra basura OCR/scraping en origen |
-| A4 | Backfill DNI a `agentes_publicos` cruzando con DDJJ → boletín municipal post-OCR → padrón electoral si hay acceso. Cada DNI poblado lleva `fuente_dni_url` | Cierra el agujero del 100% NULL |
-| A5 | Migrar referencias por nombre a FK hacia `personas_fisicas/juridicas` cuando hay match Tier 1-3. Sin DNI/CUIT confirmado → flag `name_only_unmatched=TRUE` | Marca lo verificado vs. lo inferido |
-| A6 | Tabla `cargos_funcionarios {dni FK, jurisdiccion, cargo, reparticion, vigente_desde, vigente_hasta, facultades, fuente_url}` | Trayectoria explícita en lugar de N filas anuales en `agentes_publicos`. Requerido por UI Profile + bonus por cargo en detector M4.1 |
-| A7 | Columna `estado_verificacion TEXT NOT NULL DEFAULT 'sin_verificar'` en `señales_cache` con CHECK ∈ {verificada, sin_verificar, descartada, bloqueada}. Más `verificado_por TEXT` y `verificado_en TIMESTAMP` | Soporta el badge de verificación universal del UI. Sin esto la disciplina de verificación no es enforceable |
+| B1 | Agregar `compromiso DOUBLE` a `presupuesto_ejecucion`. Re-correr seed dataset 187 | ✅ |
+| B2 | Agregar a `contratos`: `partida_presupuestaria`, `programa_presupuestario`, `proveedor_cuit` (Tier 1-3), `proveedor_cuit_inferido` (Tier 4-5 separado), `numero_orden_compra` | ✅ |
+| B3 | Tabla `pagos_contrato {id, contrato_hash FK, fecha_pago, monto, fuente_url}` | ✅ +review #1 (fechas primer/último pago en resumen) #2 (filtro por hashes evita escan completo en denuncia-builder) |
+| B4 | Vista materializada `cadena_de_pago` joinando partida → compromiso → contrato → devengado → pagos → beneficiario_cuit | ✅ |
+| B5 | Endpoint `/api/peso/:partida_id` devuelve la cadena completa | ✅ |
+| B6 | Índices Neo4j: por `monto` en aristas `:PROVEE`, por `jerarquia` en propiedad de `:Persona`. Más query helper de adyacencia con cap por relevancia (`MATCH (a)-[*1..N]-(b) RETURN ... ORDER BY relevancia DESC LIMIT 500`) | ✅ Soporta expansión por grados (1°/2°/3°) del UI con cap de 500 nodos sub-segundo |
 
-### Fase B — Cadena del dinero canónica (1 semana)
+### Fase C — Detectores rigurosos (1 semana) ✅
 
-| Paso | Qué |
-|---|---|
-| B1 | Agregar `compromiso DOUBLE` a `presupuesto_ejecucion`. Re-correr seed dataset 187 |
-| B2 | Agregar a `contratos`: `partida_presupuestaria`, `programa_presupuestario`, `proveedor_cuit` (Tier 1-3), `proveedor_cuit_inferido` (Tier 4-5 separado), `numero_orden_compra` |
-| B3 | Tabla `pagos_contrato {id, contrato_hash FK, fecha_pago, monto, fuente_url}` |
-| B4 | Vista materializada `cadena_de_pago` joinando partida → compromiso → contrato → devengado → pagos → beneficiario_cuit |
-| B5 | Endpoint `/api/peso/:partida_id` devuelve la cadena completa |
-| B6 | Índices Neo4j: por `monto` en aristas `:PROVEE`, por `jerarquia` en propiedad de `:Persona`. Más query helper de adyacencia con cap por relevancia (`MATCH (a)-[*1..N]-(b) RETURN ... ORDER BY relevancia DESC LIMIT 500`) | Soporta expansión por grados (1°/2°/3°) del UI con cap de 500 nodos sub-segundo |
+| ID | Detector | Cambio | Estado |
+|---|---|---|---|
+| C1 | Refactor `conflicto_funcionario_proveedor` (M4.1) | (a) filtro domicilio: PJ debe tener `dom_fiscal_provincia = jurisdiccion_funcionario` o actividad documentada en provincia. **Esto mata Renault/MOSQUERA estructuralmente.** (b) base rate poblacional con padrón electoral, no IGJ. (c) **cap score 60** sin DNI confirmado. Score ≥75 requiere DNI verificado vía DDJJ o boletín. | ✅ +review #1 (extrae módulo jurisdicciones) #2 (integra A4 — levanta dni desde agentes_publicos.dni automáticamente) |
+| C2 | NUEVO `aportante_de_campana_y_proveedor` | Tier 1 con CUIT verificado entre `aportantes_campanas.cuit` y `personas_juridicas` proveedoras. Señal Tier 1 publicable. | ✅ +review #1 (fix causalidad temporal) #2 (defensa módulo-11 antes de emitir señal) |
+| C3 | NUEVO `ddjj_omitida` | Funcionario en cargo del Anexo III Ley 25.188 que no presentó DDJJ ese año. Cruz directa entre `agentes_publicos` y `declaraciones_juradas`. | ✅ +review #1 (cargos extraídos a módulo + word-boundary) #2 (integra A4 + dedupe DDJJ por jurisdicción) |
+| C4 | NUEVO `gap_compromiso_pagado` | Partidas con compromiso alto y pagado bajo persistente. Requiere Fase B. | ✅ +review #1 (validación de inputs) |
+| C5 | Refactor `concentracion_proveedor` → `concentracion_cuit` | Agrupa por CUIT, no por nombre. Requiere Fase A. | ✅ +review #1 (defensa módulo-11) #2 (fuente_url del CUIT señalado, no del primer contrato) |
 
-### Fase C — Detectores rigurosos (1 semana)
+### Fase D — UI (definida en `PLAN-UI.md`, 1-2 semanas) — parcial
 
-| ID | Detector | Cambio |
+Stubs Profile (Persona/Empresa) + cola E2 hechos. Superficies completas (Landing, Dinero, Actores, Señales, Caso, Mapa, Metodología, Comparador) pendientes — bloqueadas a brainstorm UI con el usuario para definir alcance, animaciones y módulo de watchlist.
+
+### Fase E — Verificación, denuncia, release (1 semana) ✅
+
+| Paso | Qué | Estado |
 |---|---|---|
-| C1 | Refactor `conflicto_funcionario_proveedor` (M4.1) | (a) filtro domicilio: PJ debe tener `dom_fiscal_provincia = jurisdiccion_funcionario` o actividad documentada en provincia. **Esto mata Renault/MOSQUERA estructuralmente.** (b) base rate poblacional con padrón electoral, no IGJ. (c) **cap score 60** sin DNI confirmado. Score ≥75 requiere DNI verificado vía DDJJ o boletín. |
-| C2 | NUEVO `aportante_de_campana_y_proveedor` | Tier 1 con CUIT verificado entre `aportantes_campanas.cuit` y `personas_juridicas` proveedoras. Señal Tier 1 publicable. |
-| C3 | NUEVO `ddjj_omitida` | Funcionario en cargo del Anexo III Ley 25.188 que no presentó DDJJ ese año. Cruz directa entre `agentes_publicos` y `declaraciones_juradas`. |
-| C4 | NUEVO `gap_compromiso_pagado` | Partidas con compromiso alto y pagado bajo persistente. Requiere Fase B. |
-| C5 | Refactor `concentracion_proveedor` → `concentracion_cuit` | Agrupa por CUIT, no por nombre. Requiere Fase A. |
-
-### Fase D — UI (definida en `PLAN-UI.md`, 1-2 semanas)
-
-Detalle en documento separado.
-
-### Fase E — Verificación, denuncia, release (1 semana)
-
-| Paso | Qué |
-|---|---|
-| E1 | Script `verify-conflicto.ts` toma `senal_id`, busca DDJJ + padrón, compara DNI lado a lado |
-| E2 | Cola "señales para verificación humana" en UI con workflow |
-| E3 | PDF de denuncia con cadena de evidencia + citas legales (Ley 25.188 art. 13-15, Ley 8835, Decreto 1023/2001) + organismo competente |
-| E4 | README publicable + landing "Cómo lo hicimos" + push a `main` |
+| E1 | Script `verify-conflicto.ts` toma `senal_id`, busca DDJJ + padrón, compara DNI lado a lado | ✅ +review #1 (parser tolerante multi-tipologia) #2 (filtra DDJJ por jurisdicción — homonimia cross-provincia) |
+| E2 | Cola "señales para verificación humana" en UI con workflow | ✅ Backend `/api/cola-verificacion` + frontend `/cola-verificacion` |
+| E3 | PDF de denuncia con cadena de evidencia + citas legales (Ley 25.188 art. 13-15, Ley 8835, Decreto 1023/2001) + organismo competente | ✅ +review #1 (paraleliza queries + valida dni del denunciante) #2 (filtra getResumenPagosContratos por hashes) |
+| E4 | README publicable + landing "Cómo lo hicimos" + push a `main` | ✅ docs/COMO-LO-HICIMOS.md + README publicable |
 
 ## 7. Glosario operativo
 
