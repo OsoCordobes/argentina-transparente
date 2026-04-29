@@ -25,6 +25,7 @@ import watchlistRouter from './routes/watchlist'
 import actoresRouter from './routes/actores'
 import grafoRouter from './routes/grafo'
 import coberturaRouter from './routes/cobertura'
+import pesoRouter from './routes/peso'
 import { registrarFuente } from './lib/db'
 import { fuenteCordobaCapital } from './connectors/cordoba-capital'
 import { fuenteArgentinaCompra } from './connectors/argentina-compra'
@@ -83,6 +84,8 @@ app.use('/api/watchlist', watchlistRouter)
 app.use('/api/actores', actoresRouter)
 app.use('/api/grafo', grafoRouter)
 app.use('/api/cobertura', coberturaRouter)
+// PLAN-DATOS Fase B5: cadena de pago por partida — flujo Crédito → Pagado
+app.use('/api', pesoRouter)
 
 // Legacy routes (still used by current frontend)
 app.use('/analizar', analizarRouter)
