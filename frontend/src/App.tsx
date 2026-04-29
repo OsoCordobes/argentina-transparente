@@ -31,6 +31,8 @@ const Persona = lazy(() => import('./pages/Persona'))
 const Empresa = lazy(() => import('./pages/Empresa'))
 // PLAN-DATOS Fase E2 — cola de verificación humana
 const ColaVerificacion = lazy(() => import('./pages/ColaVerificacion'))
+// PLAN-UI D3 — mapa neural fullscreen
+const Mapa = lazy(() => import('./pages/Mapa'))
 
 function PageLoader() {
   return (
@@ -46,6 +48,15 @@ export default function App() {
       <Routes>
         {/* PLAN-UI D1: Landing fullscreen sin AppShell (usa ForensicHeader) */}
         <Route path="/" element={<Landing />} />
+        {/* PLAN-UI D3: Mapa fullscreen */}
+        <Route
+          path="/mapa"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <Mapa />
+            </Suspense>
+          }
+        />
         <Route element={<AppShell />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route
