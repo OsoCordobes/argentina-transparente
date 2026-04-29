@@ -679,6 +679,18 @@ export async function initDb(): Promise<void> {
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_agentes_jurisdiccion ON agentes_publicos(jurisdiccion)`)
   } catch { /* idempotente */ }
 
+  // PLAN-DATOS A4: backfill DNI a agentes_publicos. Sin DNI, M4.1 colapsa al
+  // cap-60 estructural por falta de identidad verificada. Lo backfilleamos
+  // cruzando con `declaraciones_juradas.dni` (post-OCR) por nombre normalizado.
+  // `fuente_dni_url` mantiene la trazabilidad (URL del PDF DDJJ de origen).
+  // DuckDB rechaza ADD COLUMN con constraints — usamos ALTER plano, los joins
+  // filtran por `dni IS NOT NULL` cuando lo necesitan.
+  try { await dbRun(`ALTER TABLE agentes_publicos ADD COLUMN dni TEXT`) } catch { /* idempotente */ }
+  try { await dbRun(`ALTER TABLE agentes_publicos ADD COLUMN fuente_dni_url TEXT`) } catch { /* idempotente */ }
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_agentes_dni ON agentes_publicos(dni) WHERE dni IS NOT NULL`)
+  } catch { /* idempotente */ }
+
   // Subsidios y transferencias — gastos a personas/entidades sin contraprestación
   // contractual directa (planes sociales, becas, ayudas, transferencias a OSC).
   await dbRun(`
