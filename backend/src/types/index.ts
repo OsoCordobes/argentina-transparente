@@ -140,4 +140,26 @@ export interface FuenteMetadata {
   notas?: string
 }
 
+// ─── Identidad canónica (PLAN-DATOS Fase A1) ─────────────────────────────────
+// Una persona = un DNI = una URL canónica. Esta es la entidad maestra a la que
+// apuntan todas las tablas que mencionan personas (agentes_publicos,
+// igj_autoridades, declaraciones_juradas, aportantes_campanas, directores)
+// cuando hay match Tier 1-3. Sin DNI confirmado, una persona NO es PersonaFisica
+// — queda como referencia name-only en su tabla de origen.
+export interface PersonaFisica {
+  dni: string                       // 8 dígitos canónicos (validado módulo-11 al insertar)
+  cuit: string | null               // XX-DDDDDDDD-V derivado del DNI; null si todavía no calculado
+  apellidoNombre: string            // forma humana (mejor versión conocida, p.ej. desde DDJJ)
+  apellidoNombreNorm: string        // UPPER sin tildes para búsqueda + JOIN cross-tabla
+  fuentesUrl: string[]              // URLs canónicas que mencionan esta persona (deserializado de fuentes_url_json)
+  fuenteDniUrl: string | null       // URL específica que confirmó el DNI (DDJJ, boletín, etc.)
+  primerVisto: string               // ISO timestamp; primera vez que ARGOS supo de esta persona
+  ultimoVisto: string               // ISO timestamp; última actualización
+  // Bitemporal W1
+  tEfectivo?: string | null
+  tPublicado?: string | null
+  snapshotId?: string | null
+  supersededById?: string | null
+}
+
 export type { IngestOpts, IngestReport, IngestStatus, QuarantineRow } from './ingest'

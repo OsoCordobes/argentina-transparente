@@ -853,6 +853,53 @@ export async function initDb(): Promise<void> {
     catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
   }
 
+  // ─── Personas Físicas — tabla maestra canónica (PLAN-DATOS Fase A1) ──────────
+  // Una persona = un DNI = una URL canónica. Esta tabla es la fuente de verdad
+  // de "quién es alguien" en ARGOS. Las otras tablas que mencionan personas
+  // (agentes_publicos, igj_autoridades, declaraciones_juradas, aportantes_campanas,
+  // directores) eventualmente apuntan acá vía DNI cuando hay match Tier 1-3.
+  //
+  // Sin DNI confirmado, una persona NO entra acá — queda en sus tablas de origen
+  // con flag `name_only_unmatched=TRUE` (definido por seeds en Fase A5).
+  //
+  // CUIT es derivado del DNI con prefijo {20,23,24,27} + dígito verificador
+  // módulo-11 (calculado por validador de Fase A3). Se almacena para queries
+  // directas y para JOIN con tablas que solo tienen CUIT (no DNI).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS personas_fisicas (
+      dni                  TEXT PRIMARY KEY,        -- 8 dígitos canónicos
+      cuit                 TEXT,                    -- XX-DDDDDDDD-V derivado del DNI
+      apellido_nombre      TEXT NOT NULL,           -- forma humana (mejor versión conocida)
+      apellido_nombre_norm TEXT NOT NULL,           -- UPPER sin tildes para búsqueda + JOIN
+      fuentes_url_json     TEXT NOT NULL DEFAULT '[]', -- JSON array de URLs canónicas que mencionan esta persona
+      fuente_dni_url       TEXT,                    -- URL específica que confirmó el DNI (DDJJ / boletín / etc.)
+      primer_visto         TIMESTAMP NOT NULL,      -- primera vez que ARGOS supo de esta persona
+      ultimo_visto         TIMESTAMP NOT NULL,      -- última actualización
+      t_efectivo           TIMESTAMP,               -- bitemporal W1: cuándo el evento upstream ocurrió
+      t_publicado          TIMESTAMP,               -- bitemporal W1: cuándo lo supo ARGOS
+      snapshot_id          TEXT,                    -- FK a snapshots (corrida del seed)
+      superseded_by_id     TEXT                     -- FK a fila que la reemplaza (correcciones)
+    )
+  `)
+  // NOTA: DuckDB no soporta partial indexes en esta versión, por lo que NO
+  // usamos `WHERE cuit IS NOT NULL`. Cada CREATE INDEX en su propio try para
+  // que el fallo de uno no impida el otro (bug histórico en otras tablas del
+  // proyecto: si la primera falla con "duplicate", la segunda nunca se crea).
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_pf_cuit ON personas_fisicas(cuit)`) }
+  catch { /* idempotente */ }
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_pf_apellido_norm ON personas_fisicas(apellido_nombre_norm)`) }
+  catch { /* idempotente */ }
+  // ALTER idempotente para tablas pre-existentes (W1 pattern)
+  for (const c of [
+    `cuit TEXT`,
+    `fuente_dni_url TEXT`,
+    `t_efectivo TIMESTAMP`, `t_publicado TIMESTAMP`,
+    `snapshot_id TEXT`, `superseded_by_id TEXT`,
+  ]) {
+    try { await dbRun(`ALTER TABLE personas_fisicas ADD COLUMN ${c}`) }
+    catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
+  }
+
   // ─── Vistas universo cordobés N2 (Phase F5) ─────────────────────────────────
   // El dataset IGJ trae 2.7M filas nationales y la mayoría son ruido para un
   // beta acotado a Córdoba Capital. Estas views materializan el "universo
