@@ -135,6 +135,19 @@ export async function encontrarCrucesCandidatos(opts: {
            AND dom_fiscal_provincia IS NOT NULL
          GROUP BY cuit
       ),
+      -- Review #2 C1: aggregar dni del agente backfilleado en A4. Si A4 corrió,
+      -- agentes_publicos.dni IS NOT NULL para los matcheados con DDJJ. Tomamos
+      -- ANY_VALUE porque puede haber N filas (un agente por año) con el mismo
+      -- DNI por funcionario_norm; deberían coincidir o ser NULL.
+      agente_dni AS (
+        SELECT ${NORM_SQL('apellido_nombre')} AS norm,
+               jurisdiccion,
+               ANY_VALUE(dni)                  AS dni_confirmado,
+               BOOL_OR(name_only_unmatched)    AS algun_only_name
+          FROM agentes_publicos
+         WHERE apellido_nombre IS NOT NULL
+         GROUP BY norm, jurisdiccion
+      ),
       cruces_raw AS (
         SELECT f.apellido_nombre AS funcionario,
                f.norm AS funcionario_norm,
@@ -143,12 +156,15 @@ export async function encontrarCrucesCandidatos(opts: {
                ie.razon_social AS empresa,
                ie.cuit AS cuit_empresa,
                ia.numero_documento AS dni_director,
-               rns.dom_fiscal_provincia AS dom_fiscal_provincia
+               rns.dom_fiscal_provincia AS dom_fiscal_provincia,
+               ad.dni_confirmado AS dni_funcionario_confirmado,
+               ad.algun_only_name AS algun_only_name
           FROM funcs f
           JOIN funcs_raros r ON r.norm = f.norm
           JOIN igj_autoridades ia ON ${NORM_SQL('ia.apellido_nombre')} = f.norm
           JOIN igj_entidades ie ON ie.numero_correlativo = ia.numero_correlativo
           LEFT JOIN rns_dom rns ON rns.cuit = ie.cuit
+          LEFT JOIN agente_dni ad ON ad.norm = f.norm AND ad.jurisdiccion = f.jurisdiccion
       ),
       contratos_agg AS (
         SELECT proveedor_norm, municipio,
@@ -159,7 +175,10 @@ export async function encontrarCrucesCandidatos(opts: {
       )
     SELECT cr.funcionario, cr.funcionario_norm, cr.jurisdiccion,
            cr.unique_dnis_igj, cr.empresa, cr.cuit_empresa,
-           cr.dni_director, cr.dom_fiscal_provincia, c.cnt, c.tot
+           cr.dni_director, cr.dom_fiscal_provincia,
+           cr.dni_funcionario_confirmado,
+           cr.algun_only_name,
+           c.cnt, c.tot
       FROM cruces_raw cr
       JOIN contratos_agg c
         ON (UPPER(cr.empresa) = c.proveedor_norm
@@ -195,7 +214,10 @@ export async function encontrarCrucesCandidatos(opts: {
         // PLAN-DATOS Fase C1: filtro geográfico + verificación DNI
         dom_fiscal_provincia: domFiscal,
         coincide_provincia: coincideProvinciaFuncionario(r.jurisdiccion, domFiscal),
-        dni_funcionario_confirmado: null, // populado externamente cuando hay DDJJ + match
+        // Review #2 C1: integra A4. Si agentes_publicos.dni IS NOT NULL para
+        // este funcionario en su jurisdicción, lo levantamos directo del
+        // backfill — sin esperar a que el caller lo populate manualmente.
+        dni_funcionario_confirmado: r.dni_funcionario_confirmado ?? null,
       })
     }
   }
