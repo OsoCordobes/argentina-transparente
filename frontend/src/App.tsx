@@ -37,6 +37,8 @@ const Mapa = lazy(() => import('./pages/Mapa'))
 const Dinero = lazy(() => import('./pages/Dinero'))
 // PLAN-UI D5 — Señales feed exploratorio
 const Senales = lazy(() => import('./pages/Senales'))
+// PLAN-UI D6 — Actores directorio
+const ActoresD6 = lazy(() => import('./pages/ActoresD6'))
 
 function PageLoader() {
   return (
@@ -76,6 +78,15 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoader />}>
               <Senales />
+            </Suspense>
+          }
+        />
+        {/* PLAN-UI D6: Actores directorio (sobreescribe el legacy /actores) */}
+        <Route
+          path="/actores"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <ActoresD6 />
             </Suspense>
           }
         />
@@ -169,16 +180,11 @@ export default function App() {
               </Suspense>
             }
           />
+          {/* /actores legacy reemplazado por D6 fuera del AppShell.
+              Mantengo la ruta por nombre pero apuntando a la legacy
+              hasta que el flujo by-name se migre. */}
           <Route
-            path="/actores"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <Actores />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/actores/persona/:nombre"
+            path="/actores-legacy/persona/:nombre"
             element={
               <Suspense fallback={<PageLoader />}>
                 <Actores />

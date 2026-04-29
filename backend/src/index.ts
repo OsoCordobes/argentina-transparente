@@ -29,6 +29,7 @@ import pesoRouter from './routes/peso'
 import colaVerificacionRouter from './routes/cola-verificacion'
 import landingRouter from './routes/landing'
 import dineroRouter from './routes/dinero'
+import actoresD6Router from './routes/actores-d6'
 import { registrarFuente } from './lib/db'
 import { fuenteCordobaCapital } from './connectors/cordoba-capital'
 import { fuenteArgentinaCompra } from './connectors/argentina-compra'
@@ -92,6 +93,7 @@ app.use('/api', pesoRouter)
 app.use('/api/cola-verificacion', colaVerificacionRouter)
 app.use('/api/landing', landingRouter)
 app.use('/api/dinero', dineroRouter)
+app.use('/api/actores-d6', actoresD6Router)
 
 // Legacy routes (still used by current frontend)
 app.use('/analizar', analizarRouter)
