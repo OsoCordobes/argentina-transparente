@@ -46,6 +46,8 @@ const CasoD7 = lazy(() => import('./pages/CasoD7'))
 const WatchlistD8 = lazy(() => import('./pages/WatchlistD8'))
 // PLAN-UI D9 — Comparar
 const Comparar = lazy(() => import('./pages/Comparar'))
+// PLAN-UI D10 — Metodología
+const Metodologia = lazy(() => import('./pages/Metodologia'))
 
 function PageLoader() {
   return (
@@ -129,6 +131,15 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoader />}>
               <Comparar />
+            </Suspense>
+          }
+        />
+        {/* PLAN-UI D10: Metodología */}
+        <Route
+          path="/metodologia"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <Metodologia />
             </Suspense>
           }
         />
