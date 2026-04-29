@@ -35,6 +35,8 @@ const ColaVerificacion = lazy(() => import('./pages/ColaVerificacion'))
 const Mapa = lazy(() => import('./pages/Mapa'))
 // PLAN-UI D4 — Dinero / ciclo presupuestario
 const Dinero = lazy(() => import('./pages/Dinero'))
+// PLAN-UI D5 — Señales feed exploratorio
+const Senales = lazy(() => import('./pages/Senales'))
 
 function PageLoader() {
   return (
@@ -65,6 +67,15 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoader />}>
               <Dinero />
+            </Suspense>
+          }
+        />
+        {/* PLAN-UI D5: Señales feed exploratorio read-only */}
+        <Route
+          path="/senales"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <Senales />
             </Suspense>
           }
         />
