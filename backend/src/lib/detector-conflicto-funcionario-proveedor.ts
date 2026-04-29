@@ -148,6 +148,13 @@ export async function encontrarCrucesCandidatos(opts: {
          WHERE apellido_nombre IS NOT NULL
          GROUP BY norm, jurisdiccion
       ),
+      -- Audit fix F8.5: si la PJ es ente estatal (ministerio, banco público,
+      -- universidad, sociedad del Estado), un funcionario "dirigiéndola" NO
+      -- es conflicto de intereses — es nombramiento legítimo. Solo emitimos
+      -- señal cuando la PJ es estructuralmente PRIVADA.
+      pj_es_estatal AS (
+        SELECT cuit FROM personas_juridicas WHERE es_ente_estatal = TRUE
+      ),
       cruces_raw AS (
         SELECT f.apellido_nombre AS funcionario,
                f.norm AS funcionario_norm,
@@ -165,6 +172,15 @@ export async function encontrarCrucesCandidatos(opts: {
           JOIN igj_entidades ie ON ie.numero_correlativo = ia.numero_correlativo
           LEFT JOIN rns_dom rns ON rns.cuit = ie.cuit
           LEFT JOIN agente_dni ad ON ad.norm = f.norm AND ad.jurisdiccion = f.jurisdiccion
+          -- Excluir entes estatales: no es puerta giratoria si "dirige" su
+          -- propio ministerio o un banco público, es nombramiento normal.
+          LEFT JOIN pj_es_estatal pe ON
+            pe.cuit = (
+              SUBSTRING(REGEXP_REPLACE(ie.cuit, '\\D', '', 'g'), 1, 2) || '-' ||
+              SUBSTRING(REGEXP_REPLACE(ie.cuit, '\\D', '', 'g'), 3, 8) || '-' ||
+              SUBSTRING(REGEXP_REPLACE(ie.cuit, '\\D', '', 'g'), 11, 1)
+            )
+         WHERE pe.cuit IS NULL
       ),
       contratos_agg AS (
         SELECT proveedor_norm, municipio,
