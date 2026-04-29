@@ -171,14 +171,29 @@ async function main() {
   console.log(`  DNI director (IGJ): ${dniDirector}\n`)
 
   // 3. Lookup DDJJ
-  const ddjjs = await dbAll<DDJJRow>(
-    `SELECT apellido_nombre, apellido_nombre_norm, anio_declarado, dni, cuit, pdf_url, fuente_url
-       FROM declaraciones_juradas
-      WHERE apellido_nombre_norm = ?
-      ORDER BY anio_declarado DESC NULLS LAST`,
-    [funcionarioNorm],
-  )
-  console.log(`DDJJ matches por apellido_nombre_norm = "${funcionarioNorm}": ${ddjjs.length} fila(s)\n`)
+  // Review #2 E1: filtramos por jurisdicción cuando la pudimos extraer del
+  // título. Antes mezclábamos DDJJ de cordoba-capital con cordoba-provincia
+  // si había homónimos — false-positive verifications. La señal sabe en qué
+  // jurisdicción opera el funcionario; usar eso como filtro estricto.
+  // Si no se pudo extraer jurisdicción, fallback al comportamiento legacy
+  // (sin filtro) con un warning explícito.
+  const ddjjQuery = jurisdiccion
+    ? `SELECT apellido_nombre, apellido_nombre_norm, anio_declarado, dni, cuit, pdf_url, fuente_url
+         FROM declaraciones_juradas
+        WHERE apellido_nombre_norm = ? AND jurisdiccion = ?
+        ORDER BY anio_declarado DESC NULLS LAST`
+    : `SELECT apellido_nombre, apellido_nombre_norm, anio_declarado, dni, cuit, pdf_url, fuente_url
+         FROM declaraciones_juradas
+        WHERE apellido_nombre_norm = ?
+        ORDER BY anio_declarado DESC NULLS LAST`
+  const ddjjParams = jurisdiccion ? [funcionarioNorm, jurisdiccion] : [funcionarioNorm]
+  const ddjjs = await dbAll<DDJJRow>(ddjjQuery, ddjjParams)
+  if (jurisdiccion) {
+    console.log(`DDJJ matches por norm="${funcionarioNorm}" en jurisdiccion="${jurisdiccion}": ${ddjjs.length} fila(s)\n`)
+  } else {
+    console.log(`⚠ Sin jurisdicción en título — query global. ${ddjjs.length} fila(s) por norm="${funcionarioNorm}".`)
+    console.log(`  Posibles falsos positivos por homonimia cross-jurisdicción. Verificar manualmente.\n`)
+  }
 
   if (ddjjs.length === 0) {
     console.log('⚠ Sin DDJJ matching. Verificación NO automatizable — falta data upstream.')
