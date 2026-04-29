@@ -16,7 +16,7 @@
  */
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
-import { ForensicHeader, ForensicFooter } from '@/components/argos/ForensicHeader'
+import { ArgosShell } from '@/components/argos/ArgosShell'
 import { VerificacionBadge } from '@/components/argos/VerificacionBadge'
 import type { EstadoVerificacionSeñal } from '@/lib/argos/types'
 
@@ -190,17 +190,12 @@ export default function Senales() {
   }
 
   return (
-    <div style={s.page}>
-      <ForensicHeader />
-      <main style={s.main}>
-        <header style={s.head}>
-          <h1 style={s.h1}>Señales detectadas</h1>
-          <p style={s.subtitle}>
-            Patrones marcados por el motor ARGOS sobre el universo cargado.
-            La plataforma describe, no acusa: cada señal requiere verificación
-            humana antes de citar como evidencia.
-          </p>
-        </header>
+    <ArgosShell title="Señales detectadas">
+      <p style={s.subtitle}>
+        Patrones marcados por el motor ARGOS sobre el universo cargado.
+        La plataforma describe, no acusa: cada señal requiere verificación
+        humana antes de citar como evidencia.
+      </p>
 
         <section style={s.filtros}>
           <Filtro
@@ -352,9 +347,7 @@ export default function Senales() {
             style={s.pagBtn}
           >siguiente ›</button>
         </div>
-      </main>
-      <ForensicFooter />
-    </div>
+    </ArgosShell>
   )
 }
 

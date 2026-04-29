@@ -6,7 +6,7 @@
  */
 import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { ForensicHeader, ForensicFooter } from '@/components/argos/ForensicHeader'
+import { ArgosShell } from '@/components/argos/ArgosShell'
 import {
   getWatchlist, removeFromWatchlist, exportWatchlist, importWatchlist,
   markAllSeen, type WatchlistItem,
@@ -103,17 +103,12 @@ export default function WatchlistD8() {
   }
 
   return (
-    <div style={s.page}>
-      <ForensicHeader />
-      <main style={s.main}>
-        <header style={s.head}>
-          <h1 style={s.h1}>Watchlist</h1>
-          <p style={s.subtitle}>
-            Actores que estás monitoreando. Recibís alertas en este feed
-            cuando aparecen señales nuevas que los mencionan. La lista vive
-            en tu navegador (localStorage) y es exportable como JSON.
-          </p>
-        </header>
+    <ArgosShell title="Watchlist · monitoreo personal">
+      <p style={s.subtitle}>
+        Actores que estás monitoreando. Recibís alertas en este feed
+        cuando aparecen señales nuevas que los mencionan. La lista vive
+        en tu navegador (localStorage) y es exportable como JSON.
+      </p>
 
         <div style={s.actions}>
           <button onClick={handleMarkAllSeen} style={s.bulkBtn}>Marcar todo como visto</button>
@@ -204,9 +199,7 @@ export default function WatchlistD8() {
             )}
           </div>
         </section>
-      </main>
-      <ForensicFooter />
-    </div>
+    </ArgosShell>
   )
 }
 

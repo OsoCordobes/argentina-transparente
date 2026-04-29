@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
-import { ForensicHeader, ForensicFooter } from '@/components/argos/ForensicHeader'
+import { ArgosShell } from '@/components/argos/ArgosShell'
 import {
   getCasos, newCaso, saveCaso, deleteCaso, exportCaso, importCaso,
   type CasoLS,
@@ -87,16 +87,11 @@ export default function CasosD7() {
   }
 
   return (
-    <div style={s.page}>
-      <ForensicHeader />
-      <main style={s.main}>
-        <header style={s.head}>
-          <h1 style={s.h1}>Mis casos</h1>
-          <p style={s.subtitle}>
-            Workspace local para armar denuncias. Cada caso es un JSON en
-            tu navegador (no comparte cross-device).
-          </p>
-        </header>
+    <ArgosShell title="Expedientes · workspace local">
+      <p style={s.subtitle}>
+        Workspace local para armar denuncias. Cada caso es un JSON en
+        tu navegador (no comparte cross-device).
+      </p>
 
         {adjuntarIds && (
           <div style={s.attachBanner}>
@@ -140,20 +135,20 @@ export default function CasosD7() {
           </div>
         )}
 
-        {casos.length > 0 && (
-          <div style={s.tableWrap}>
-            <table style={s.table}>
-              <thead>
-                <tr>
-                  <th style={s.th}>Título</th>
-                  <th style={s.th}>Estado</th>
-                  <th style={s.th}>Material</th>
-                  <th style={s.th}>Modificado</th>
-                  <th style={s.th}>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {casos.map(c => (
+      {casos.length > 0 && (
+        <div style={s.tableWrap}>
+          <table style={s.table}>
+            <thead>
+              <tr>
+                <th style={s.th}>Título</th>
+                <th style={s.th}>Estado</th>
+                <th style={s.th}>Material</th>
+                <th style={s.th}>Modificado</th>
+                <th style={s.th}>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {casos.map(c => (
                   <tr key={c.id} style={s.tr}>
                     <td style={s.td}>
                       {adjuntarIds ? (
@@ -188,13 +183,11 @@ export default function CasosD7() {
                     </td>
                   </tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </main>
-      <ForensicFooter />
-    </div>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ArgosShell>
   )
 }
 

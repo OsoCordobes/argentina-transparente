@@ -13,7 +13,7 @@
  */
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ForensicHeader, ForensicFooter } from '@/components/argos/ForensicHeader'
+import { ArgosShell } from '@/components/argos/ArgosShell'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 
@@ -107,16 +107,11 @@ export default function ActoresD6() {
   const suggestions = useMemo(() => items.slice(0, 5), [items])
 
   return (
-    <div style={s.page}>
-      <ForensicHeader />
-      <main style={s.main}>
-        <header style={s.head}>
-          <h1 style={s.h1}>Actores</h1>
-          <p style={s.subtitle}>
-            Directorio del universo cargado en ARGOS. Personas físicas (●)
-            y personas jurídicas (■) con métricas combinadas.
-          </p>
-        </header>
+    <ArgosShell title="Actores · directorio">
+      <p style={s.subtitle}>
+        Directorio del universo cargado en ARGOS. Personas físicas (●)
+        y personas jurídicas (■) con métricas combinadas.
+      </p>
 
         <div style={s.searchWrap}>
           <input
@@ -229,12 +224,10 @@ export default function ActoresD6() {
           </div>
         )}
 
-        {items.length === 0 && !loading && (
-          <div style={s.muted}>Sin resultados para los filtros actuales</div>
-        )}
-      </main>
-      <ForensicFooter />
-    </div>
+      {items.length === 0 && !loading && (
+        <div style={s.muted}>Sin resultados para los filtros actuales</div>
+      )}
+    </ArgosShell>
   )
 }
 

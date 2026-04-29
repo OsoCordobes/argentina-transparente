@@ -9,7 +9,7 @@
  */
 import { useEffect, useState, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ForensicHeader, ForensicFooter } from '@/components/argos/ForensicHeader'
+import { ArgosShell } from '@/components/argos/ArgosShell'
 import { getCaso, saveCaso, exportCaso, DESTINATARIOS, type CasoLS } from '@/lib/argos/caso-storage'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
@@ -38,18 +38,16 @@ export default function CasoD7() {
 
   if (!caso) {
     return (
-      <div style={s.page}>
-        <ForensicHeader />
-        <main style={{ ...s.main, textAlign: 'center', paddingTop: 80 }}>
+      <ArgosShell title="Expediente no encontrado">
+        <div style={{ textAlign: 'center', paddingTop: 60 }}>
           <div style={{ color: '#9BA3B4', fontSize: 14, marginBottom: 16 }}>
             Caso no encontrado
           </div>
           <Link to="/casos" style={{ color: '#7da3ff', textDecoration: 'none' }}>
             ← Volver a mis casos
           </Link>
-        </main>
-        <ForensicFooter />
-      </div>
+        </div>
+      </ArgosShell>
     )
   }
 
@@ -119,30 +117,30 @@ export default function CasoD7() {
   }
 
   return (
-    <div style={s.page}>
-      <ForensicHeader />
-      <main style={s.main}>
-        <header style={s.head}>
-          <div style={{ flex: 1 }}>
-            <input
-              type="text" value={caso.titulo}
-              onChange={e => update('titulo', e.target.value)}
-              style={s.headTitle}
-              placeholder="Título del caso"
-            />
-            <div style={{ fontSize: 11, color: '#9BA3B4', marginTop: 4 }}>
-              {caso.estado.toUpperCase()} · creado {new Date(caso.creadoEn).toLocaleDateString('es-AR')}
-              · modificado {new Date(caso.modificadoEn).toLocaleString('es-AR')}
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={exportJson} style={s.headBtn}>↓ Exportar JSON</button>
-            <button onClick={() => navigate('/casos')} style={s.headBtn}>← Volver</button>
-            <button onClick={generarPdf} disabled={generatingPdf} style={s.primaryBtn}>
-              {generatingPdf ? 'Generando…' : 'Generar PDF'}
-            </button>
-          </div>
-        </header>
+    <ArgosShell
+      title={caso.titulo || 'Expediente sin título'}
+      rightSlot={
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={exportJson} style={s.headBtn}>↓ Exportar JSON</button>
+          <button onClick={() => navigate('/casos')} style={s.headBtn}>← Volver</button>
+          <button onClick={generarPdf} disabled={generatingPdf} style={s.primaryBtn}>
+            {generatingPdf ? 'Generando…' : 'Generar PDF'}
+          </button>
+        </div>
+      }
+    >
+      <div style={{ marginBottom: 16 }}>
+        <input
+          type="text" value={caso.titulo}
+          onChange={e => update('titulo', e.target.value)}
+          style={s.headTitle}
+          placeholder="Título del caso"
+        />
+        <div style={{ fontSize: 11, color: '#9BA3B4', marginTop: 4 }}>
+          {caso.estado.toUpperCase()} · creado {new Date(caso.creadoEn).toLocaleDateString('es-AR')}
+          · modificado {new Date(caso.modificadoEn).toLocaleString('es-AR')}
+        </div>
+      </div>
         {pdfError && (
           <div style={{
             padding: 12, background: '#3a1d1d', color: '#E25656', borderRadius: 4,
@@ -213,9 +211,7 @@ export default function CasoD7() {
             </div>
           </div>
         </div>
-      </main>
-      <ForensicFooter />
-    </div>
+    </ArgosShell>
   )
 }
 

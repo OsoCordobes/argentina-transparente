@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
-import { ForensicHeader, ForensicFooter } from '@/components/argos/ForensicHeader'
+import { ArgosShell } from '@/components/argos/ArgosShell'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 
@@ -113,17 +113,12 @@ export default function Comparar() {
   }
 
   return (
-    <div style={s.page}>
-      <ForensicHeader />
-      <main style={s.main}>
-        <header style={s.head}>
-          <h1 style={s.h1}>Comparar empresas</h1>
-          <p style={s.subtitle}>
-            Comparación lado a lado de dos empresas con métricas idénticas.
-            Útil para investigar "X vs Y" — ¿quién recibió más?, ¿en qué
-            jurisdicciones?, ¿cuándo empezaron a contratar?
-          </p>
-        </header>
+    <ArgosShell title="Comparar · empresa vs empresa">
+      <p style={s.subtitle}>
+        Comparación lado a lado de dos empresas con métricas idénticas.
+        Útil para investigar "X vs Y" — ¿quién recibió más?, ¿en qué
+        jurisdicciones?, ¿cuándo empezaron a contratar?
+      </p>
 
         <div style={s.slots}>
           <SlotPicker label="Empresa A" cuit={cuitA} m={a} error={errorA} onPick={c => setSlot('a', c)} />
@@ -175,14 +170,12 @@ export default function Comparar() {
           </>
         )}
 
-        {(!a || !b) && (
-          <div style={s.muted}>
-            Seleccioná dos empresas (slot A y slot B) para empezar a comparar.
-          </div>
-        )}
-      </main>
-      <ForensicFooter />
-    </div>
+      {(!a || !b) && (
+        <div style={s.muted}>
+          Seleccioná dos empresas (slot A y slot B) para empezar a comparar.
+        </div>
+      )}
+    </ArgosShell>
   )
 }
 

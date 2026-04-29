@@ -18,7 +18,7 @@
 // que no lo trae.
 import '@/styles/argos.css'
 import { useReducer, useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import { GraphCanvas } from './GraphCanvas'
 import { NodeDetailPanel } from './NodeDetailPanel'
 import { InterpretationBlock } from './InterpretationBlock'
@@ -50,20 +50,28 @@ import type {
 // ─── Constantes UI ────────────────────────────────────────────────────────────
 
 interface SectionDef {
-  id: SectionId
+  to: string
   label: string
   icon: typeof Ico.Home
+  end?: boolean
 }
-type SectionId = 'inicio' | 'mapa' | 'expedientes' | 'señales' | 'fuentes' | 'acerca'
 
+// Sidebar coherente con ArgosShell: mismas 9 secciones, mismo orden.
+// El home (/) es el grafo. Click en cualquier otra item navega a su ruta.
 const SECTIONS: SectionDef[] = [
-  { id: 'inicio', label: 'Inicio', icon: Ico.Home },
-  { id: 'mapa', label: 'Mapa', icon: Ico.Network },
-  { id: 'expedientes', label: 'Expedientes', icon: Ico.FileText },
-  { id: 'señales', label: 'Señales', icon: Ico.Alert },
-  { id: 'fuentes', label: 'Fuentes', icon: Ico.Database },
-  { id: 'acerca', label: 'Acerca de', icon: Ico.Info },
+  { to: '/', label: 'Inicio', icon: Ico.Home, end: true },
+  { to: '/dinero', label: 'Dinero', icon: Ico.Briefcase },
+  { to: '/senales', label: 'Señales', icon: Ico.Alert },
+  { to: '/actores', label: 'Actores', icon: Ico.User },
+  { to: '/casos', label: 'Expedientes', icon: Ico.FileText },
+  { to: '/watchlist', label: 'Watchlist', icon: Ico.Eye },
+  { to: '/comparar', label: 'Comparar', icon: Ico.Network },
+  { to: '/fuentes', label: 'Fuentes', icon: Ico.Database },
+  { to: '/metodologia', label: 'Metodología', icon: Ico.Info },
 ]
+
+// Modo interno del home (los otros "tabs" ahora son rutas, no estado interno).
+type SectionId = 'inicio' | 'mapa'
 
 const SUGGESTIONS_BY_TYPE: Record<ArgosNodeType, string[]> = {
   proveedor: [
@@ -483,8 +491,6 @@ function SidebarChat({
 }
 
 interface SidebarProps {
-  active: SectionId
-  onNav: (s: SectionId) => void
   hasChat: boolean
   hasHistory: boolean
   thread: ChatMessage[]
@@ -502,33 +508,37 @@ interface SidebarProps {
 }
 
 function Sidebar({
-  active, onNav, hasChat, hasHistory, thread, streaming, fadeLevel, graph, focusedNodeId,
+  hasChat, hasHistory, thread, streaming, fadeLevel, graph, focusedNodeId,
   onChipHover, onChipClick, onChatClear,
   totalProv, totalSenales, totalJur, totalPersonas,
 }: SidebarProps) {
   return (
     <aside className={`sidebar ${hasChat ? 'has-chat' : ''} ${hasHistory ? 'has-history' : ''}`}>
-      <div className="brand">
+      <Link to="/" className="brand" style={{ textDecoration: 'none', color: 'inherit' }}>
         <ArgosMark size={30} />
         <div className="brand-text">
           <div className="name">ARGOS</div>
           <div className="tag">Inteligencia ciudadana</div>
         </div>
-      </div>
+      </Link>
       <nav className="nav" aria-label="Secciones">
         {SECTIONS.map((s) => {
           const I = s.icon
           return (
-            <button
-              key={s.id}
-              className={`nav-item ${active === s.id ? 'active' : ''}`}
-              onClick={() => onNav(s.id)}
-              aria-current={active === s.id ? 'page' : undefined}
+            <NavLink
+              key={s.to}
+              to={s.to}
+              end={s.end}
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
               title={s.label}
             >
-              <I size={16} stroke={active === s.id ? '#6FB8E8' : 'currentColor'} sw={1.7} />
-              <span className="l">{s.label}</span>
-            </button>
+              {({ isActive }) => (
+                <>
+                  <I size={16} stroke={isActive ? '#6FB8E8' : 'currentColor'} sw={1.7} />
+                  <span className="l">{s.label}</span>
+                </>
+              )}
+            </NavLink>
           )
         })}
       </nav>
@@ -854,7 +864,6 @@ function ArgosMark({ size = 30 }: { size?: number }) {
 // ─── Header ───────────────────────────────────────────────────────────────────
 
 interface HeaderProps {
-  section: SectionId
   focusedNode: ArgosNode | null
   onClearFocus: () => void
   labelsMode: 'minimal' | 'all'
@@ -865,18 +874,17 @@ interface HeaderProps {
 }
 
 function Header({
-  section, focusedNode, onClearFocus, labelsMode, labelsDepth, onLabelsToggle, onLabelsDepth,
+  focusedNode, onClearFocus, labelsMode, labelsDepth, onLabelsToggle, onLabelsDepth,
   novedadesCount,
 }: HeaderProps) {
   const today = new Date().toLocaleDateString('es-AR', {
     day: '2-digit', month: 'long', year: 'numeric',
   })
-  const sec = SECTIONS.find((s) => s.id === section)
-  const showLabelsToggle = section === 'inicio' || section === 'mapa'
+  const showLabelsToggle = true
   return (
     <header className="header">
       <div className="crumb">
-        <span>{sec?.label || 'Inicio'}</span>
+        <span>Inicio</span>
         {focusedNode && (
           <>
             <span className="sep">/</span>
@@ -948,36 +956,6 @@ function Header({
         </button>
       </div>
     </header>
-  )
-}
-
-// ─── PlaceholderSection ───────────────────────────────────────────────────────
-
-function PlaceholderSection({
-  id, focusInput,
-}: {
-  id: SectionId
-  focusInput: () => void
-}) {
-  const SEC = SECTIONS.find((s) => s.id === id)
-  const I = SEC?.icon || Ico.Info
-  return (
-    <div className="section-view">
-      <div className="box">
-        <I size={42} stroke="#6FB8E8" sw={1.2} />
-        <div className="soon" style={{ marginTop: 18 }}>● Próximamente</div>
-        <h2>{SEC?.label}</h2>
-        <p>
-          Esta sección consolidará vistas tabulares y filtros sobre el grafo. Por ahora
-          podés explorar todo desde{' '}
-          <strong style={{ color: 'var(--celeste)' }}>Inicio</strong> y{' '}
-          <strong style={{ color: 'var(--celeste)' }}>Mapa</strong>, o preguntarle directamente a ARGOS.
-        </p>
-        <button className="btn primary" style={{ marginTop: 18 }} onClick={focusInput}>
-          Volver al chat
-        </button>
-      </div>
-    </div>
   )
 }
 
@@ -1310,7 +1288,9 @@ export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: Explo
     [],
   )
 
-  const showGraph = s.sidebar === 'inicio' || s.sidebar === 'mapa'
+  // ExplorarLayout solo se monta en /, /persona/:dni, /empresa/:cuit — el
+  // grafo siempre está visible. Las otras "secciones" del sidebar son rutas.
+  const showGraph = true
 
   // Conteos para footer derivados del grafo cargado.
   // Soportan tanto el grafo dashboard-only ('proveedor', 'jurisdiccion',
@@ -1381,8 +1361,6 @@ export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: Explo
     <div className="app">
       <Onboarding />
       <Sidebar
-        active={s.sidebar}
-        onNav={(sec) => dispatch({ t: 'NAV', section: sec })}
         hasChat={s.chat.thread.length > 0}
         hasHistory={s.chat.thread.length > 2}
         thread={s.chat.thread}
@@ -1400,7 +1378,6 @@ export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: Explo
       />
       <div className="main">
         <Header
-          section={s.sidebar}
           focusedNode={focusedNode ?? null}
           onClearFocus={() => dispatch({ t: 'CLEAR' })}
           labelsMode={labelsMode}
@@ -1548,15 +1525,6 @@ export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: Explo
           </div>
         )}
 
-        {!showGraph && (
-          <PlaceholderSection
-            id={s.sidebar}
-            focusInput={() => {
-              dispatch({ t: 'NAV', section: 'inicio' })
-              setTimeout(() => inputRef.current?.focus(), 50)
-            }}
-          />
-        )}
       </div>
     </div>
   )

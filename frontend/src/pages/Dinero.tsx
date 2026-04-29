@@ -15,7 +15,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
-import { ForensicHeader, ForensicFooter } from '@/components/argos/ForensicHeader'
+import { ArgosShell } from '@/components/argos/ArgosShell'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 
@@ -100,29 +100,25 @@ export default function Dinero() {
   }
 
   return (
-    <div style={s.page}>
-      <ForensicHeader />
-      <main style={s.main}>
-        <Filtros
-          jurisdiccion={jurisdiccion}
-          anio={anio}
-          jurisdicciones={jurisdicciones?.jurisdicciones ?? []}
-          onChange={setFiltro}
-        />
-        {error && <div style={s.error}>Error cargando datos: {error}</div>}
-        {loading && !sankey && <div style={s.muted}>Cargando…</div>}
-        {sankey && <Sankey data={sankey} />}
-        {partidas && partidas.partidas.length > 0 && (
-          <PartidasTable data={partidas.partidas} />
-        )}
-        {partidas && partidas.partidas.length === 0 && !loading && (
-          <div style={s.muted}>
-            No hay partidas para los filtros actuales. Cambiá jurisdicción o año.
-          </div>
-        )}
-      </main>
-      <ForensicFooter />
-    </div>
+    <ArgosShell title="Dinero · ciclo presupuestario">
+      <Filtros
+        jurisdiccion={jurisdiccion}
+        anio={anio}
+        jurisdicciones={jurisdicciones?.jurisdicciones ?? []}
+        onChange={setFiltro}
+      />
+      {error && <div style={s.error}>Error cargando datos: {error}</div>}
+      {loading && !sankey && <div style={s.muted}>Cargando…</div>}
+      {sankey && <Sankey data={sankey} />}
+      {partidas && partidas.partidas.length > 0 && (
+        <PartidasTable data={partidas.partidas} />
+      )}
+      {partidas && partidas.partidas.length === 0 && !loading && (
+        <div style={s.muted}>
+          No hay partidas para los filtros actuales. Cambiá jurisdicción o año.
+        </div>
+      )}
+    </ArgosShell>
   )
 }
 

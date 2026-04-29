@@ -5,7 +5,7 @@
  * y el cap dinámico de score. Footer con commit hash.
  */
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { ForensicHeader, ForensicFooter } from '@/components/argos/ForensicHeader'
+import { ArgosShell } from '@/components/argos/ArgosShell'
 
 const SECTIONS = [
   { id: 'que-hace', label: 'Qué hace ARGOS' },
@@ -43,10 +43,8 @@ export default function Metodologia() {
   }
 
   return (
-    <div style={s.page}>
-      <ForensicHeader />
-      <main style={s.main}>
-        <div style={s.layout}>
+    <ArgosShell title="Metodología">
+      <div style={s.layout}>
           <nav style={s.toc}>
             <div style={s.tocLabel}>METODOLOGÍA</div>
             {SECTIONS.map(sec => (
@@ -250,9 +248,7 @@ export default function Metodologia() {
             </div>
           </article>
         </div>
-      </main>
-      <ForensicFooter />
-    </div>
+    </ArgosShell>
   )
 }
 

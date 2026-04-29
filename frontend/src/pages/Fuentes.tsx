@@ -1,146 +1,157 @@
-import { Link } from 'react-router-dom'
-import { ArrowLeft, AlertTriangle, Database, ExternalLink, ShieldCheck } from 'lucide-react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { useFuentes } from '@/lib/queries'
-import { fmtFecha } from '@/lib/format'
+/**
+ * Fuentes.tsx — superficie /fuentes en tema graph-first dark.
+ *
+ * Reemplaza la versión Phase D (light AppShell) que se borró en el commit
+ * de unificación. Mismo endpoint /api/cruce/fuentes; layout coherente con
+ * el resto de ARGOS (sidebar dark + grid de cards).
+ */
+import { useEffect, useState } from 'react'
+import { ArgosShell } from '@/components/argos/ArgosShell'
 
-const TIPO_LABEL: Record<string, string> = {
-  api_estructurada: 'API estructurada',
-  scraper_html: 'Scraper HTML',
-  ocr_pdf: 'OCR de PDF',
-  dataset_internacional: 'Dataset internacional',
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+
+interface Fuente {
+  id: string
+  jurisdiccion: string
+  tipo: string
+  url: string
+  formato: string
+  oficial: boolean
+  licencia: string | null
+  frecuencia: string | null
+  nivel_confianza: 'alto' | 'medio' | 'bajo' | string
+  notas: string | null
+  registrado_en: string
+  ultimo_crawl: string | null
 }
 
 export default function Fuentes() {
-  const { data, isLoading, error } = useFuentes()
+  const [fuentes, setFuentes] = useState<Fuente[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const ac = new AbortController()
+    fetch(`${API_URL}/api/cruce/fuentes`, { signal: ac.signal })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json() as Promise<{ ok: boolean; fuentes: Fuente[] }>
+      })
+      .then(data => setFuentes(data.fuentes))
+      .catch(e => { if (!ac.signal.aborted) setError((e as Error).message) })
+      .finally(() => { if (!ac.signal.aborted) setLoading(false) })
+    return () => ac.abort()
+  }, [])
 
   return (
-    <div className="mx-auto max-w-screen-xl px-4 md:px-6 py-6 space-y-4">
-      <Link
-        to="/"
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" /> Dashboard
-      </Link>
+    <ArgosShell title="Fuentes · procedencia de los datos">
+      <p style={s.subtitle}>
+        Toda la información de ARGOS lleva su <code style={s.code}>fuente_url</code>{' '}
+        al portal oficial. La plataforma no publica nada sin origen verificable
+        (CLAUDE.md §4 — trazabilidad).
+      </p>
 
-      <div>
-        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight flex items-center gap-2">
-          <Database className="h-6 w-6" />
-          Fuentes de datos
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Procedencia de la información que alimenta ARGOS. Cada fuente queda
-          registrada con tipo, formato, licencia y nivel de confianza
-          (CLAUDE.md sección 4 — trazabilidad).
-        </p>
-      </div>
+      {error && <div style={s.error}>Error cargando fuentes: {error}</div>}
+      {loading && <div style={s.muted}>Cargando…</div>}
 
-      {error && (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Error cargando fuentes</AlertTitle>
-          <AlertDescription>{(error as Error).message}</AlertDescription>
-        </Alert>
-      )}
-
-      {isLoading && (
-        <div className="space-y-3">
-          {[...Array(3)].map((_, i) => (
-            <Skeleton key={i} className="h-32 w-full" />
+      {fuentes && fuentes.length > 0 && (
+        <div style={s.grid}>
+          {fuentes.map(f => (
+            <article key={f.id} style={s.card}>
+              <div style={s.cardHead}>
+                <h3 style={s.cardTitle}>{f.jurisdiccion}</h3>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {f.oficial && <span style={{ ...s.tag, ...s.tagOficial }}>oficial</span>}
+                  <span style={{ ...s.tag, ...tagConfianza(f.nivel_confianza) }}>
+                    confianza {f.nivel_confianza}
+                  </span>
+                </div>
+              </div>
+              <div style={s.cardSub}>
+                <span style={{ color: 'var(--text-2)' }}>{tipoLabel(f.tipo)}</span>
+                {' · '}
+                <span style={{ color: 'var(--text-3)' }}>{f.formato}</span>
+              </div>
+              <a href={f.url} target="_blank" rel="noreferrer noopener" style={s.urlLink}>
+                ↗ {hostname(f.url)}
+              </a>
+              {f.notas && <p style={s.notas}>{f.notas}</p>}
+              <div style={s.meta}>
+                {f.licencia && <span>Licencia: <code style={s.code}>{f.licencia}</code></span>}
+                {f.frecuencia && <span>Frecuencia: {f.frecuencia}</span>}
+                <span>Registrada: {new Date(f.registrado_en).toLocaleDateString('es-AR')}</span>
+              </div>
+            </article>
           ))}
         </div>
       )}
 
-      {data && data.fuentes.length === 0 && (
-        <Alert>
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Sin fuentes registradas</AlertTitle>
-          <AlertDescription>
-            El backend aún no registró ninguna fuente. Las fuentes se registran
-            automáticamente al iniciar el server (ver{' '}
-            <code className="text-xs">backend/src/index.ts</code>).
-          </AlertDescription>
-        </Alert>
+      {fuentes && fuentes.length === 0 && (
+        <div style={s.muted}>Sin fuentes registradas todavía.</div>
       )}
-
-      {data && data.fuentes.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {data.fuentes.map((f) => (
-            <Card key={f.id}>
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-2 flex-wrap">
-                  <div>
-                    <CardTitle className="text-base">{f.jurisdiccion}</CardTitle>
-                    <CardDescription className="text-xs mt-0.5">
-                      {TIPO_LABEL[f.tipo] ?? f.tipo} · {f.formato}
-                    </CardDescription>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {f.oficial && (
-                      <Badge variant="outline" className="gap-1">
-                        <ShieldCheck className="h-3 w-3" />
-                        oficial
-                      </Badge>
-                    )}
-                    <Badge
-                      variant={
-                        f.nivel_confianza === 'alto'
-                          ? 'default'
-                          : f.nivel_confianza === 'medio'
-                            ? 'secondary'
-                            : 'outline'
-                      }
-                    >
-                      confianza {f.nivel_confianza}
-                    </Badge>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <a
-                  href={f.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-primary hover:underline inline-flex items-start gap-1 break-all text-xs"
-                >
-                  <ExternalLink className="h-3 w-3 mt-0.5 shrink-0" />
-                  <span>{f.url}</span>
-                </a>
-                {f.notas && (
-                  <p className="text-xs text-muted-foreground">{f.notas}</p>
-                )}
-                <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground pt-1 border-t">
-                  {f.licencia && (
-                    <div>
-                      <span className="text-muted-foreground/70">Licencia:</span>{' '}
-                      {f.licencia}
-                    </div>
-                  )}
-                  {f.frecuencia && (
-                    <div>
-                      <span className="text-muted-foreground/70">Frecuencia:</span>{' '}
-                      {f.frecuencia}
-                    </div>
-                  )}
-                  <div>
-                    <span className="text-muted-foreground/70">Registrada:</span>{' '}
-                    {fmtFecha(f.registrado_en)}
-                  </div>
-                  {f.ultimo_crawl && (
-                    <div>
-                      <span className="text-muted-foreground/70">Último crawl:</span>{' '}
-                      {fmtFecha(f.ultimo_crawl)}
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
+    </ArgosShell>
   )
+}
+
+function tipoLabel(t: string): string {
+  if (t === 'api_estructurada') return 'API estructurada'
+  if (t === 'scraping') return 'Scraping'
+  if (t === 'pdf_ocr') return 'PDF / OCR'
+  return t
+}
+
+function hostname(url: string): string {
+  try { return new URL(url).hostname } catch { return url }
+}
+
+function tagConfianza(nivel: string): React.CSSProperties {
+  if (nivel === 'alto') return { background: 'rgba(74,222,128,0.12)', color: '#4ADE80', borderColor: 'rgba(74,222,128,0.3)' }
+  if (nivel === 'medio') return { background: 'rgba(245,181,68,0.12)', color: '#F5B544', borderColor: 'rgba(245,181,68,0.3)' }
+  return { background: 'rgba(229,72,77,0.12)', color: '#E5484D', borderColor: 'rgba(229,72,77,0.3)' }
+}
+
+const s: Record<string, React.CSSProperties> = {
+  subtitle: { fontSize: 13, color: 'var(--text-2)', maxWidth: 640, marginBottom: 28, lineHeight: 1.6 },
+  grid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+    gap: 16,
+  },
+  card: {
+    background: 'rgba(255,255,255,0.025)',
+    border: '1px solid var(--stroke)',
+    borderRadius: 8,
+    padding: 18,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 10,
+  },
+  cardHead: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  cardTitle: { fontSize: 14, fontWeight: 600, color: 'var(--text)', margin: 0 },
+  cardSub: { fontSize: 12 },
+  urlLink: {
+    color: 'var(--celeste)',
+    textDecoration: 'none',
+    fontSize: 12,
+    fontFamily: 'JetBrains Mono, monospace',
+    wordBreak: 'break-all' as const,
+  },
+  notas: { fontSize: 12, color: 'var(--text-2)', margin: 0, lineHeight: 1.5 },
+  meta: {
+    fontSize: 11, color: 'var(--text-3)', display: 'flex', flexWrap: 'wrap' as const, gap: 14,
+    paddingTop: 8, borderTop: '1px solid var(--stroke)',
+  },
+  tag: {
+    fontSize: 10, padding: '2px 7px', borderRadius: 999,
+    border: '1px solid var(--stroke)', textTransform: 'uppercase' as const, letterSpacing: 0.5,
+  },
+  tagOficial: { background: 'rgba(111,184,232,0.12)', color: '#6FB8E8', borderColor: 'rgba(111,184,232,0.3)' },
+  code: {
+    fontFamily: 'JetBrains Mono, monospace',
+    fontSize: 11, padding: '1px 6px',
+    background: 'rgba(255,255,255,0.04)', borderRadius: 3,
+    color: 'var(--celeste)',
+  },
+  muted: { color: 'var(--text-3)', fontSize: 13, padding: 24, textAlign: 'center' as const },
+  error: { padding: 14, background: 'rgba(229,72,77,0.1)', color: '#E5484D', borderRadius: 4, marginBottom: 16 },
 }
