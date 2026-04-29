@@ -41,19 +41,20 @@ export default function Persona() {
   const [pf, setPf] = useState<PersonaFisica | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Audit fix WARNING #2: distinguir si los datos vienen del backend real
+  // o del fixture sintético, para que el usuario nunca confunda data
+  // demo con data real.
+  const [dataSource, setDataSource] = useState<'backend' | 'fixture' | null>(null)
 
-  // Audit fix Fase F R6: fetch del backend real (con fallback a fixtures
-  // para los DNIs sintéticos del MVP que no están en BD).
   useEffect(() => {
     if (!dni) { setLoading(false); return }
     const ac = new AbortController()
-    setLoading(true); setError(null)
+    setLoading(true); setError(null); setDataSource(null)
     fetch(`${API_URL}/api/profile/persona/${encodeURIComponent(dni)}`, { signal: ac.signal })
       .then(async r => {
         if (r.status === 404) {
-          // Fallback a fixture si no está en BD real
           const stub = getPersonaFisicaStub(dni)
-          if (stub) { setPf(stub); return null }
+          if (stub) { setPf(stub); setDataSource('fixture'); return null }
           throw new Error('Persona no encontrada')
         }
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -62,12 +63,12 @@ export default function Persona() {
       .then(data => {
         if (ac.signal.aborted || !data) return
         setPf(data as PersonaFisica)
+        setDataSource('backend')
       })
       .catch(e => {
         if (ac.signal.aborted) return
-        // Último fallback a fixture
         const stub = getPersonaFisicaStub(dni)
-        if (stub) setPf(stub)
+        if (stub) { setPf(stub); setDataSource('fixture') }
         else setError((e as Error).message)
       })
       .finally(() => { if (!ac.signal.aborted) setLoading(false) })
@@ -122,20 +123,32 @@ export default function Persona() {
   )
 
   return (
-    <ProfileTwoPane
-      header={{
-        title: pf.apellidoNombre,
-        identityLabel: 'DNI',
-        identityValue: formatDNI(pf.dni),
-        glyph: '●',
-        glyphColor: '#7da3ff',
-        badge: verifBadge,
-        subtitle: pf.jurisdiccionPrimaria ? humanJurisdiccion(pf.jurisdiccionPrimaria) : undefined,
-      }}
-      sections={sections}
-      actorId={pf.dni}
-      actorKind="pf"
-    />
+    <>
+      {dataSource === 'fixture' && (
+        <div style={{
+          background: '#3a2d1d', color: '#F5B544', padding: '8px 16px',
+          fontSize: 12, fontFamily: 'ui-monospace, monospace',
+          borderBottom: '1px solid #F5B544',
+        }}>
+          ⚠ DATOS SINTÉTICOS DE PRUEBA — sin conexión con backend o DNI inexistente.
+          La información mostrada NO refleja la realidad y NO debe usarse para denuncias.
+        </div>
+      )}
+      <ProfileTwoPane
+        header={{
+          title: pf.apellidoNombre,
+          identityLabel: 'DNI',
+          identityValue: formatDNI(pf.dni),
+          glyph: '●',
+          glyphColor: '#7da3ff',
+          badge: verifBadge,
+          subtitle: pf.jurisdiccionPrimaria ? humanJurisdiccion(pf.jurisdiccionPrimaria) : undefined,
+        }}
+        sections={sections}
+        actorId={pf.dni}
+        actorKind="pf"
+      />
+    </>
   )
 }
 

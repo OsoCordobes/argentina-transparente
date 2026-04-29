@@ -33,34 +33,70 @@ async function main() {
 
   const wherejur = args.jurisdiccion ? ` AND a.jurisdiccion = '${args.jurisdiccion.replace(/'/g, "''")}'` : ''
 
-  // tmp_pf_norm: PF con su nombre normalizado para JOIN.
+  // tmp_pf_norm: PF con su nombre normalizado + provincia inferida de las
+  // empresas que dirige (vía v_persona_dirige_empresa). Si una PF dirige
+  // empresas en varias provincias, marcamos múltiples filas para esa PF
+  // (cada agente cordobés solo matchea PFs con al menos una empresa en
+  // CORDOBA o sin provincia conocida).
+  //
+  // Audit fix critical #2: ANTES no había restricción geográfica → un
+  // agente cordobés con nombre "JUAN PEREZ" podía recibir el DNI de un
+  // JUAN PEREZ buenos-aires-resident contaminando v_persona_dirige_empresa.
   await dbRun(`
     CREATE OR REPLACE TEMPORARY TABLE tmp_pf_norm AS
-    SELECT dni,
-           regexp_replace(strip_accents(UPPER(apellido_nombre)), '[^A-Z\\s]', ' ', 'g') AS norm
-      FROM personas_fisicas
+    WITH provincias_de_pf AS (
+      -- Provincias donde la PF dirige al menos una empresa
+      SELECT DISTINCT pf.dni,
+             UPPER(pj.dom_fiscal_provincia) AS provincia_pj
+        FROM personas_fisicas pf
+        JOIN v_persona_dirige_empresa v ON v.dni = pf.dni
+        JOIN personas_juridicas pj ON pj.cuit = v.cuit
+       WHERE pj.dom_fiscal_provincia IS NOT NULL
+    )
+    SELECT pf.dni,
+           regexp_replace(strip_accents(UPPER(pf.apellido_nombre)), '[^A-Z\\s]', ' ', 'g') AS norm,
+           COALESCE(pp.provincia_pj, '') AS provincia_pj
+      FROM personas_fisicas pf
+      LEFT JOIN provincias_de_pf pp ON pp.dni = pf.dni
   `)
 
-  // Para cada agente sin dni: contar cuántas PF coinciden por nombre
-  // normalizado dentro de la misma jurisdicción. Si exactamente 1 → match.
+  // Para cada agente sin dni: matchear con PF que dirija al menos una
+  // empresa en su misma provincia O cuya provincia sea desconocida.
+  // jurisdiccion del agente: 'cordoba-capital' / 'cordoba-provincia' →
+  // mapeamos a provincia 'CORDOBA'.
   await dbRun(`
     CREATE OR REPLACE TEMPORARY TABLE tmp_agente_match AS
     WITH agentes_norm AS (
       SELECT a.id AS agente_id,
              a.jurisdiccion,
+             CASE
+               WHEN a.jurisdiccion LIKE 'cordoba%' THEN 'CORDOBA'
+               WHEN a.jurisdiccion LIKE 'caba%'    THEN 'CIUDAD AUTONOMA DE BUENOS AIRES'
+               WHEN a.jurisdiccion LIKE 'santa-fe%' THEN 'SANTA FE'
+               ELSE NULL
+             END AS provincia_agente,
              regexp_replace(strip_accents(UPPER(a.apellido_nombre)), '[^A-Z\\s]', ' ', 'g') AS norm
         FROM agentes_publicos a
        WHERE a.dni IS NULL
          AND a.apellido_nombre IS NOT NULL
          ${wherejur}
     ),
-    matches AS (
-      SELECT an.agente_id,
-             ANY_VALUE(p.dni)            AS dni_candidato,
-             COUNT(DISTINCT p.dni)       AS cnt_dnis
+    candidates AS (
+      SELECT an.agente_id, p.dni, p.provincia_pj
         FROM agentes_norm an
         JOIN tmp_pf_norm p ON p.norm = an.norm
-       GROUP BY an.agente_id
+        -- Sólo aceptamos PF cuya provincia coincide con la del agente
+        -- O cuya provincia es desconocida (no descartamos por falta de data).
+       WHERE an.provincia_agente IS NULL
+          OR p.provincia_pj = ''
+          OR p.provincia_pj = an.provincia_agente
+    ),
+    matches AS (
+      SELECT agente_id,
+             ANY_VALUE(dni)            AS dni_candidato,
+             COUNT(DISTINCT dni)       AS cnt_dnis
+        FROM candidates
+       GROUP BY agente_id
     )
     SELECT agente_id, dni_candidato
       FROM matches
@@ -84,11 +120,16 @@ async function main() {
     return
   }
 
-  // UPDATE bulk
+  // UPDATE bulk.
+  // Audit fix critical #2: la fuente NO es 'IGJ verificado' — es
+  // 'backfill heurístico nombre+provincia'. La cita refleja el método
+  // exacto para que un fiscal sepa que el DNI no fue confirmado contra
+  // DDJJ post-OCR sino inferido por homonimia única. Eso lo deja en
+  // Tier 2 (cap-60 en el detector C1, NO Tier 1 cap-95).
   await dbRun(`
     UPDATE agentes_publicos AS a
        SET dni = m.dni_candidato,
-           fuente_dni_url = 'https://datos.jus.gob.ar/dataset/da045e06-35cb-4bdd-9b5e-ddee6712c86c'
+           fuente_dni_url = 'argos://backfill-heuristico/nombre+provincia/v1'
       FROM tmp_agente_match m
      WHERE a.id = m.agente_id
   `)

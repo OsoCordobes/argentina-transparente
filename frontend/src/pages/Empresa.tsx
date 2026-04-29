@@ -38,26 +38,30 @@ export default function Empresa() {
   const [graphExpanded, setGraphExpanded] = useState(false)
   const [pj, setPj] = useState<PersonaJuridica | null>(null)
   const [loading, setLoading] = useState(true)
+  const [dataSource, setDataSource] = useState<'backend' | 'fixture' | null>(null)
 
   useEffect(() => {
     if (!cuit) { setLoading(false); return }
     const ac = new AbortController()
-    setLoading(true)
+    setLoading(true); setDataSource(null)
     fetch(`${API_URL}/api/profile/empresa/${encodeURIComponent(cuit)}`, { signal: ac.signal })
       .then(async r => {
         if (r.status === 404) {
           const stub = getPersonaJuridicaStub(cuit)
-          if (stub) { setPj(stub); return null }
+          if (stub) { setPj(stub); setDataSource('fixture'); return null }
           throw new Error('Empresa no encontrada')
         }
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.json()
       })
-      .then(data => { if (!ac.signal.aborted && data) setPj(data as PersonaJuridica) })
+      .then(data => {
+        if (ac.signal.aborted || !data) return
+        setPj(data as PersonaJuridica); setDataSource('backend')
+      })
       .catch(() => {
         if (ac.signal.aborted) return
         const stub = getPersonaJuridicaStub(cuit)
-        if (stub) setPj(stub)
+        if (stub) { setPj(stub); setDataSource('fixture') }
       })
       .finally(() => { if (!ac.signal.aborted) setLoading(false) })
     return () => ac.abort()
@@ -91,20 +95,32 @@ export default function Empresa() {
   if (pj.estado) subParts.push(`Estado: ${pj.estado}`)
 
   return (
-    <ProfileTwoPane
-      header={{
-        title: pj.razonSocial,
-        identityLabel: 'CUIT',
-        identityValue: pj.cuit,
-        glyph: '■',
-        glyphColor: '#ff9b5c',
-        badge: verifBadge,
-        subtitle: subParts.join(' · ') || undefined,
-      }}
-      sections={sections}
-      actorId={pj.cuit}
-      actorKind="pj"
-    />
+    <>
+      {dataSource === 'fixture' && (
+        <div style={{
+          background: '#3a2d1d', color: '#F5B544', padding: '8px 16px',
+          fontSize: 12, fontFamily: 'ui-monospace, monospace',
+          borderBottom: '1px solid #F5B544',
+        }}>
+          ⚠ DATOS SINTÉTICOS DE PRUEBA — sin conexión con backend o CUIT inexistente.
+          La información mostrada NO refleja la realidad y NO debe usarse para denuncias.
+        </div>
+      )}
+      <ProfileTwoPane
+        header={{
+          title: pj.razonSocial,
+          identityLabel: 'CUIT',
+          identityValue: pj.cuit,
+          glyph: '■',
+          glyphColor: '#ff9b5c',
+          badge: verifBadge,
+          subtitle: subParts.join(' · ') || undefined,
+        }}
+        sections={sections}
+        actorId={pj.cuit}
+        actorKind="pj"
+      />
+    </>
   )
 }
 

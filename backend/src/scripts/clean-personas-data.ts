@@ -19,8 +19,19 @@ import 'dotenv/config'
 import { initDb, dbAll, dbRun } from '../lib/db'
 
 async function main() {
-  const apply = process.argv.slice(2).includes('--apply')
+  const args = process.argv.slice(2)
+  const apply = args.includes('--apply')
+  // Audit fix WARNING #1: este script casi borró 1.2M filas con regex
+  // defectuosa una vez. Ahora exige una segunda flag explícita para
+  // aplicar — eso garantiza que un --apply accidental siempre quede en
+  // dry-run.
+  const confirmed = args.includes('--i-understand-this-deletes-data')
   console.log('=== ARGOS R1.3 — Clean personas_data ===\n')
+  if (apply && !confirmed) {
+    console.error('⚠ --apply requiere también --i-understand-this-deletes-data')
+    console.error('  (este script borra filas; sin la flag de confirmación queda en dry-run)')
+    process.exit(2)
+  }
   await initDb()
 
   const before = await Promise.all([
@@ -44,7 +55,7 @@ async function main() {
   console.log(`Basura detectada: PF=${trashPF[0].n} PJ=${trashPJ[0].n}`)
 
   if (!apply) {
-    console.log('\n[dry-run] Pasá --apply para borrar.')
+    console.log('\n[dry-run] Pasá --apply --i-understand-this-deletes-data para borrar.')
     return
   }
 
