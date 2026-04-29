@@ -1323,11 +1323,50 @@ export async function initDb(): Promise<void> {
   // PF.dni → igj_autoridades.numero_documento → igj_entidades.numero_correlativo
   // → personas_juridicas.cuit a mano, lo cual es frágil y duplicativo.
 
+  // Audit fix F8.5: agregar columna `es_ente_estatal` a personas_juridicas
+  // para distinguir empresas privadas de entes estatales (ministerios,
+  // municipalidades, organismos autárquicos, sociedades del Estado).
+  // El detector C1 NO debe emitir señal de "conflicto" cuando un funcionario
+  // "dirige" un ministerio (es nombramiento legítimo). Pero SÍ cuando una
+  // PF privada dirige una sociedad del Estado (puerta giratoria).
+  try { await dbRun(`ALTER TABLE personas_juridicas ADD COLUMN es_ente_estatal BOOLEAN DEFAULT FALSE`) } catch { /* idempotente */ }
+
+  // Marcar entes estatales por patrón estricto de razón social.
+  // Solo "MINISTERIO DE", "SECRETARIA DE", etc — NO sólo "AGENCIA" (palabra
+  // común en empresas privadas) ni "CAJA" (cooperativas).
+  try {
+    await dbRun(`
+      UPDATE personas_juridicas
+         SET es_ente_estatal = TRUE
+       WHERE UPPER(razon_social) LIKE 'MINISTERIO DE %'
+          OR UPPER(razon_social) LIKE 'SECRETARIA DE %'
+          OR UPPER(razon_social) LIKE 'SUBSECRETARIA DE %'
+          OR UPPER(razon_social) LIKE 'MUNICIPALIDAD DE %'
+          OR UPPER(razon_social) LIKE 'GOBIERNO DE %'
+          OR UPPER(razon_social) LIKE 'PROVINCIA DE %'
+          OR UPPER(razon_social) LIKE 'INSTITUTO NACIONAL %'
+          OR UPPER(razon_social) LIKE 'INSTITUTO PROVINCIAL %'
+          OR UPPER(razon_social) LIKE 'PODER JUDICIAL %'
+          OR UPPER(razon_social) LIKE 'PODER LEGISLATIVO %'
+          OR UPPER(razon_social) LIKE 'PODER EJECUTIVO %'
+          OR UPPER(razon_social) LIKE '%CONCEJO DELIBERANTE%'
+          OR UPPER(razon_social) LIKE 'UNIVERSIDAD NACIONAL %'
+          OR UPPER(razon_social) LIKE 'UNIVERSIDAD PROVINCIAL %'
+          OR UPPER(razon_social) LIKE 'BANCO PROVINCIA %'
+          OR UPPER(razon_social) LIKE 'BANCO DE LA NACION%'
+          OR UPPER(razon_social) LIKE '%TRIBUNAL DE CUENTAS%'
+          OR UPPER(razon_social) LIKE 'CONGRESO DE LA NACION%'
+          OR UPPER(razon_social) LIKE 'HONORABLE %DIPUTADOS%'
+          OR UPPER(razon_social) LIKE 'HONORABLE %SENADO%'
+    `)
+  } catch (err) {
+    console.warn('[db] update es_ente_estatal patrón:', (err as Error).message)
+  }
+
   // v_persona_dirige_empresa: PF (dni) → PJ (cuit) vía IGJ.
-  // El path canónico: personas_fisicas.dni = igj_autoridades.numero_documento
-  // → igj_autoridades.numero_correlativo = igj_entidades.numero_correlativo
-  // → igj_entidades.cuit = personas_juridicas.cuit.
-  // Una persona puede dirigir N empresas; una empresa puede tener N directores.
+  // Audit fix F8.5: tipo_cargo ahora viene como label legible en lugar de
+  // código IGJ de UNA letra. También expone `es_ente_estatal` para que el
+  // detector C1 pueda filtrar nombramientos políticos.
   try {
     await dbRun(`
       CREATE OR REPLACE VIEW v_persona_dirige_empresa AS
@@ -1336,9 +1375,16 @@ export async function initDb(): Promise<void> {
         pf.apellido_nombre                AS persona_nombre,
         pj.cuit                           AS cuit,
         pj.razon_social                   AS empresa_nombre,
-        ia.tipo_administrador             AS tipo_cargo,
+        ia.tipo_administrador             AS tipo_cargo_codigo,
+        CASE UPPER(TRIM(ia.tipo_administrador))
+          WHEN 'A' THEN 'Administrador titular'
+          WHEN 'S' THEN 'Síndico'
+          WHEN 'R' THEN 'Representante'
+          ELSE COALESCE('Cargo (' || ia.tipo_administrador || ')', 'Cargo no especificado')
+        END                               AS tipo_cargo,
         pj.dom_fiscal_provincia           AS empresa_provincia,
-        pj.estado                         AS empresa_estado
+        pj.estado                         AS empresa_estado,
+        COALESCE(pj.es_ente_estatal, FALSE) AS empresa_es_ente_estatal
       FROM personas_fisicas pf
       JOIN igj_autoridades ia ON ia.numero_documento = pf.dni
       JOIN igj_entidades ie  ON ie.numero_correlativo = ia.numero_correlativo

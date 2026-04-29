@@ -106,6 +106,15 @@ async function main() {
       FROM unioned
       WHERE LENGTH(REGEXP_REPLACE(cuit_raw, '\\D', '', 'g')) = 11
         AND SUBSTRING(REGEXP_REPLACE(cuit_raw, '\\D', '', 'g'), 1, 2) IN ('30', '33', '34')
+        -- Audit fix F8.5: descartar marcadores de basura ('undefined', 'null',
+        -- 'NaN', etc) que pasan el filter de calidad por longitud y caracteres
+        -- alfabéticos pero son strings centinela del parser de RNS/IGJ.
+        AND LOWER(razon_social) NOT IN
+          ('undefined', 'null', 'nan', 'none', '(null)', '(undefined)',
+           '...', '---', '???', 'n/a', 'na', 'nan nan')
+        AND razon_social !~ '^[0-9]+$'
+        AND LENGTH(TRIM(razon_social)) >= 4
+        AND regexp_matches(razon_social, '[A-Za-z].*[A-Za-z].*[A-Za-z]')
     )
     SELECT
       SUBSTRING(cuit_digits, 1, 2) || '-' || SUBSTRING(cuit_digits, 3, 8) || '-' || SUBSTRING(cuit_digits, 11, 1)

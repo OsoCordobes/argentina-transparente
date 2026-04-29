@@ -336,6 +336,11 @@ export interface PersonaFisica {
  */
 export interface PersonaJuridica {
   cuit: string
+  /** Audit fix F8.5: si TRUE la PJ es ente estatal (ministerio, municipio,
+   *  organismo autárquico, sociedad del Estado). El detector C1 NO debe
+   *  emitir conflicto cuando un funcionario "dirige" un ente estatal —
+   *  es nombramiento legítimo, no puerta giratoria privada. */
+  esEnteEstatal?: boolean
   razonSocial: string
   razonSocialNorm: string
   alias: string[]

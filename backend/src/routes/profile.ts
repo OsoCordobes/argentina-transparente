@@ -44,14 +44,18 @@ profileRouter.get('/persona/:dni', async (req: Request, res: Response) => {
           WHERE dni = ?
           ORDER BY vigente_desde DESC NULLS LAST`, [dni],
       ),
-      // Empresas que dirige (via vista F6)
+      // Empresas que dirige (via vista F6 — incluye label legible y flag estatal)
       dbAll<{
-        cuit: string; empresa_nombre: string; tipo_cargo: string | null;
+        cuit: string; empresa_nombre: string;
+        tipo_cargo: string | null; tipo_cargo_codigo: string | null;
         empresa_provincia: string | null; empresa_estado: string | null;
+        empresa_es_ente_estatal: boolean;
       }>(
-        `SELECT cuit, empresa_nombre, tipo_cargo, empresa_provincia, empresa_estado
+        `SELECT cuit, empresa_nombre, tipo_cargo, tipo_cargo_codigo,
+                empresa_provincia, empresa_estado, empresa_es_ente_estatal
            FROM v_persona_dirige_empresa
           WHERE dni = ?
+          ORDER BY empresa_es_ente_estatal DESC, empresa_nombre
           LIMIT 50`, [dni],
       ),
       // DDJJ patrimoniales
@@ -115,8 +119,10 @@ profileRouter.get('/persona/:dni', async (req: Request, res: Response) => {
         cuitEmpresa: e.cuit,
         razonSocial: e.empresa_nombre,
         tipoCargo: e.tipo_cargo ?? '—',
+        tipoCargoCodigo: e.tipo_cargo_codigo,
         provincia: e.empresa_provincia,
         estado: e.empresa_estado,
+        esEnteEstatal: !!e.empresa_es_ente_estatal,
         vigenteDesde: null,
         vigenteHasta: null,
         fuenteUrl: 'https://datos.jus.gob.ar/dataset/da045e06-35cb-4bdd-9b5e-ddee6712c86c',
@@ -174,6 +180,7 @@ profileRouter.get('/empresa/:cuit', async (req: Request, res: Response) => {
       actividad_principal: string | null;
       fuentes_url_json: string;
       primer_visto: string; ultimo_visto: string;
+      es_ente_estatal: boolean;
     }>(
       `SELECT * FROM personas_juridicas WHERE cuit = ?`, [cuitFormatted],
     )
@@ -181,11 +188,12 @@ profileRouter.get('/empresa/:cuit', async (req: Request, res: Response) => {
     const pj = pjRows[0]
 
     const [directores, contratos, pagos, senales, transferencias] = await Promise.all([
-      // Directores via vista F6 (path inverso: PJ → PF)
+      // Directores via vista F6 (path inverso: PJ → PF), tipo_cargo legible
       dbAll<{
-        dni: string; persona_nombre: string; tipo_cargo: string | null;
+        dni: string; persona_nombre: string;
+        tipo_cargo: string | null; tipo_cargo_codigo: string | null;
       }>(
-        `SELECT dni, persona_nombre, tipo_cargo
+        `SELECT dni, persona_nombre, tipo_cargo, tipo_cargo_codigo
            FROM v_persona_dirige_empresa
           WHERE cuit = ?
           LIMIT 50`, [cuitFormatted],
@@ -255,10 +263,12 @@ profileRouter.get('/empresa/:cuit', async (req: Request, res: Response) => {
       fuentesUrl: parseJsonSafe<string[]>(pj.fuentes_url_json, []),
       primerVisto: pj.primer_visto,
       ultimoVisto: pj.ultimo_visto,
+      esEnteEstatal: !!pj.es_ente_estatal,
       directores: directores.map(d => ({
         dni: d.dni,
         apellidoNombre: d.persona_nombre,
         tipoCargo: d.tipo_cargo ?? '—',
+        tipoCargoCodigo: d.tipo_cargo_codigo,
         vigenteDesde: null,
         vigenteHasta: null,
         fuenteUrl: 'https://datos.jus.gob.ar/dataset/da045e06-35cb-4bdd-9b5e-ddee6712c86c',

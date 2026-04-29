@@ -83,10 +83,19 @@ export default function Empresa() {
     { id: 'fuentes', label: 'Fuentes', content: <FuentesList urls={pj.fuentesUrl} /> },
   ]
 
+  // Audit fix F8.5: badge ENTE ESTATAL cuando aplica + mantener CUIT verif.
   const verifBadge = (
-    <span style={{ fontSize: 10, color: '#62C7A0', border: '1px solid #62C7A0',
-      padding: '2px 6px', borderRadius: 3, fontWeight: 500 }}>
-      ✓ CUIT módulo-11
+    <span style={{ display: 'inline-flex', gap: 6 }}>
+      {pj.esEnteEstatal && (
+        <span style={{ fontSize: 10, color: '#7da3ff', border: '1px solid #7da3ff',
+          padding: '2px 6px', borderRadius: 3, fontWeight: 500 }}>
+          ★ ENTE ESTATAL
+        </span>
+      )}
+      <span style={{ fontSize: 10, color: '#62C7A0', border: '1px solid #62C7A0',
+        padding: '2px 6px', borderRadius: 3, fontWeight: 500 }}>
+        ✓ CUIT módulo-11
+      </span>
     </span>
   )
   const subParts: string[] = []
