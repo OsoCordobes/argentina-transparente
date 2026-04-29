@@ -395,16 +395,20 @@
       transform .65s cubic-bezier(.2,.85,.15,1);
     transition-delay: .08s;
   }
-  .input-wrap.center{top:calc(50% + 60px);}
+  .input-wrap.center{top:calc(50% - 8px);}
   .input-wrap.footer{bottom:24px;width:min(620px, 60%);}
   .input{
-    display:flex;align-items:center;gap:12px;padding:10px 10px 10px 18px;
-    background:rgba(12,17,28,0.7);
+    /* Buscador rectangular estilo intel-tool en free tier — esquinas
+       suaves (4px) en lugar de pill. Cuando el tier paga active el chat
+       LLM, esta clase puede aceptar un modificador .input--llm que
+       redondea más para diferenciar el modo conversacional. */
+    display:flex;align-items:center;gap:12px;padding:12px 12px 12px 18px;
+    background:rgba(12,17,28,0.78);
     border:1px solid var(--stroke-strong);
-    border-radius:14px;
+    border-radius:4px;
     -webkit-backdrop-filter: blur(22px) saturate(140%);
     backdrop-filter: blur(22px) saturate(140%);
-    box-shadow: 0 12px 40px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04);
+    box-shadow: 0 14px 44px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.03);
     transition: border-color .2s, box-shadow .2s;
   }
   .input:focus-within{
@@ -418,7 +422,7 @@
   }
   .input input::placeholder{color:var(--text-3);}
   .send{
-    width:36px;height:36px;border-radius:10px;display:grid;place-items:center;
+    width:36px;height:36px;border-radius:3px;display:grid;place-items:center;
     background:linear-gradient(180deg, #6FB8E8 0%, #4F9CD0 100%);
     color:#06192b;box-shadow:0 4px 14px rgba(111,184,232,0.3);
     transition:transform .15s;

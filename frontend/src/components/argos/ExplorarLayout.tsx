@@ -109,17 +109,17 @@ const SUGGESTIONS_BY_TYPE: Record<ArgosNodeType, string[]> = {
 }
 
 const SUGGESTIONS = [
-  '¿Qué proveedores concentran el gasto en Córdoba?',
-  'Mostrame las señales de riesgo más graves',
-  'CUIT 30-71234567-8',
-  'Directores compartidos entre empresas',
+  'MOSQUERA, ALEJANDRO',
+  'BBVA BROKER ARGENTINA',
+  'SECRETARÍA DE CULTURA',
+  'PINTURAS CAVAZZON SRL',
 ]
 
 const PLACEHOLDERS = [
-  'Preguntale a ARGOS por un municipio, proveedor o CUIT…',
-  'Ej: "¿Quién concentra el rubro pavimentación en Córdoba?"',
-  'Pegá un CUIT o nombre de empresa…',
-  'Ej: "Mostrame las señales graves del 2023"',
+  'Buscá un nombre, CUIT, empresa o repartición…',
+  'Ej: MOSQUERA, ALEJANDRO',
+  'Ej: 30-71542368-1   (BBVA Broker Argentina)',
+  'Ej: SECRETARÍA DE CULTURA',
 ]
 
 // ─── State machine ────────────────────────────────────────────────────────────
@@ -1422,19 +1422,14 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
               />
             </div>
 
-            {/* Hero state */}
+            {/* Hero state — minimalismo de herramienta de inteligencia.
+                Sin titular acusatorio, sin counts saturando. Solo una
+                identificación discreta + la North Star sutil + el buscador. */}
             <div className={`hero ${inHero ? '' : 'hidden'}`} aria-hidden={!inHero}>
               <div className="hero-chip">
-                <span className="pulse" /> IA DE TRANSPARENCIA — ARGOS
+                <span className="pulse" /> ARGOS · Inteligencia patrimonial pública
               </div>
-              <h1>
-                ¿Qué querés <em>investigar</em> hoy?
-              </h1>
               <HeroNorthStar />
-              <p className="hero-meta mono">
-                {totalJur} reparticiones · {totalProv} empresas · {totalPersonas} personas · {totalSenales} señales · datos al{' '}
-                {new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-              </p>
             </div>
 
             {/* Input */}
@@ -1499,7 +1494,7 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
                       submit(SUGGESTIONS[chipIdx])
                     }}
                   >
-                    <span className="lbl">Probá:</span> {SUGGESTIONS[chipIdx]}
+                    <span className="lbl">Buscá:</span> {SUGGESTIONS[chipIdx]}
                   </button>
                 </div>
               )}
@@ -1590,11 +1585,11 @@ function HeroNorthStar() {
       style={{
         fontSize: 13,
         color: 'var(--text-2, #b6c0d4)',
-        margin: '4px 0 8px',
+        margin: '8px 0 0',
         letterSpacing: 0.2,
       }}
     >
-      ${milM} mil M auditados · {hero.cantidadContratos.toLocaleString('es-AR')} contratos · {hero.jurisdiccionPrimaria} {hero.rangoAnios.desde}–{hero.rangoAnios.hasta}
+      ${milM} mil M auditados · {hero.cantidadContratos.toLocaleString('es-AR')} contratos · {hero.jurisdiccionPrimaria}
     </p>
   )
 }
