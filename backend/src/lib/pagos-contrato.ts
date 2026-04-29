@@ -102,7 +102,14 @@ export async function getTotalPagadoPorContrato(contratoHash: string): Promise<n
  *
  * `soloConPagos`: si true, omite contratos sin pagos cargados.
  */
-export async function getResumenPagosContratos(opts: { soloConPagos?: boolean } = {}): Promise<Array<{
+export async function getResumenPagosContratos(opts: {
+  soloConPagos?: boolean
+  // Review #2 B-modules: filtrar por hashes específicos. Sin esto, callers
+  // como denuncia-builder traían el resumen de TODOS los contratos del
+  // sistema solo para hidratar 1-5 hashes — overkill en bases con 100K+
+  // contratos. Con el filtro, la query es proporcional al input.
+  contratoHashes?: string[]
+} = {}): Promise<Array<{
   contratoHash: string
   montoAdjudicado: number
   totalPagado: number
@@ -111,6 +118,16 @@ export async function getResumenPagosContratos(opts: { soloConPagos?: boolean } 
   ultimoPago: string | null
 }>> {
   const join = opts.soloConPagos ? 'INNER' : 'LEFT'
+  const hashes = opts.contratoHashes
+  // Si pasaron contratoHashes vacío explícitamente, no devolvemos nada
+  // (vs. undefined que significa "todos").
+  if (hashes && hashes.length === 0) return []
+
+  const whereHashes = hashes
+    ? `WHERE c.hash IN (${hashes.map(() => '?').join(',')})`
+    : ''
+  const params: unknown[] = hashes ?? []
+
   const rows = await dbAll<{
     contrato_hash: string
     monto_adjudicado: number
@@ -128,7 +145,9 @@ export async function getResumenPagosContratos(opts: { soloConPagos?: boolean } 
        MAX(p.fecha_pago) AS ultimo_pago
      FROM contratos c
      ${join} JOIN pagos_contrato p ON p.contrato_hash = c.hash
+     ${whereHashes}
      GROUP BY c.hash, c.monto`,
+    params,
   )
   return rows.map(r => ({
     contratoHash: r.contrato_hash,

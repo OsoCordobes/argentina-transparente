@@ -6,14 +6,29 @@ import {
   upsertPagoContrato,
   getPagosPorContrato,
   getTotalPagadoPorContrato,
+  getResumenPagosContratos,
 } from './pagos-contrato'
 
 const TEST_CONTRATO_HASH = '__test_b3_contrato_hash__'
 
-beforeAll(async () => { await initDb() })
+beforeAll(async () => {
+  await initDb()
+  // Insertar el contrato base para que getResumenPagosContratos pueda hacer
+  // el JOIN. Idempotente: borra antes para no chocar con runs previos.
+  try {
+    await dbRun(`DELETE FROM contratos WHERE hash = ?`, [TEST_CONTRATO_HASH])
+    await dbRun(
+      `INSERT INTO contratos
+         (hash, municipio, anio, tipo, proveedor, proveedor_norm, area, monto, fuente_url, cargado_en)
+       VALUES (?, '__test__', 2024, 't', 'P', 'p', 'A', 1000000, 'http://x', '2024-01-01')`,
+      [TEST_CONTRATO_HASH],
+    )
+  } catch { /* idempotente */ }
+})
 afterAll(async () => {
   try {
     await dbRun(`DELETE FROM pagos_contrato WHERE contrato_hash = ?`, [TEST_CONTRATO_HASH])
+    await dbRun(`DELETE FROM contratos WHERE hash = ?`, [TEST_CONTRATO_HASH])
   } catch { /* idempotente */ }
 })
 
@@ -143,5 +158,24 @@ describe('B3 — upsert + queries', () => {
   it('getTotalPagadoPorContrato devuelve 0 para hash sin pagos', async () => {
     const total = await getTotalPagadoPorContrato('__contrato_inexistente__')
     expect(total).toBe(0)
+  })
+})
+
+describe('B-modules review #2 — getResumenPagosContratos filtra por hashes', () => {
+  it('contratoHashes vacío → array vacío (sin query)', async () => {
+    const r = await getResumenPagosContratos({ contratoHashes: [] })
+    expect(r).toEqual([])
+  })
+
+  it('contratoHashes con valor inexistente → no devuelve filas', async () => {
+    const r = await getResumenPagosContratos({ contratoHashes: ['__no_existe__'] })
+    expect(r).toEqual([])
+  })
+
+  it('contratoHashes con hash que sí existe → solo ese resumen', async () => {
+    const r = await getResumenPagosContratos({ contratoHashes: [TEST_CONTRATO_HASH] })
+    expect(r).toHaveLength(1)
+    expect(r[0].contratoHash).toBe(TEST_CONTRATO_HASH)
+    expect(r[0].cantidadPagos).toBeGreaterThan(0)
   })
 })

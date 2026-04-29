@@ -130,9 +130,13 @@ export async function armarDenunciaDesdeIds(args: ArmarDenunciaArgs): Promise<De
     : []
 
   // Cadena de pago (opcional)
+  // Review #2 E3: pasamos los hashes a getResumenPagosContratos para que la
+  // query agregue solo los contratos solicitados, en lugar de devolver el
+  // resumen de TODOS los contratos del sistema y filtrar en JS. En bases con
+  // 100K+ contratos, eso era cuello de botella + memoria.
   let cadenaDePago: DenunciaInput['cadenaDePago'] = undefined
   if (args.incluirCadenaDePago && hashes.length > 0) {
-    const resumenes = await getResumenPagosContratos({ soloConPagos: false })
+    const resumenes = await getResumenPagosContratos({ soloConPagos: false, contratoHashes: hashes })
     const porHash = new Map(resumenes.map(r => [r.contratoHash, r]))
     cadenaDePago = hashes
       .map(h => porHash.get(h))
