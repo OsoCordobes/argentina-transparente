@@ -101,9 +101,14 @@ export async function encontrarCrucesAportanteProveedor(opts: {
     tier_match_proveedor: number
     score_match_proveedor: number
   }>(`
+    -- Review #1 C2: bug fix de causalidad temporal.
+    -- Antes: contratos_agg sumaba TODOS los contratos (de cualquier año) y
+    -- después filtraba por ca.primer_anio >= a.anio_electoral. Eso descartaba
+    -- empresas con contratos PRE-aporte aunque también tuvieran POST-aporte,
+    -- y la SUM mezclaba contratos pre con post.
+    -- Ahora: el filtro c.anio >= a.anio_electoral está DENTRO del JOIN, por
+    -- lo que solo se agregan contratos estrictamente posteriores al aporte.
     WITH aportes_pj AS (
-      -- Aportantes PJ con CUIT (excluimos PF para Tier 1 puro PJ↔PJ;
-      -- los aportantes PF con DNI van a un detector hermano futuro).
       SELECT cuit,
              ANY_VALUE(razon_social) AS razon_social,
              partido,
@@ -121,9 +126,7 @@ export async function encontrarCrucesAportanteProveedor(opts: {
       HAVING SUM(monto) >= ${minMontoAporte}
     ),
     proveedores_verificados AS (
-      -- Solo identity_matches Tier 1-3. Tier 4-5 se EXCLUYE: W4 documentó
-      -- CUITs erróneos en Tier 4 (NIETO→OTERO, etc.). Mantener esta señal
-      -- como Tier 1 publicable requiere disciplina dura acá.
+      -- Solo identity_matches Tier 1-3. Tier 4-5 se EXCLUYE.
       SELECT im.proveedor_norm,
              im.cuit_resuelto AS cuit,
              im.tier,
@@ -131,50 +134,35 @@ export async function encontrarCrucesAportanteProveedor(opts: {
         FROM identity_matches im
        WHERE im.tier <= 3
          AND im.cuit_resuelto IS NOT NULL
-    ),
-    contratos_agg AS (
-      SELECT pv.cuit,
-             c.municipio,
-             COUNT(*) AS cnt,
-             SUM(c.monto) AS tot,
-             MIN(c.anio) AS primer_anio,
-             MAX(c.anio) AS ultimo_anio,
-             LIST(DISTINCT c.fuente_url) AS fuente_urls,
-             LIST(DISTINCT c.municipio) AS jurisdicciones
-        FROM contratos c
-        JOIN proveedores_verificados pv
-          ON pv.proveedor_norm = c.proveedor_norm
-       WHERE c.monto IS NOT NULL
-         AND c.monto > 0
-         ${jurisdiccionesFilter}
-       GROUP BY pv.cuit, c.municipio
-      HAVING SUM(c.monto) >= ${minMontoContrato}
     )
     SELECT a.cuit,
-           a.razon_social,
+           ANY_VALUE(a.razon_social) AS razon_social,
            a.partido,
-           a.alianza,
+           ANY_VALUE(a.alianza) AS alianza,
            a.anio_electoral,
-           a.monto_aportado,
-           a.cantidad_aportes,
-           a.fecha_primer_aporte,
-           a.fuente_url AS fuente_url_aporte,
-           SUM(ca.cnt) AS cantidad_contratos,
-           SUM(ca.tot) AS monto_contratado,
-           MIN(ca.primer_anio) AS primer_contrato_anio,
-           MAX(ca.ultimo_anio) AS ultimo_contrato_anio,
-           FLATTEN(LIST(ca.fuente_urls)) AS fuente_urls_contratos,
-           FLATTEN(LIST(ca.jurisdicciones)) AS jurisdicciones_contratos,
+           ANY_VALUE(a.monto_aportado) AS monto_aportado,
+           ANY_VALUE(a.cantidad_aportes) AS cantidad_aportes,
+           ANY_VALUE(a.fecha_primer_aporte) AS fecha_primer_aporte,
+           ANY_VALUE(a.fuente_url) AS fuente_url_aporte,
+           COUNT(c.hash) AS cantidad_contratos,
+           SUM(c.monto) AS monto_contratado,
+           MIN(c.anio) AS primer_contrato_anio,
+           MAX(c.anio) AS ultimo_contrato_anio,
+           LIST(DISTINCT c.fuente_url) AS fuente_urls_contratos,
+           LIST(DISTINCT c.municipio) AS jurisdicciones_contratos,
            ANY_VALUE(pv.tier) AS tier_match_proveedor,
            ANY_VALUE(pv.score) AS score_match_proveedor
       FROM aportes_pj a
-      JOIN contratos_agg ca ON ca.cuit = a.cuit
       JOIN proveedores_verificados pv ON pv.cuit = a.cuit
-     WHERE ca.primer_anio >= a.anio_electoral  -- contrato POST-aporte (causalidad)
-     GROUP BY a.cuit, a.razon_social, a.partido, a.alianza, a.anio_electoral,
-              a.monto_aportado, a.cantidad_aportes, a.fecha_primer_aporte,
-              a.fuente_url
-     ORDER BY SUM(ca.tot) DESC
+      JOIN contratos c
+        ON c.proveedor_norm = pv.proveedor_norm
+       AND c.anio >= a.anio_electoral  -- KEY: causalidad estricta post-aporte
+       AND c.monto IS NOT NULL
+       AND c.monto > 0
+       ${jurisdiccionesFilter ? jurisdiccionesFilter.replace(/c\.municipio/g, 'c.municipio') : ''}
+     GROUP BY a.cuit, a.partido, a.anio_electoral
+    HAVING SUM(c.monto) >= ${minMontoContrato}
+     ORDER BY SUM(c.monto) DESC
   `)
 
   return rows.map(r => ({
