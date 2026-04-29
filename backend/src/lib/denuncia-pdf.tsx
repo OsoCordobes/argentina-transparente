@@ -137,6 +137,27 @@ export interface DenunciaInput {
     severidad: string | null
     cuits: string[]
     legal: { articulos?: string[]; severidad?: string; denunciarAnte?: string[] }
+    // ── PLAN-DATOS Fase A7: estado_verificacion + auditoría ────────────────
+    // Innegociable por PLAN-UI §8: TODA señal en el PDF muestra el badge.
+    // Si está ausente, el renderer asume 'sin_verificar' y agrega un warning
+    // prominente — un PDF de denuncia con señales sin verificar tiene valor
+    // jurídico distinto de uno con señales verificadas.
+    estadoVerificacion?: 'verificada' | 'sin_verificar' | 'descartada' | 'bloqueada'
+    verificadoPor?: string | null
+    verificadoEn?: string | null
+  }[]
+  // ── PLAN-DATOS Fase B3/B4: cadena de pago opcional ────────────────────
+  // Cuando se incluye, el PDF muestra una sección "Cadena de pago" que
+  // detalla por cada contrato cuánto se adjudicó vs cuánto se pagó
+  // efectivamente. Útil para acompañar señales de gap_compromiso_pagado o
+  // para fortalecer denuncia con evidencia de ejecución incompleta.
+  cadenaDePago?: {
+    contratoHash: string
+    montoAdjudicado: number
+    totalPagado: number
+    cantidadPagos: number
+    primerPago: string | null
+    ultimoPago: string | null
   }[]
 }
 
