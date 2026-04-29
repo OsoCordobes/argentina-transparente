@@ -18,11 +18,14 @@
  *   7. Señales asociadas (con badge de verificación universal)
  *   8. Fuentes
  */
+import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { getPersonaJuridicaStub } from '@/lib/argos/fixtures/personas-stub'
 import { VerificacionBadge } from '@/components/argos/VerificacionBadge'
+import { ProfileTwoPane, type ProfileSection } from '@/components/argos/ProfileTwoPane'
+import { MiniGraph, type MiniNode, type MiniEdge } from '@/components/argos/MiniGraph'
 import {
-  Section, EmptyState, Table, SourceLink, StubFooter,
+  EmptyState, Table, SourceLink,
   rowStyle, cellStyle, linkStyle,
   formatDNI, formatPesos, humanJurisdiccion, humanProvincia, humanVigencia, severidadColor,
 } from '@/components/argos/ProfileShared'
@@ -30,45 +33,81 @@ import type { PersonaJuridica } from '@/lib/argos/types'
 
 export default function Empresa() {
   const { cuit } = useParams<{ cuit: string }>()
+  const [graphExpanded, setGraphExpanded] = useState(false)
   if (!cuit) return <NotFound cuit="(sin parámetro)" />
-
   const pj = getPersonaJuridicaStub(cuit)
   if (!pj) return <NotFound cuit={cuit} />
 
+  const sections: ProfileSection[] = [
+    { id: 'contratos', label: 'Contratos como proveedor', badge: pj.contratos.length, content: <ContratosTable pj={pj} /> },
+    { id: 'pagos', label: 'Pagos recibidos', badge: pj.pagos.length, content: <PagosTable pj={pj} /> },
+    { id: 'directores', label: 'Directores', badge: pj.directores.length, content: <DirectoresTable pj={pj} /> },
+    { id: 'aportes', label: 'Aportes campaña', badge: pj.aportesHechos.length, content: <AportesHechosTable pj={pj} /> },
+    { id: 'transferencias', label: 'Transferencias', badge: pj.transferenciasRecibidas.length, content: <TransferenciasTable pj={pj} /> },
+    { id: 'senales', label: 'Señales', badge: pj.señales.length, content: <SeñalesList pj={pj} /> },
+    { id: 'grafo', label: 'Grafo de relaciones',
+      content: <EmpresaGrafo pj={pj} expanded={graphExpanded} onExpand={() => setGraphExpanded(true)} /> },
+    { id: 'fuentes', label: 'Fuentes', content: <FuentesList urls={pj.fuentesUrl} /> },
+  ]
+
+  const verifBadge = (
+    <span style={{ fontSize: 10, color: '#62C7A0', border: '1px solid #62C7A0',
+      padding: '2px 6px', borderRadius: 3, fontWeight: 500 }}>
+      ✓ CUIT módulo-11
+    </span>
+  )
+  const subParts: string[] = []
+  if (pj.tipoSocietario) subParts.push(pj.tipoSocietario)
+  if (pj.domFiscalProvincia) subParts.push(humanProvincia(pj.domFiscalProvincia))
+  if (pj.estado) subParts.push(`Estado: ${pj.estado}`)
+
   return (
-    <div
-      style={{
-        background: '#0d1117',
-        color: '#dde3ee',
-        minHeight: '100vh',
-        padding: '24px 28px',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    <ProfileTwoPane
+      header={{
+        title: pj.razonSocial,
+        identityLabel: 'CUIT',
+        identityValue: pj.cuit,
+        glyph: '■',
+        glyphColor: '#ff9b5c',
+        badge: verifBadge,
+        subtitle: subParts.join(' · ') || undefined,
       }}
-    >
-      <Cabecera pj={pj} />
-      <Section title="Contratos como proveedor">
-        <ContratosTable pj={pj} />
-      </Section>
-      <Section title="Pagos recibidos (cadena de pago)">
-        <PagosTable pj={pj} />
-      </Section>
-      <Section title="Directores históricos">
-        <DirectoresTable pj={pj} />
-      </Section>
-      <Section title="Aportes a campañas hechos">
-        <AportesHechosTable pj={pj} />
-      </Section>
-      <Section title="Transferencias / subsidios recibidos">
-        <TransferenciasTable pj={pj} />
-      </Section>
-      <Section title="Señales asociadas">
-        <SeñalesList pj={pj} />
-      </Section>
-      <Section title="Fuentes">
-        <FuentesList urls={pj.fuentesUrl} />
-      </Section>
-      <StubFooter apiHint="GET /api/empresa/:cuit" fixturesHint="PLAN-UI §3.2" />
-    </div>
+      sections={sections}
+      actorId={pj.cuit}
+      actorKind="pj"
+    />
+  )
+}
+
+function EmpresaGrafo({ pj, expanded, onExpand }: { pj: PersonaJuridica; expanded: boolean; onExpand: () => void }) {
+  const focalId = `pj:${pj.cuit}`
+  const nodes: MiniNode[] = [
+    { id: focalId, kind: 'pj', label: pj.razonSocial, weight: 1 },
+    ...pj.directores.slice(0, 6).map(d => ({
+      id: `pf:${d.dni}`, kind: 'pf' as const, label: d.apellidoNombre,
+      href: `/persona/${d.dni}`, weight: 0.5,
+    })),
+    ...pj.señales.slice(0, 4).map(s => ({
+      id: `sig:${s.id}`, kind: 'signal' as const, label: s.titulo.slice(0, 24),
+      weight: s.score / 100,
+    })),
+    ...pj.contratos.slice(0, 4).map((c, i) => ({
+      id: `ctr:${i}`, kind: 'contract' as const, label: c.area || `Contrato ${i + 1}`, weight: 0.3,
+    })),
+  ]
+  const edges: MiniEdge[] = [
+    ...pj.directores.slice(0, 6).map(d => ({ source: focalId, target: `pf:${d.dni}` })),
+    ...pj.señales.slice(0, 4).map(s => ({ source: focalId, target: `sig:${s.id}` })),
+    ...pj.contratos.slice(0, 4).map((_, i) => ({ source: focalId, target: `ctr:${i}` })),
+  ]
+  return (
+    <MiniGraph
+      focalId={focalId}
+      nodes={nodes}
+      edges={edges}
+      onExpand={expanded ? undefined : onExpand}
+      expanded={expanded}
+    />
   )
 }
 

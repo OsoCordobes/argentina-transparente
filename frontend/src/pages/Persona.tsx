@@ -20,11 +20,14 @@
  * Sin timeline unificado ni grafo 2-hop por ahora — Fase D los integra
  * usando <GraphCanvas> y el sistema de eventos del PLAN-UI §6.
  */
+import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { getPersonaFisicaStub } from '@/lib/argos/fixtures/personas-stub'
 import { VerificacionBadge } from '@/components/argos/VerificacionBadge'
+import { ProfileTwoPane, type ProfileSection } from '@/components/argos/ProfileTwoPane'
+import { MiniGraph, type MiniNode, type MiniEdge } from '@/components/argos/MiniGraph'
 import {
-  Section, EmptyState, Table, SourceLink, StubFooter,
+  EmptyState, Table, SourceLink,
   rowStyle, cellStyle, linkStyle,
   formatDNI, formatPesos, humanJurisdiccion, humanVigencia, severidadColor,
 } from '@/components/argos/ProfileShared'
@@ -32,42 +35,101 @@ import type { PersonaFisica } from '@/lib/argos/types'
 
 export default function Persona() {
   const { dni } = useParams<{ dni: string }>()
+  const [graphExpanded, setGraphExpanded] = useState(false)
   if (!dni) return <NotFound dni="(sin parámetro)" />
-
   const pf = getPersonaFisicaStub(dni)
   if (!pf) return <NotFound dni={dni} />
 
+  const sections: ProfileSection[] = [
+    {
+      id: 'cargos', label: 'Cargos públicos', badge: pf.cargosPublicos.length,
+      content: <CargosTable pf={pf} />,
+    },
+    {
+      id: 'empresas', label: 'Empresas dirigidas', badge: pf.direccionesEmpresas.length,
+      content: <DireccionesTable pf={pf} />,
+    },
+    {
+      id: 'ddjj', label: 'DDJJ patrimonial', badge: pf.ddjj.length,
+      content: <DDJJTable pf={pf} />,
+    },
+    {
+      id: 'aportes', label: 'Aportes campaña', badge: pf.aportesCampana.length,
+      content: <AportesTable pf={pf} />,
+    },
+    {
+      id: 'senales', label: 'Señales', badge: pf.señales.length,
+      content: <SeñalesList pf={pf} />,
+    },
+    {
+      id: 'grafo', label: 'Grafo de relaciones',
+      content: <PersonaGrafo pf={pf} expanded={graphExpanded} onExpand={() => setGraphExpanded(true)} />,
+    },
+    {
+      id: 'fuentes', label: 'Fuentes',
+      content: <FuentesList urls={pf.fuentesUrl} dniUrl={pf.fuenteDniUrl} />,
+    },
+  ]
+
+  const verifBadge = pf.fuenteDniUrl ? (
+    <span style={{ fontSize: 10, color: '#62C7A0', border: '1px solid #62C7A0',
+      padding: '2px 6px', borderRadius: 3, fontWeight: 500 }}>
+      ✓ DNI verificado
+    </span>
+  ) : (
+    <span style={{ fontSize: 10, color: '#F5B544', border: '1px solid #F5B544',
+      padding: '2px 6px', borderRadius: 3, fontWeight: 500 }}>
+      ◌ DNI sin verificar
+    </span>
+  )
+
   return (
-    <div
-      style={{
-        background: '#0d1117',
-        color: '#dde3ee',
-        minHeight: '100vh',
-        padding: '24px 28px',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    <ProfileTwoPane
+      header={{
+        title: pf.apellidoNombre,
+        identityLabel: 'DNI',
+        identityValue: formatDNI(pf.dni),
+        glyph: '●',
+        glyphColor: '#7da3ff',
+        badge: verifBadge,
+        subtitle: pf.jurisdiccionPrimaria ? humanJurisdiccion(pf.jurisdiccionPrimaria) : undefined,
       }}
-    >
-      <Cabecera pf={pf} />
-      <Section title="Cargos públicos" emptyText="Sin cargos públicos registrados">
-        <CargosTable pf={pf} />
-      </Section>
-      <Section title="Direcciones en empresas" emptyText="Sin direcciones registradas">
-        <DireccionesTable pf={pf} />
-      </Section>
-      <Section title="Patrimonio declarado (DDJJ)" emptyText="Sin declaraciones juradas registradas">
-        <DDJJTable pf={pf} />
-      </Section>
-      <Section title="Aportes a campañas electorales" emptyText="Sin aportes registrados">
-        <AportesTable pf={pf} />
-      </Section>
-      <Section title="Señales asociadas" emptyText="Sin señales detectadas — perfil sin alertas">
-        <SeñalesList pf={pf} />
-      </Section>
-      <Section title="Fuentes">
-        <FuentesList urls={pf.fuentesUrl} dniUrl={pf.fuenteDniUrl} />
-      </Section>
-      <StubFooter apiHint="GET /api/persona/:dni" fixturesHint="PLAN-UI §3.1" />
-    </div>
+      sections={sections}
+      actorId={pf.dni}
+      actorKind="pf"
+    />
+  )
+}
+
+function PersonaGrafo({ pf, expanded, onExpand }: { pf: PersonaFisica; expanded: boolean; onExpand: () => void }) {
+  const focalId = `pf:${pf.dni}`
+  const nodes: MiniNode[] = [
+    { id: focalId, kind: 'pf', label: pf.apellidoNombre, weight: 1 },
+    ...pf.cargosPublicos.slice(0, 4).map((c, i) => ({
+      id: `cargo:${i}`, kind: 'role' as const, label: c.cargo, weight: 0.4,
+    })),
+    ...pf.direccionesEmpresas.slice(0, 6).map(d => ({
+      id: `pj:${d.cuitEmpresa}`, kind: 'pj' as const, label: d.razonSocial,
+      href: `/empresa/${d.cuitEmpresa}`, weight: 0.6,
+    })),
+    ...pf.señales.slice(0, 3).map(s => ({
+      id: `sig:${s.id}`, kind: 'signal' as const, label: s.titulo.slice(0, 24),
+      weight: s.score / 100,
+    })),
+  ]
+  const edges: MiniEdge[] = [
+    ...pf.cargosPublicos.slice(0, 4).map((_, i) => ({ source: focalId, target: `cargo:${i}` })),
+    ...pf.direccionesEmpresas.slice(0, 6).map(d => ({ source: focalId, target: `pj:${d.cuitEmpresa}` })),
+    ...pf.señales.slice(0, 3).map(s => ({ source: focalId, target: `sig:${s.id}` })),
+  ]
+  return (
+    <MiniGraph
+      focalId={focalId}
+      nodes={nodes}
+      edges={edges}
+      onExpand={expanded ? undefined : onExpand}
+      expanded={expanded}
+    />
   )
 }
 
