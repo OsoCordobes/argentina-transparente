@@ -65,37 +65,18 @@ export interface CruceCandidato {
   dni_funcionario_confirmado: string | null
 }
 
-// Mapeo jurisdicción del funcionario → provincia esperada del proveedor para
-// que el conflicto sea geográficamente plausible. Mata el falso positivo
-// estructural tipo MOSQUERA(funcionario cordoba-capital) ↔ Renault Argentina
-// S.A. (director CABA): la PJ no opera donde el funcionario tiene poder.
-const JURISDICCION_PROVINCIA: Record<string, string> = {
-  'cordoba-capital': 'CORDOBA',
-  'cordoba-provincia': 'CORDOBA',
-  // 'nacion' deliberadamente no mapeado — funcionario nacional puede tener
-  // contraparte en cualquier provincia, no se filtra geográficamente.
-}
+// Filtro geográfico (review #1 C1): mata el falso positivo estructural tipo
+// MOSQUERA(funcionario cordoba-capital) ↔ Renault Argentina S.A. (director CABA).
+// Logic delegada a lib/jurisdicciones.ts (fuente única de verdad — C3, C5
+// y futuros detectores también la consumen).
+import { coincideProvinciaJurisdiccion } from './jurisdicciones'
 
 /**
- * Decide si la provincia del domicilio fiscal de la empresa es compatible
- * con la jurisdicción del funcionario.
- *
- *   'si'          → match estricto, conflicto plausible
- *   'no'          → mismatch confirmado (ej. funcionario Córdoba ↔ empresa CABA)
- *   'desconocido' → no se conoce la provincia (PJ no está en RNS o no se mapea
- *                   la jurisdicción del funcionario, ej. nacionales)
+ * Re-export para compat con tests existentes que importaban
+ * coincideProvinciaFuncionario directamente. La firma es idéntica al
+ * coincideProvinciaJurisdiccion del módulo compartido.
  */
-export function coincideProvinciaFuncionario(
-  jurisdiccion: string,
-  domFiscalProvincia: string | null,
-): 'si' | 'no' | 'desconocido' {
-  const provinciaEsperada = JURISDICCION_PROVINCIA[jurisdiccion]
-  if (!provinciaEsperada) return 'desconocido' // no mapeo (ej. nacion)
-  if (!domFiscalProvincia) return 'desconocido' // PJ sin RNS o RNS sin provincia
-  // Normalizar: RNS a veces trae 'CÓRDOBA' con tilde u otras variantes.
-  const norm = domFiscalProvincia.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
-  return norm === provinciaEsperada ? 'si' : 'no'
-}
+export const coincideProvinciaFuncionario = coincideProvinciaJurisdiccion
 
 const NORM_SQL = (col: string) =>
   `regexp_replace(strip_accents(UPPER(${col})), '[^A-Z\\s]', ' ', 'g')`
