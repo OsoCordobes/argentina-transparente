@@ -26,6 +26,8 @@ const Huecos = lazy(() => import('./pages/Huecos'))
 // PLAN-UI §3 — Profiles canónicos por DNI/CUIT (Stub-4 / Stub-5)
 const Persona = lazy(() => import('./pages/Persona'))
 const Empresa = lazy(() => import('./pages/Empresa'))
+// PLAN-DATOS Fase E2 — cola de verificación humana
+const ColaVerificacion = lazy(() => import('./pages/ColaVerificacion'))
 
 function PageLoader() {
   return (
@@ -184,6 +186,15 @@ export default function App() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <Empresa />
+              </Suspense>
+            }
+          />
+          {/* PLAN-DATOS Fase E2 — cola de verificación humana */}
+          <Route
+            path="/cola-verificacion"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <ColaVerificacion />
               </Suspense>
             }
           />

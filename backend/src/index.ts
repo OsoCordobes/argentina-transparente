@@ -26,6 +26,7 @@ import actoresRouter from './routes/actores'
 import grafoRouter from './routes/grafo'
 import coberturaRouter from './routes/cobertura'
 import pesoRouter from './routes/peso'
+import colaVerificacionRouter from './routes/cola-verificacion'
 import { registrarFuente } from './lib/db'
 import { fuenteCordobaCapital } from './connectors/cordoba-capital'
 import { fuenteArgentinaCompra } from './connectors/argentina-compra'
@@ -86,6 +87,7 @@ app.use('/api/grafo', grafoRouter)
 app.use('/api/cobertura', coberturaRouter)
 // PLAN-DATOS Fase B5: cadena de pago por partida — flujo Crédito → Pagado
 app.use('/api', pesoRouter)
+app.use('/api/cola-verificacion', colaVerificacionRouter)
 
 // Legacy routes (still used by current frontend)
 app.use('/analizar', analizarRouter)

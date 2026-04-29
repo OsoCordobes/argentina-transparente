@@ -298,7 +298,7 @@ function grafoExpandToDetail(
     if (data.jurisdiccion) kpis.push({ label: 'Jurisdicción', format: 'text', value: String(data.jurisdiccion) })
   }
   if (nodeType === 'señal') {
-    const empresasSeñaladas = relaciones.filter((r) => r.via === 'señala')
+    const empresasSeñaladas = relaciones.filter((r) => r.via === 'señalado_por')
     if (empresasSeñaladas.length > 0) {
       kpis.push({ label: 'Empresas implicadas', format: 'count', value: String(empresasSeñaladas.length) })
     }

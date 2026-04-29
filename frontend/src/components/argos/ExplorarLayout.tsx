@@ -86,6 +86,26 @@ const SUGGESTIONS_BY_TYPE: Record<ArgosNodeType, string[]> = {
     '¿Quién es el proveedor?',
     '¿Hay otros contratos similares?',
   ],
+  empresa: [
+    '¿Tiene señales activas?',
+    '¿Quiénes son sus directores?',
+    '¿Qué contratos públicos ganó?',
+  ],
+  persona: [
+    '¿En qué empresas figura como director?',
+    '¿Hay conflictos con cargos públicos?',
+    '¿Tiene aportes a campañas?',
+  ],
+  funcionario: [
+    '¿Qué cargos ocupó y cuándo?',
+    '¿Hay señales de conflicto con proveedores?',
+    '¿Presentó DDJJ?',
+  ],
+  reparticion: [
+    '¿Qué proveedores contrata?',
+    '¿Quiénes son sus funcionarios?',
+    '¿Cómo evolucionó su gasto?',
+  ],
 }
 
 const SUGGESTIONS = [
