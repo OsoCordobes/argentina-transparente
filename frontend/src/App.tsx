@@ -33,6 +33,8 @@ const Empresa = lazy(() => import('./pages/Empresa'))
 const ColaVerificacion = lazy(() => import('./pages/ColaVerificacion'))
 // PLAN-UI D3 — mapa neural fullscreen
 const Mapa = lazy(() => import('./pages/Mapa'))
+// PLAN-UI D4 — Dinero / ciclo presupuestario
+const Dinero = lazy(() => import('./pages/Dinero'))
 
 function PageLoader() {
   return (
@@ -54,6 +56,15 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoader />}>
               <Mapa />
+            </Suspense>
+          }
+        />
+        {/* PLAN-UI D4: Dinero con drill-down URL-driven */}
+        <Route
+          path="/dinero/:jurisdiccion?/:anio?"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <Dinero />
             </Suspense>
           }
         />
