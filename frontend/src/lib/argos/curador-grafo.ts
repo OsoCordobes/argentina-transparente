@@ -186,11 +186,10 @@ export function profileUrlParaNodo(node: ArgosNode): string | null {
     if (dni && /^\d+$/.test(dni)) return `/persona/${dni}`
     return null
   }
-  // Contrato → ruta legacy
-  if (node.type === 'contrato') {
-    const hash = node.id.replace(/^contrato:/, '')
-    return hash ? `/contrato/${hash}` : null
-  }
+  // Contrato: no hay Profile canónico todavía — el detalle se muestra inline
+  // en el NodeDetailPanel del grafo. La ruta /contrato/:hash fue removida en
+  // la unificación graph-first.
+  if (node.type === 'contrato') return null
   // Otros (señal, jurisdiccion, reparticion) — sin Profile canónico todavía
   return null
 }
