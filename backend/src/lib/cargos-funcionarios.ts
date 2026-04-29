@@ -116,13 +116,27 @@ export async function getCargosPorApellidoNombre(
 export async function upsertCargoFuncionario(c: Omit<CargoFuncionario, 'id' | 'cargadoEn'>): Promise<string> {
   const id = cargoId(c.jurisdiccion, c.apellidoNombreNorm, c.cargo, c.reparticion)
   const now = new Date().toISOString()
-  // DuckDB: INSERT OR REPLACE no es estándar; usamos delete + insert.
-  await dbRun(`DELETE FROM cargos_funcionarios WHERE id = ?`, [id])
+  // Review #2 A6: ON CONFLICT en lugar de DELETE+INSERT. Mismo razonamiento
+  // que A1/A2: race-safe + no rompe FKs con CASCADE. La diferencia con
+  // derivarCargosFuncionariosDesdeAgentes es que ESE upsert curado SI puede
+  // sobrescribir dni y facultades — el caller pasó esos campos explícitamente.
   await dbRun(
     `INSERT INTO cargos_funcionarios
        (id, dni, apellido_nombre, apellido_nombre_norm, jurisdiccion, reparticion, cargo,
         vigente_desde, vigente_hasta, facultades_json, fuente_url, cargado_en)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET
+       dni                  = EXCLUDED.dni,
+       apellido_nombre      = EXCLUDED.apellido_nombre,
+       apellido_nombre_norm = EXCLUDED.apellido_nombre_norm,
+       jurisdiccion         = EXCLUDED.jurisdiccion,
+       reparticion          = EXCLUDED.reparticion,
+       cargo                = EXCLUDED.cargo,
+       vigente_desde        = EXCLUDED.vigente_desde,
+       vigente_hasta        = EXCLUDED.vigente_hasta,
+       facultades_json      = EXCLUDED.facultades_json,
+       fuente_url           = EXCLUDED.fuente_url,
+       cargado_en           = EXCLUDED.cargado_en`,
     [
       id, c.dni, c.apellidoNombre, c.apellidoNombreNorm, c.jurisdiccion,
       c.reparticion, c.cargo, c.vigenteDesde, c.vigenteHasta,
