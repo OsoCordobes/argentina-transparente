@@ -3,7 +3,10 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { AppShell } from '@/components/layout/AppShell'
 
-// Dashboard se carga eager (es el home y queremos LCP rápido)
+// PLAN-UI Fase D — Landing nueva (Premium Forensic) reemplaza el Dashboard
+// legacy como home. Dashboard sigue accesible en /dashboard para compatibilidad
+// con bookmarks internos y tests.
+import Landing from './pages/Landing'
 import Dashboard from './pages/Dashboard'
 
 // El resto de páginas se code-split: cada una baja en su propio chunk
@@ -41,8 +44,10 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* PLAN-UI D1: Landing fullscreen sin AppShell (usa ForensicHeader) */}
+        <Route path="/" element={<Landing />} />
         <Route element={<AppShell />}>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route
             path="/entidad/:nombre"
             element={
