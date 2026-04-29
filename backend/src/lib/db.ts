@@ -691,6 +691,7 @@ export async function initDb(): Promise<void> {
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_agentes_dni ON agentes_publicos(dni) WHERE dni IS NOT NULL`)
   } catch { /* idempotente */ }
 
+
   // Subsidios y transferencias — gastos a personas/entidades sin contraprestación
   // contractual directa (planes sociales, becas, ayudas, transferencias a OSC).
   await dbRun(`
@@ -1295,6 +1296,22 @@ export async function initDb(): Promise<void> {
     `)
   } catch (err) {
     console.warn('[db] v_universo_cordobes_personas no creada:', (err as Error).message)
+  }
+
+  // PLAN-DATOS A5: flag `name_only_unmatched` en tablas con referencias por
+  // nombre que no tienen FK a personas_fisicas/juridicas tras un intento de
+  // resolución. Distingue:
+  //   - dni/cuit IS NULL ∧ name_only_unmatched=FALSE → todavía no se intentó
+  //   - dni/cuit IS NULL ∧ name_only_unmatched=TRUE  → intentado, no matchea Tier 1-3
+  // Los detectores Tier 1 (C1/C2/C3) deben filtrar `WHERE name_only_unmatched=FALSE`
+  // para no confundir "todavía no resuelto" con "irresoluble".
+  // Va al final de initDb porque depende de que TODAS las tablas existan.
+  for (const alter of [
+    `ALTER TABLE agentes_publicos ADD COLUMN name_only_unmatched BOOLEAN DEFAULT FALSE`,
+    `ALTER TABLE contratos ADD COLUMN name_only_unmatched BOOLEAN DEFAULT FALSE`,
+    `ALTER TABLE transferencias ADD COLUMN name_only_unmatched BOOLEAN DEFAULT FALSE`,
+  ]) {
+    try { await dbRun(alter) } catch { /* idempotente */ }
   }
 }
 

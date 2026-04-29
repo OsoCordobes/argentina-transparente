@@ -48,6 +48,7 @@
     "migrate:bitemporal": "npx ts-node src/scripts/migrate-bitemporal.ts",
     "migrate:cargos-funcionarios": "npx ts-node src/scripts/migrate-cargos-funcionarios.ts",
     "backfill:agentes-dni": "npx ts-node src/scripts/backfill-agentes-dni.ts",
+    "flag:name-only": "npx ts-node src/scripts/flag-name-only-unmatched.ts",
     "build:organigrama": "npx ts-node src/scripts/build-organigrama-cordoba.ts",
     "seed:boe-cba": "npx ts-node src/scripts/seed-boe-cba.ts",
     "worker:boletin-ocr": "npx ts-node src/scripts/worker-boletin-ocr.ts",
