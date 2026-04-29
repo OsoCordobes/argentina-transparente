@@ -64,6 +64,22 @@ export async function initDb(): Promise<void> {
     // M18 — numero_expediente para cruce con licitaciones_llamado.
     // Se popula desde Contrato.numeroExpediente cuando el connector lo expone.
     `ALTER TABLE contratos ADD COLUMN numero_expediente TEXT`,
+    // ── PLAN-DATOS Fase B2: cadena del dinero ────────────────────────────
+    // partida_presupuestaria + programa_presupuestario: ata cada contrato
+    // a una línea presupuestaria. Sin esto la cadena Crédito → Compromiso
+    // → Contrato → Devengado → Pagado está cortada.
+    `ALTER TABLE contratos ADD COLUMN partida_presupuestaria TEXT`,
+    `ALTER TABLE contratos ADD COLUMN programa_presupuestario TEXT`,
+    // proveedor_cuit: CUIT verificado por identity-resolver Tier 1-3.
+    // Lo populan los seeds futuros + el resolver (no es un raw del connector).
+    `ALTER TABLE contratos ADD COLUMN proveedor_cuit TEXT`,
+    // proveedor_cuit_inferido: CUIT inferido por LLM Tier 4-5 — separado
+    // intencionalmente. NUNCA usar en detectores publicables (W4 documentó
+    // CUITs equivocados Tier 4: NIETO→OTERO, Córdoba→La Rioja).
+    `ALTER TABLE contratos ADD COLUMN proveedor_cuit_inferido TEXT`,
+    // numero_orden_compra: ID de OC del boletín municipal cuando exista,
+    // permite JOIN entre Compromiso (presupuesto_ejecucion) y Contrato.
+    `ALTER TABLE contratos ADD COLUMN numero_orden_compra TEXT`,
   ]) {
     try { await dbRun(alter) } catch { /* columna ya existe */ }
   }
@@ -72,6 +88,13 @@ export async function initDb(): Promise<void> {
   try {
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_contratos_expediente ON contratos(numero_expediente) WHERE numero_expediente IS NOT NULL`)
   } catch { /* ignore */ }
+  // Índices B2 para cadena del dinero — sin partial index (DuckDB no lo soporta).
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_contratos_proveedor_cuit ON contratos(proveedor_cuit)`) }
+  catch { /* idempotente */ }
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_contratos_partida ON contratos(partida_presupuestaria)`) }
+  catch { /* idempotente */ }
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_contratos_orden_compra ON contratos(numero_orden_compra)`) }
+  catch { /* idempotente */ }
 
   // ─── Pre-computed signals cache ────────────────────────────────────────────
   await dbRun(`
