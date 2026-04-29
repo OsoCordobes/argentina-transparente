@@ -66,7 +66,7 @@ describe('E3 — armarDenunciaDesdeIds', () => {
   it('preserva legal articulos + denunciarAnte de la señal', async () => {
     const id = await insertarSeñalDeTest()
     const input = await armarDenunciaDesdeIds({
-      denunciante: { nombre: 'T', dni: '1', email: 't', domicilio: 'X' },
+      denunciante: { nombre: 'T', dni: '12345678', email: 't', domicilio: 'X' },
       destinatario: 'tribunal_cuentas',
       casoTitulo: 'C', hechos: 'h', petitorio: 'p',
       senalIds: [id],
@@ -86,7 +86,7 @@ describe('E3 — armarDenunciaDesdeIds', () => {
     // idS queda en sin_verificar (default)
 
     const input = await armarDenunciaDesdeIds({
-      denunciante: { nombre: 'T', dni: '1', email: 't', domicilio: 'X' },
+      denunciante: { nombre: 'T', dni: '12345678', email: 't', domicilio: 'X' },
       destinatario: 'tribunal_cuentas',
       casoTitulo: 'C', hechos: 'h', petitorio: 'p',
       senalIds: [idV, idD, idB, idS],
@@ -100,7 +100,7 @@ describe('E3 — armarDenunciaDesdeIds', () => {
 
   it('senalIds vacío produce señales=[] (no falla)', async () => {
     const input = await armarDenunciaDesdeIds({
-      denunciante: { nombre: 'T', dni: '1', email: 't', domicilio: 'X' },
+      denunciante: { nombre: 'T', dni: '12345678', email: 't', domicilio: 'X' },
       destinatario: 'tribunal_cuentas',
       casoTitulo: 'C', hechos: 'h', petitorio: 'p',
     })
@@ -129,6 +129,37 @@ describe('E3 — armarDenunciaDesdeIds', () => {
     expect(input.denuncianteTelefono).toBe('+5435100')
     expect(input.denuncianteDomicilio).toBe('Calle Falsa 123')
     expect(input.destinatario).toBe('fiscalia')
+  })
+})
+
+describe('E3 review #1 — validación de denunciante', () => {
+  it('rechaza dni del denunciante inválido', async () => {
+    await expect(armarDenunciaDesdeIds({
+      denunciante: { nombre: 'X', dni: '12345', email: 'x', domicilio: 'X' }, // 5 dígitos < 6
+      destinatario: 'tribunal_cuentas',
+      casoTitulo: 'X', hechos: 'h', petitorio: 'p',
+    })).rejects.toThrow(/dni inválido/)
+  })
+
+  it('rechaza dni con caracteres no numéricos', async () => {
+    await expect(armarDenunciaDesdeIds({
+      denunciante: { nombre: 'X', dni: '12345abc', email: 'x', domicilio: 'X' },
+      destinatario: 'tribunal_cuentas',
+      casoTitulo: 'X', hechos: 'h', petitorio: 'p',
+    })).rejects.toThrow(/dni inválido/)
+  })
+
+  it('acepta dni válido (8 dígitos limpio o con puntos)', async () => {
+    await expect(armarDenunciaDesdeIds({
+      denunciante: { nombre: 'X', dni: '12345678', email: 'x', domicilio: 'X' },
+      destinatario: 'tribunal_cuentas',
+      casoTitulo: 'X', hechos: 'h', petitorio: 'p',
+    })).resolves.toBeDefined()
+    await expect(armarDenunciaDesdeIds({
+      denunciante: { nombre: 'X', dni: '12.345.678', email: 'x', domicilio: 'X' },
+      destinatario: 'tribunal_cuentas',
+      casoTitulo: 'X', hechos: 'h', petitorio: 'p',
+    })).resolves.toBeDefined()
   })
 })
 

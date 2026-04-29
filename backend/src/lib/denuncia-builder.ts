@@ -16,6 +16,7 @@
 
 import { dbAll } from './db'
 import { getResumenPagosContratos } from './pagos-contrato'
+import { validarDNI } from './identidad-validator'
 import type { DenunciaInput } from './denuncia-pdf'
 
 export interface ArmarDenunciaArgs {
@@ -73,41 +74,52 @@ interface PJRow { cuit: string; razon_social: string; dom_fiscal_provincia: stri
  * renderDenunciaPDF().
  */
 export async function armarDenunciaDesdeIds(args: ArmarDenunciaArgs): Promise<DenunciaInput> {
-  // Lookup señales con A7 columns
+  // Review #1 E3: validar DNI del denunciante. Sin esto un caller con typo
+  // ("12345678a") generaría un PDF con DNI corrupto que un fiscal rechazaría
+  // al recibir. Defensivo barato.
+  if (!validarDNI(args.denunciante.dni)) {
+    throw new Error(`armarDenunciaDesdeIds: denunciante.dni inválido "${args.denunciante.dni}"`)
+  }
+
   const senalIds = args.senalIds ?? []
-  const senalesRaw: SeñalCacheRowFull[] = senalIds.length > 0
-    ? await dbAll<SeñalCacheRowFull>(
-        `SELECT id, tipologia, titulo, resumen, score, severidad,
-                evidencia_json, legal_json, entidades_cuit,
-                estado_verificacion, verificado_por, verificado_en
-           FROM señales_cache
-          WHERE id IN (${senalIds.map(() => '?').join(',')})`,
-        senalIds,
-      )
-    : []
-
-  // Lookup contratos
   const hashes = args.contratoHashes ?? []
-  const contratosRaw: ContratoRow[] = hashes.length > 0
-    ? await dbAll<ContratoRow>(
-        `SELECT hash, proveedor, monto, anio, tipo, area, fuente_url
-           FROM contratos
-          WHERE hash IN (${hashes.map(() => '?').join(',')})`,
-        hashes,
-      )
-    : []
-
-  // Lookup entidades canónicas (preferir personas_juridicas; fallback a empresas)
   const cuits = args.entidadCuits ?? []
-  const pjRaw: PJRow[] = cuits.length > 0
-    ? await dbAll<PJRow>(
-        `SELECT cuit, razon_social, dom_fiscal_provincia
-           FROM personas_juridicas
-          WHERE cuit IN (${cuits.map(() => '?').join(',')})`,
-        cuits,
-      )
-    : []
-  // Cuits no encontrados en personas_juridicas: fallback a empresas
+
+  // Review #1 E3: las 3 queries iniciales son independientes — paralelizar
+  // con Promise.all reduce latencia ~3x cuando todas tienen data. Antes iban
+  // secuencial (await...await...await), ~3 round-trips encadenados.
+  const [senalesRaw, contratosRaw, pjRaw]: [SeñalCacheRowFull[], ContratoRow[], PJRow[]] = await Promise.all([
+    senalIds.length > 0
+      ? dbAll<SeñalCacheRowFull>(
+          `SELECT id, tipologia, titulo, resumen, score, severidad,
+                  evidencia_json, legal_json, entidades_cuit,
+                  estado_verificacion, verificado_por, verificado_en
+             FROM señales_cache
+            WHERE id IN (${senalIds.map(() => '?').join(',')})`,
+          senalIds,
+        )
+      : Promise.resolve([] as SeñalCacheRowFull[]),
+    hashes.length > 0
+      ? dbAll<ContratoRow>(
+          `SELECT hash, proveedor, monto, anio, tipo, area, fuente_url
+             FROM contratos
+            WHERE hash IN (${hashes.map(() => '?').join(',')})`,
+          hashes,
+        )
+      : Promise.resolve([] as ContratoRow[]),
+    cuits.length > 0
+      ? dbAll<PJRow>(
+          `SELECT cuit, razon_social, dom_fiscal_provincia
+             FROM personas_juridicas
+            WHERE cuit IN (${cuits.map(() => '?').join(',')})`,
+          cuits,
+        )
+      : Promise.resolve([] as PJRow[]),
+  ])
+
+  // Cuits no encontrados en personas_juridicas: fallback a empresas legacy.
+  // Esta query DEPENDE del resultado de pjRaw (sabe cuáles faltaron), por
+  // lo que no se puede paralelizar con las anteriores.
   const cuitsHallados = new Set(pjRaw.map(p => p.cuit))
   const cuitsFaltantes = cuits.filter(c => !cuitsHallados.has(c))
   const empresasRaw: Array<{ cuit: string; nombre: string }> = cuitsFaltantes.length > 0
