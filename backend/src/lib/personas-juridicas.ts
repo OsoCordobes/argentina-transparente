@@ -146,7 +146,21 @@ export async function upsertPersonaJuridica(input: {
   if (input.alias) alias = Array.from(new Set([...alias, ...input.alias]))
   if (input.fuentesUrl) fuentes = Array.from(new Set([...fuentes, ...input.fuentesUrl]))
 
-  await dbRun(`DELETE FROM personas_juridicas WHERE cuit = ?`, [cuitFinal])
+  // Review #2 A2: ON CONFLICT en lugar de DELETE+INSERT (mismo razonamiento
+  // que A1 — race-safe + no rompe FKs con CASCADE). Pre-resolvemos los valores
+  // que dependen del existing[0] en variables locales para evitar reusar el
+  // ternario en EXCLUDED (DuckDB no expone el row anterior dentro de ON CONFLICT
+  // de forma cómoda; la pre-resolución es más legible).
+  const tipoSocietario  = input.tipoSocietario ?? (existing[0]?.tipo_societario ?? null)
+  const fechaConstit    = input.fechaConstitucion ?? (existing[0]?.fecha_constitucion ?? null)
+  const domFP           = input.domFiscalProvincia ?? (existing[0]?.dom_fiscal_provincia ?? null)
+  const domFL           = input.domFiscalLocalidad ?? (existing[0]?.dom_fiscal_localidad ?? null)
+  const domLP           = input.domLegalProvincia ?? (existing[0]?.dom_legal_provincia ?? null)
+  const domLL           = input.domLegalLocalidad ?? (existing[0]?.dom_legal_localidad ?? null)
+  const estadoFinal     = input.estado ?? (existing[0]?.estado ?? null)
+  const esEmpleadorFinal = input.esEmpleador !== undefined ? input.esEmpleador : (existing[0]?.es_empleador ?? null)
+  const actividadFinal  = input.actividadPrincipal ?? (existing[0]?.actividad_principal ?? null)
+
   await dbRun(
     `INSERT INTO personas_juridicas
        (cuit, razon_social, razon_social_norm, alias_json, tipo_societario,
@@ -154,21 +168,39 @@ export async function upsertPersonaJuridica(input: {
         dom_legal_provincia, dom_legal_localidad, estado, es_empleador,
         actividad_principal, fuentes_url_json, primer_visto, ultimo_visto,
         t_efectivo, t_publicado, snapshot_id, superseded_by_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+     ON CONFLICT (cuit) DO UPDATE SET
+       razon_social         = EXCLUDED.razon_social,
+       razon_social_norm    = EXCLUDED.razon_social_norm,
+       alias_json           = EXCLUDED.alias_json,
+       tipo_societario      = EXCLUDED.tipo_societario,
+       fecha_constitucion   = EXCLUDED.fecha_constitucion,
+       dom_fiscal_provincia = EXCLUDED.dom_fiscal_provincia,
+       dom_fiscal_localidad = EXCLUDED.dom_fiscal_localidad,
+       dom_legal_provincia  = EXCLUDED.dom_legal_provincia,
+       dom_legal_localidad  = EXCLUDED.dom_legal_localidad,
+       estado               = EXCLUDED.estado,
+       es_empleador         = EXCLUDED.es_empleador,
+       actividad_principal  = EXCLUDED.actividad_principal,
+       fuentes_url_json     = EXCLUDED.fuentes_url_json,
+       ultimo_visto         = EXCLUDED.ultimo_visto,
+       t_efectivo           = EXCLUDED.t_efectivo,
+       t_publicado          = EXCLUDED.t_publicado,
+       snapshot_id          = EXCLUDED.snapshot_id`,
     [
       cuitFinal,
       input.razonSocial,
       razonNorm,
       JSON.stringify(alias),
-      input.tipoSocietario ?? (existing[0]?.tipo_societario ?? null),
-      input.fechaConstitucion ?? (existing[0]?.fecha_constitucion ?? null),
-      input.domFiscalProvincia ?? (existing[0]?.dom_fiscal_provincia ?? null),
-      input.domFiscalLocalidad ?? (existing[0]?.dom_fiscal_localidad ?? null),
-      input.domLegalProvincia ?? (existing[0]?.dom_legal_provincia ?? null),
-      input.domLegalLocalidad ?? (existing[0]?.dom_legal_localidad ?? null),
-      input.estado ?? (existing[0]?.estado ?? null),
-      input.esEmpleador !== undefined ? input.esEmpleador : (existing[0]?.es_empleador ?? null),
-      input.actividadPrincipal ?? (existing[0]?.actividad_principal ?? null),
+      tipoSocietario,
+      fechaConstit,
+      domFP,
+      domFL,
+      domLP,
+      domLL,
+      estadoFinal,
+      esEmpleadorFinal,
+      actividadFinal,
       JSON.stringify(fuentes),
       primerVisto,
       now,
