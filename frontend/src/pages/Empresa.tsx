@@ -21,6 +21,11 @@
 import { useParams, Link } from 'react-router-dom'
 import { getPersonaJuridicaStub } from '@/lib/argos/fixtures/personas-stub'
 import { VerificacionBadge } from '@/components/argos/VerificacionBadge'
+import {
+  Section, EmptyState, Table, SourceLink, StubFooter,
+  rowStyle, cellStyle, linkStyle,
+  formatDNI, formatPesos, humanJurisdiccion, humanProvincia, humanVigencia, severidadColor,
+} from '@/components/argos/ProfileShared'
 import type { PersonaJuridica } from '@/lib/argos/types'
 
 export default function Empresa() {
@@ -62,7 +67,7 @@ export default function Empresa() {
       <Section title="Fuentes">
         <FuentesList urls={pj.fuentesUrl} />
       </Section>
-      <StubFooter />
+      <StubFooter apiHint="GET /api/empresa/:cuit" fixturesHint="PLAN-UI §3.2" />
     </div>
   )
 }
@@ -143,27 +148,6 @@ function Cabecera({ pj }: { pj: PersonaJuridica }) {
         )}
       </div>
     </header>
-  )
-}
-
-// ─── Secciones ─────────────────────────────────────────────────────────────────
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section style={{ marginBottom: 28 }}>
-      <h2 style={{ fontSize: 13, fontWeight: 600, color: '#7c8aa3', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 12px 0' }}>
-        {title}
-      </h2>
-      {children}
-    </section>
-  )
-}
-
-function EmptyState({ text }: { text: string }) {
-  return (
-    <div style={{ fontSize: 13, color: '#5a6478', padding: '16px 0', fontStyle: 'italic' }}>
-      {text}
-    </div>
   )
 }
 
@@ -367,65 +351,7 @@ function FuentesList({ urls }: { urls: string[] }) {
   )
 }
 
-// ─── Subcomponentes auxiliares ────────────────────────────────────────────────
-
-function Table({ cols, children }: { cols: string[]; children: React.ReactNode }) {
-  return (
-    <div style={{ overflowX: 'auto', background: '#171b24', border: '1px solid #232938', borderRadius: 6 }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-        <thead>
-          <tr>
-            {cols.map(c => (
-              <th
-                key={c}
-                style={{
-                  textAlign: 'left',
-                  padding: '10px 12px',
-                  borderBottom: '1px solid #232938',
-                  fontSize: 11,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em',
-                  color: '#7c8aa3',
-                  fontWeight: 600,
-                }}
-              >
-                {c}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
-    </div>
-  )
-}
-
-const rowStyle: React.CSSProperties = { borderBottom: '1px solid #1c2230' }
-const cellStyle: React.CSSProperties = { padding: '10px 12px', color: '#dde3ee', verticalAlign: 'top' }
-const linkStyle: React.CSSProperties = { color: '#5a8ad6', textDecoration: 'none', fontWeight: 500 }
-
-function SourceLink({ url, text }: { url: string; text?: string }) {
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noreferrer noopener"
-      style={{ color: '#5a8ad6', textDecoration: 'none', fontSize: 11, fontFamily: 'ui-monospace, monospace' }}
-    >
-      {text ?? '↗ ver'}
-    </a>
-  )
-}
-
-function StubFooter() {
-  return (
-    <footer style={{ marginTop: 40, padding: '16px 0', borderTop: '1px solid #1f2532', fontSize: 11, color: '#5a6478' }}>
-      ⓘ Datos sintéticos del stub Profile (PLAN-UI §3.2, fixtures de Stub-2). En Fase D se reemplazan por
-      <code style={{ margin: '0 4px', padding: '1px 4px', background: '#171b24', borderRadius: 2 }}>GET /api/empresa/:cuit</code>
-      cuando termine el backfill de Fase A4-A5 + cadena de pago de Fase B.
-    </footer>
-  )
-}
+// ─── Subcomponentes auxiliares (sólo los específicos de Empresa) ──────────────
 
 function NotFound({ cuit }: { cuit: string }) {
   return (
@@ -452,53 +378,4 @@ function NotFound({ cuit }: { cuit: string }) {
   )
 }
 
-// ─── Helpers de formato ────────────────────────────────────────────────────────
-
-function formatDNI(dni: string): string {
-  return dni.replace(/(\d)(?=(\d{3})+$)/g, '$1.')
-}
-
-function formatPesos(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)} M`
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)} K`
-  return `$${n.toLocaleString('es-AR')}`
-}
-
-function humanJurisdiccion(j: string): string {
-  const map: Record<string, string> = {
-    'cordoba-capital': 'Córdoba Capital',
-    'cordoba-provincia': 'Provincia de Córdoba',
-    'nacion': 'Gobierno Nacional',
-  }
-  return map[j] ?? j
-}
-
-function humanProvincia(p: string): string {
-  const map: Record<string, string> = {
-    'CORDOBA': 'Córdoba',
-    'CIUDAD AUTONOMA DE BUENOS AIRES': 'CABA',
-    'BUENOS AIRES': 'Buenos Aires',
-  }
-  return map[p] ?? p
-}
-
-function humanVigencia(desde: string | null, hasta: string | null): string {
-  if (!desde && !hasta) return '—'
-  const d = desde ? formatFecha(desde) : '?'
-  const h = hasta ? formatFecha(hasta) : 'vigente'
-  return `${d} → ${h}`
-}
-
-function formatFecha(iso: string): string {
-  if (/^\d{4}$/.test(iso)) return iso
-  try {
-    const d = new Date(iso)
-    return d.toLocaleDateString('es-AR', { year: 'numeric', month: 'short' })
-  } catch {
-    return iso
-  }
-}
-
-function severidadColor(s: 'grave' | 'moderada' | 'leve'): string {
-  return s === 'grave' ? '#e25656' : s === 'moderada' ? '#f5b544' : '#9aa5bb'
-}
+// Helpers de formato → ahora viven en components/argos/ProfileShared.tsx
