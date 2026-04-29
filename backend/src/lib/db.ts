@@ -964,6 +964,48 @@ export async function initDb(): Promise<void> {
     catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
   }
 
+  // ─── Pagos contrato — atomización de la cadena de pago (PLAN-DATOS Fase B3) ─
+  // Cada fila es UN egreso real desde tesorería contra un contrato. Permite
+  // responder "cuánto se pagó realmente" sumando los pagos parciales (vs. el
+  // contratos.monto que es solo el monto adjudicado).
+  //
+  // Sin esta atomización la cadena cierra incompleta: contratos.monto es lo
+  // que dice el papel, pero los pagos pueden ser N transferencias en distintas
+  // fechas, alguna con descuento por penalidad, alguna devolviéndose, etc.
+  //
+  // contrato_hash es FK conceptual a contratos.hash. NO se enforza con
+  // FOREIGN KEY DDL para mantener idempotencia entre seeds (DuckDB no soporta
+  // bien defer constraints + tablas crecen en orden no determinístico).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS pagos_contrato (
+      id              TEXT PRIMARY KEY,    -- sha256(contrato_hash + fecha_pago + monto)
+      contrato_hash   TEXT NOT NULL,       -- FK conceptual a contratos.hash
+      fecha_pago      TEXT NOT NULL,       -- ISO YYYY-MM-DD
+      monto           DOUBLE NOT NULL,
+      moneda          TEXT NOT NULL DEFAULT 'ARS', -- por si futuro hay USD u otro
+      concepto        TEXT,                -- 'pago parcial' | 'pago total' | 'amortización' | etc.
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL,
+      t_efectivo      TIMESTAMP,           -- bitemporal W1: cuándo ocurrió el pago real
+      t_publicado     TIMESTAMP,           -- bitemporal W1: cuándo lo supo ARGOS
+      snapshot_id     TEXT,
+      superseded_by_id TEXT
+    )
+  `)
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_pagos_contrato ON pagos_contrato(contrato_hash)`) }
+  catch { /* idempotente */ }
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_pagos_fecha ON pagos_contrato(fecha_pago)`) }
+  catch { /* idempotente */ }
+  for (const c of [
+    `moneda TEXT DEFAULT 'ARS'`,
+    `concepto TEXT`,
+    `t_efectivo TIMESTAMP`, `t_publicado TIMESTAMP`,
+    `snapshot_id TEXT`, `superseded_by_id TEXT`,
+  ]) {
+    try { await dbRun(`ALTER TABLE pagos_contrato ADD COLUMN ${c}`) }
+    catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
+  }
+
   // ─── Cargos funcionarios — trayectoria con vigencia (PLAN-DATOS Fase A6) ─────
   // Derivada de agentes_publicos (que tiene N filas/persona/año) en filas
   // canónicas de "carrera": un funcionario en un mismo cargo y repartición
