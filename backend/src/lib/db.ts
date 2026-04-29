@@ -586,14 +586,24 @@ export async function initDb(): Promise<void> {
       programa        TEXT,                        -- nombre del programa presupuestario
       partida         TEXT,                        -- código de partida (ej: 1.1.1 personal)
       partida_nombre  TEXT,
-      credito_inicial DOUBLE,                      -- presupuesto sancionado
-      credito_vigente DOUBLE,                      -- presupuesto modificado
-      devengado       DOUBLE,                      -- gasto efectivamente comprometido
-      pagado          DOUBLE,                      -- gasto efectivamente pagado
+      -- Ciclo presupuestario Ley 24.156 (5 etapas):
+      credito_inicial DOUBLE,                      -- (1) presupuesto sancionado por el legislativo
+      credito_vigente DOUBLE,                      -- (2) presupuesto modificado (decretos / DNUs)
+      compromiso      DOUBLE,                      -- (3) orden de compra firmada — el peso queda separado (PLAN-DATOS B1)
+      devengado       DOUBLE,                      -- (4) bien recibido / servicio prestado — la deuda nació
+      pagado          DOUBLE,                      -- (5) egreso efectivo desde tesorería
       fuente_url      TEXT NOT NULL,
       cargado_en      TEXT NOT NULL
     )
   `)
+  // ALTER idempotente — la columna compromiso (etapa 3) faltaba en el schema
+  // original, lo cual cortaba la cadena de pago: sin compromiso no se puede
+  // cruzar Compromiso ↔ Contrato individual. Las DBs pre-existentes a B1
+  // adquieren la columna via ALTER y los seeds nuevos la populan.
+  for (const c of [`compromiso DOUBLE`]) {
+    try { await dbRun(`ALTER TABLE presupuesto_ejecucion ADD COLUMN ${c}`) }
+    catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
+  }
 
   // Obras públicas — registro independiente de contratos individuales.
   // Una obra puede tener múltiples contratos (proyecto + ejecución + ampliaciones).
