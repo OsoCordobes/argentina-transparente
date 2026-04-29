@@ -119,11 +119,14 @@ ARGOS tiene **detectores deterministas** (no LLM). Cada uno emite señales de ti
 
 - **Toda fila tiene `fuente_url`.** Cualquier dato se puede reconstruir desde la fuente oficial.
 - **Toda señal tiene evidencia con URLs.** Click → portal de datos abiertos del estado.
-- **Identidad por CUIT/DNI con validación módulo-11.** No por "ACME se parece a ACME SA".
-- **Filtro geográfico de C1 mata el FP estructural más común** (funcionario provincial cordobés "vinculado" a multinacional CABA).
+- **Identidad por CUIT/DNI con validación módulo-11.** No por "ACME se parece a ACME SA". Los detectores publicables descartan silenciosamente filas con CUIT corrupto (defensa en 3 capas: seed valida al insertar, identity_resolver valida al resolver, detector valida al emitir señal).
+- **Filtro geográfico de C1 mata el FP estructural más común** (funcionario provincial cordobés "vinculado" a multinacional CABA). Mapeo jurisdicción↔provincia centralizado en `lib/jurisdicciones.ts` — fuente única de verdad usada por todos los detectores.
+- **Causalidad temporal estricta.** En `aportante_de_campana_y_proveedor` (C2), solo se suman contratos post-aporte (`c.anio >= a.anio_electoral`). Una empresa con actividad pre-electoral no infla la suma.
+- **Cargos clasificados con word boundaries.** En `ddjj_omitida` y `conflicto_funcionario_proveedor`, el matching de cargos del Anexo III usa `\bPATRON\b` — "Auxiliar administrativo" no se confunde con "MINISTRA" por substring.
 - **Cap-60 sin DNI verificado.** Una señal nunca es "grave" por simple coincidencia de apellido.
 - **`identity_matches` Tier 4-5 (LLM-ambiguous) NO entra a detectores publicables.** W4 documentó CUITs erróneos en Tier 4.
 - **Badge de verificación universal.** Toda señal en cualquier UI lleva uno de cuatro estados: ✓ verificada / ◌ sin verificar / ✗ descartada / ⚠ bloqueada.
+- **Inputs validados al ingreso de cada API pública.** Helpers como `encontrarPartidasConGap` rechazan inputs fuera de rango (ej. `minGapPct: 30` en lugar de `0.30`) con mensaje explícito. `armarDenunciaDesdeIds` rechaza DNIs malformados del denunciante antes de generar PDF.
 
 ### Por qué no confiar (limitaciones honestas)
 

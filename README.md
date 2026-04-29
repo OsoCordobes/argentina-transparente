@@ -164,10 +164,18 @@ Por definir (probablemente AGPL o MIT post-beta). Detalle de licencia + responsa
 
 ## Specs canónicos
 
-Los dos documentos versionados que rigen las decisiones del proyecto:
+Los documentos versionados que rigen las decisiones del proyecto:
 
 - [`docs/PLAN-DATOS.md`](./docs/PLAN-DATOS.md) v1.1 — modelo de datos (identidad PF/PJ, ciclo presupuestario, plan en 5 fases A→E, glosario).
 - [`docs/PLAN-UI.md`](./docs/PLAN-UI.md) v1.0 — UI (átomo `ActorProfile`, 5 superficies con grafo, Graph Visual Language, expansión por grados).
 - [`docs/COMO-LO-HICIMOS.md`](./docs/COMO-LO-HICIMOS.md) — landing publicable orientada a periodistas/fiscales/ciudadanos.
 
 Si una decisión de UI requiere cambiar el modelo de datos, primero se actualiza el doc, después se toca código.
+
+## Módulos compartidos del backend
+
+Catálogos canónicos que múltiples detectores consumen — fuente única de verdad:
+
+- [`backend/src/lib/jurisdicciones.ts`](./backend/src/lib/jurisdicciones.ts) — mapeo `jurisdiccion → provincia argentina`, lista de las 24 provincias federales, helpers de normalización y comparación. Alimenta el filtro geográfico de C1.
+- [`backend/src/lib/cargos-conocidos.ts`](./backend/src/lib/cargos-conocidos.ts) — catálogo del Anexo III Ley 25.188 + cargos con poder de adjudicación + alto rango. Helpers `obligadoDeclararDDJJ`, `tieneCargoConPoder`, `esCargoAltoRango` con matching por word boundaries (no substring). Alimenta C1, C3.
+- [`backend/src/lib/identidad-validator.ts`](./backend/src/lib/identidad-validator.ts) — validación módulo-11 de CUIT/DNI + helpers `formatDNI`, `categorizarCUIT`, `mismoDNI`, `derivarCUITsCandidatos`. Defensa en profundidad — se aplica al insertar, al resolver identidad, y al emitir señal.
