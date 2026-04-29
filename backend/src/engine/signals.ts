@@ -144,7 +144,7 @@ export function detectarConcentracion(contratos: Contrato[]): Señal | null {
 // proveedorCuit (Tier 1-3 verificado del identity_resolver) en lugar de por
 // nombre normalizado. Habilita señal publicable cuando los datos están
 // completos. Si NO hay contratos con proveedorCuit, devuelve null y deja
-// que detectarConcentracion (legacy por nombre) emita su señal con cap-95.
+// que detectarConcentracion (legacy por nombre) emita su señal.
 //
 // Ventajas frente a la versión por nombre:
 //   - Inmune a alias de razón social ("ACME SA" vs "Acme S.A.").
@@ -155,10 +155,22 @@ export function detectarConcentracion(contratos: Contrato[]): Señal | null {
 //
 // Tipologia: 'concentracion_cuit'. NO sustituye 'concentracion_proveedor'
 // (legacy) — coexisten. La UI puede preferir esta cuando exista.
+import { validarCUIT } from '../lib/identidad-validator'
+
+/**
+ * Agrupa contratos por proveedorCuit, descartando:
+ *   - Contratos sin proveedorCuit (entran al detector legacy por nombre)
+ *   - Contratos con proveedorCuit malformado (DV inválido, prefijo desconocido)
+ *
+ * Review #1 C5: agregada validación módulo-11. Defensa contra seeds que
+ * populen proveedorCuit corrupto — el detector publicable nunca debe emitir
+ * una señal cuyo CUIT no resuelve correctamente.
+ */
 function agruparPorCuit(cs: Contrato[]): Map<string, Contrato[]> {
   const map = new Map<string, Contrato[]>()
   for (const c of cs) {
     if (!c.proveedorCuit) continue
+    if (!validarCUIT(c.proveedorCuit)) continue // defensa contra CUITs corruptos
     const k = c.proveedorCuit
     if (!map.has(k)) map.set(k, [])
     map.get(k)!.push(c)
