@@ -86,9 +86,40 @@ export async function initDb(): Promise<void> {
       evidencia_json    TEXT NOT NULL,
       legal_json        TEXT NOT NULL,
       entidades_cuit    TEXT,
-      computado_en      TEXT NOT NULL
+      computado_en      TEXT NOT NULL,
+      estado_verificacion TEXT NOT NULL DEFAULT 'sin_verificar', -- A7
+      verificado_por    TEXT,                                     -- A7
+      verificado_en     TIMESTAMP                                 -- A7
     )
   `)
+
+  // ─── A7: estado_verificacion + auditoría (PLAN-DATOS Fase A7) ────────────────
+  // Toda señal lleva uno de cuatro estados, alineados con el badge universal del
+  // PLAN-UI §8 (verificada / sin_verificar / descartada / bloqueada).
+  //
+  // DuckDB en esta versión NO soporta ALTER TABLE ADD COLUMN con constraints
+  // ("Parser Error: Adding columns with constraints not yet supported"). Por
+  // eso agregamos las columnas SIN restricciones y populamos el default con un
+  // UPDATE explícito a continuación. La columna sigue siendo TEXT NOT NULL
+  // DEFAULT 'sin_verificar' para DBs creadas-de-cero por el CREATE TABLE de
+  // arriba — esta migración es solo para DBs pre-existentes.
+  //
+  // El CHECK constraint nunca llega al DDL (mismo límite); la enforcement vive
+  // en helpers TS de verificacion-senales.ts (EstadoVerificacionSeñal type
+  // union + actualizarEstadoSeñal()).
+  for (const c of [
+    `estado_verificacion TEXT`,
+    `verificado_por TEXT`,
+    `verificado_en TIMESTAMP`,
+  ]) {
+    try { await dbRun(`ALTER TABLE señales_cache ADD COLUMN ${c}`) }
+    catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
+  }
+  // Backfill default 'sin_verificar' a filas pre-existentes que vinieron antes
+  // de A7. Idempotente: solo afecta NULLs.
+  try {
+    await dbRun(`UPDATE señales_cache SET estado_verificacion = 'sin_verificar' WHERE estado_verificacion IS NULL`)
+  } catch { /* idempotente */ }
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS empresas (
@@ -1390,14 +1421,20 @@ export async function insertSeñalCache(
   cuits: string[] = []
 ): Promise<void> {
   const id = crypto.randomUUID()
+  // INSERT con columnas nombradas. Incluimos estado_verificacion='sin_verificar'
+  // explícitamente porque las DBs pre-existentes a A7 obtuvieron la columna via
+  // ALTER sin DEFAULT (DuckDB no soporta ADD COLUMN con constraints), por lo
+  // que sin este valor literal la fila quedaría con NULL en vez del default
+  // declarado en el CREATE TABLE. Belt & suspenders cross-DB.
   await dbRun(
-    `INSERT INTO señales_cache VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO señales_cache (id, municipio, tipologia, titulo, resumen, score, severidad, evidencia_json, legal_json, entidades_cuit, computado_en, estado_verificacion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id, municipio, señal.tipologia, señal.titulo, señal.resumen,
       señal.score, señal.legal.severidad,
       JSON.stringify(señal.evidencia), JSON.stringify(señal.legal),
       cuits.length > 0 ? JSON.stringify(cuits) : null,
-      new Date().toISOString()
+      new Date().toISOString(),
+      'sin_verificar',
     ]
   )
 }
@@ -1414,6 +1451,9 @@ export interface SeñalCacheRow {
   legal_json: string
   entidades_cuit: string | null
   computado_en: string
+  estado_verificacion: 'verificada' | 'sin_verificar' | 'descartada' | 'bloqueada'
+  verificado_por: string | null
+  verificado_en: string | null
 }
 
 export async function getSeñalesCache(municipio?: string): Promise<SeñalCacheRow[]> {
