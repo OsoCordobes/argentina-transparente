@@ -900,6 +900,63 @@ export async function initDb(): Promise<void> {
     catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
   }
 
+  // ─── Personas Jurídicas — tabla maestra canónica (PLAN-DATOS Fase A2) ────────
+  // Una empresa = un CUIT = una URL canónica. Consolida empresas + igj_entidades
+  // + rns_personas_juridicas en una entidad única. Las tablas originales
+  // siguen siendo destino de seeds raw; personas_juridicas es la "view
+  // unificada" persistida con la mejor versión de cada campo.
+  //
+  // CUIT con prefijo {30, 33, 34} (PJ). Validación módulo-11 al insertar
+  // (ver Fase A3 — validador). Campos de domicilio (provincia + localidad)
+  // críticos para el filtro geográfico del detector M4.1 refactorizado en
+  // Fase C1 — sin domicilio fiscal, no se puede descartar el falso positivo
+  // tipo MOSQUERA↔Renault Argentina (multinacional CABA con director en
+  // jurisdicción no-Córdoba).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS personas_juridicas (
+      cuit                  TEXT PRIMARY KEY,    -- XX-DDDDDDDD-V con prefijo {30,33,34}
+      razon_social          TEXT NOT NULL,       -- mejor versión humana conocida
+      razon_social_norm     TEXT NOT NULL,       -- UPPER sin tildes/puntuación para JOIN
+      alias_json            TEXT NOT NULL DEFAULT '[]', -- JSON array de razones sociales alternativas
+      tipo_societario       TEXT,                -- 'SA' | 'SRL' | 'SAS' | 'Coop' | 'OSC' | etc.
+      fecha_constitucion    TEXT,                -- ISO YYYY-MM-DD si conocida
+      dom_fiscal_provincia  TEXT,                -- 'CORDOBA' | 'CABA' | etc. — clave para filtro geográfico
+      dom_fiscal_localidad  TEXT,
+      dom_legal_provincia   TEXT,                -- a veces difiere de fiscal
+      dom_legal_localidad   TEXT,
+      estado                TEXT,                -- 'activa' | 'baja' | 'cancelada' | etc.
+      es_empleador          BOOLEAN,             -- de AFIP padrón empleadores
+      actividad_principal   TEXT,                -- de AFIP padrón
+      fuentes_url_json      TEXT NOT NULL DEFAULT '[]', -- JSON array de URLs (IGJ, RNS, AFIP, contratos)
+      primer_visto          TIMESTAMP NOT NULL,
+      ultimo_visto          TIMESTAMP NOT NULL,
+      t_efectivo            TIMESTAMP,           -- bitemporal W1
+      t_publicado           TIMESTAMP,
+      snapshot_id           TEXT,
+      superseded_by_id      TEXT
+    )
+  `)
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_pj_razon_norm ON personas_juridicas(razon_social_norm)`) }
+  catch { /* idempotente */ }
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_pj_dom_fiscal_prov ON personas_juridicas(dom_fiscal_provincia)`) }
+  catch { /* idempotente */ }
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_pj_dom_legal_prov ON personas_juridicas(dom_legal_provincia)`) }
+  catch { /* idempotente */ }
+  // ALTER idempotente para tablas pre-existentes (W1 pattern)
+  for (const c of [
+    `alias_json TEXT DEFAULT '[]'`,
+    `tipo_societario TEXT`,
+    `fecha_constitucion TEXT`,
+    `dom_fiscal_provincia TEXT`, `dom_fiscal_localidad TEXT`,
+    `dom_legal_provincia TEXT`, `dom_legal_localidad TEXT`,
+    `estado TEXT`, `es_empleador BOOLEAN`, `actividad_principal TEXT`,
+    `t_efectivo TIMESTAMP`, `t_publicado TIMESTAMP`,
+    `snapshot_id TEXT`, `superseded_by_id TEXT`,
+  ]) {
+    try { await dbRun(`ALTER TABLE personas_juridicas ADD COLUMN ${c}`) }
+    catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
+  }
+
   // ─── Vistas universo cordobés N2 (Phase F5) ─────────────────────────────────
   // El dataset IGJ trae 2.7M filas nationales y la mayoría son ruido para un
   // beta acotado a Córdoba Capital. Estas views materializan el "universo

@@ -162,4 +162,34 @@ export interface PersonaFisica {
   supersededById?: string | null
 }
 
+// ─── Persona Jurídica canónica (PLAN-DATOS Fase A2) ──────────────────────────
+// Una empresa = un CUIT = una URL canónica. Consolida empresas + igj_entidades
+// + rns_personas_juridicas en la entidad maestra. Las tablas originales siguen
+// siendo destino de seeds raw; personas_juridicas es la "view unificada" con
+// la mejor versión de cada campo. Los campos de domicilio son críticos para
+// el filtro geográfico del detector M4.1 refactorizado en Fase C1.
+export interface PersonaJuridica {
+  cuit: string                       // XX-DDDDDDDD-V con prefijo {30, 33, 34}
+  razonSocial: string                // mejor versión humana conocida
+  razonSocialNorm: string            // UPPER sin tildes/puntuación para JOIN
+  alias: string[]                    // razones sociales alternativas (deserializado de alias_json)
+  tipoSocietario: string | null      // 'SA' | 'SRL' | 'SAS' | etc.
+  fechaConstitucion: string | null   // ISO YYYY-MM-DD
+  domFiscalProvincia: string | null  // crítico para filtro geográfico
+  domFiscalLocalidad: string | null
+  domLegalProvincia: string | null
+  domLegalLocalidad: string | null
+  estado: string | null              // 'activa' | 'baja' | etc.
+  esEmpleador: boolean | null        // de AFIP padrón empleadores
+  actividadPrincipal: string | null
+  fuentesUrl: string[]               // URLs canónicas (deserializado de fuentes_url_json)
+  primerVisto: string                // ISO timestamp
+  ultimoVisto: string                // ISO timestamp
+  // Bitemporal W1
+  tEfectivo?: string | null
+  tPublicado?: string | null
+  snapshotId?: string | null
+  supersededById?: string | null
+}
+
 export type { IngestOpts, IngestReport, IngestStatus, QuarantineRow } from './ingest'
