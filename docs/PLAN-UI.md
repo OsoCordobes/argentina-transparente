@@ -331,3 +331,107 @@ Estos campos son **requeridos por la UI** para servir las cinco superficies. Cua
 6. **UI real** sustituyendo stubs progresivamente, sección por sección, en orden: Profile → Landing → Señales → Dinero → Actores → Caso.
 7. **Fase C** (detectores rigurosos, refactor M4.1).
 8. **Fase E** (verificación, denuncia, release).
+
+---
+
+# Cambios v1.1 — Fase D + F (post brainstorm 2026-04-29)
+
+Este apéndice documenta las decisiones canónicas de las 10 superficies UI
+que se brainstormearon y construyeron en este sprint. Las decisiones
+override cualquier propuesta inicial del documento si hay conflicto.
+
+## Sistema visual transversal — "Premium Forensic dark"
+
+| Elemento | Valor |
+|---|---|
+| Background | `#0d1117` (Bloomberg-dark) |
+| Texto base | `#dde3ee` |
+| Texto muted | `#9BA3B4` |
+| Acento PF | `#7da3ff` (azul) — glyph `●` |
+| Acento PJ | `#ff9b5c` (naranja) — glyph `■` |
+| Severidad grave | `#E25656` |
+| Severidad moderada | `#F5B544` |
+| Severidad leve | `#9BA3B4` |
+| Verificada | `#62C7A0` (verde) |
+| Tipografía números | `ui-monospace` |
+| Sparkline | unicode `▁▂▃▄▅▆▇█` |
+| Animación nodos | sequential stagger 30ms + trazo path-length 220ms |
+
+## Sitemap canónico
+
+```
+/                    Landing — Hero $ AUDITADOS + feed Señales del mes
+/dinero              Sankey ciclo presupuestario → drill-down URL-driven
+/actores             Omnibox fuzzy + lista glyph + 3 cols métricas
+/persona/:dni        Profile PF (two-pane + mini-grafo + +Watch +Caso)
+/empresa/:cuit       Profile PJ (two-pane + mini-grafo)
+/senales             Top 50 score · todos estados · read-only
+/casos /caso/:id     Workspace (localStorage) two-pane + preview PDF
+/mapa                Top centralidad · force-directed
+/metodologia         TOC Notion · demos vivos módulo-11
+/comparar            2 empresas · 3 cols A·B·Δ
+/watchlist           Por actor · in-app · localStorage
+/cola-verificacion   ⚠ admin-only (X-Argos-Admin-Token header)
+```
+
+## Decisiones por módulo (síntesis)
+
+- **Tono universal**: descriptivo neutral. La plataforma "describe, no acusa".
+  Evitar "hallazgos", "destapamos", "corrupto" en UI/copy. Usar "señales
+  detectadas", "patrones marcados", "posibles irregularidades".
+- **Storage user state**: localStorage en MVP. Casos y watchlist como
+  blobs JSON exportables. Cross-device manual via export/import.
+- **Auth real**: deuda técnica. Hoy `/cola-verificacion` POST exige header
+  `X-Argos-Admin-Token` igual a env var (fail-closed). Futuro: Supabase
+  con roles `auditor` / `admin`.
+- **Animación grafo nodos**: sequential stagger 30ms entre nodos + trazo
+  path-length 220ms en aristas. Implementado en MiniGraph (Profile).
+  En `/mapa` la simulación física de GraphCanvas se encarga del
+  separation; el stagger explícito es opcional.
+- **Audiencia priorizada**: periodistas / fiscales / abogados / auditores
+  primero. Otros usuarios quedan cubiertos vía `/metodologia` con demos
+  vivos del módulo-11 + cap dinámico.
+
+## Endpoints backend canónicos
+
+| Endpoint | Módulo |
+|---|---|
+| `GET /api/landing` | Landing D1 |
+| `GET /api/dinero/{sankey,jurisdicciones,partidas}` | Dinero D2 |
+| `GET /api/actores-d6` | Actores D3 |
+| `GET /api/profile/{persona/:dni,empresa/:cuit}` | Profile D4 (Fase F R6) |
+| `GET·POST /api/cola-verificacion` | Cola E2 (admin token) |
+| `POST /api/denuncia/pdf` | Caso D7/E3 |
+| `POST /api/watchlist-d8/feed` | Watchlist D8 |
+| `GET /api/comparar/{empresa,empresas-lookup}` | Comparar D9 |
+
+## Vistas canónicas (Fase F R5 conectividad)
+
+| Vista | Cardinalidad | Propósito |
+|---|---:|---|
+| `v_persona_dirige_empresa` | 1.719.418 | PF→PJ vía IGJ. La conexión más usada por Profile. |
+| `v_actor_universo` | 1.259.691 | Universo PF+PJ con métricas precomputadas. |
+| `cadena_de_pago` | varies | 5 etapas presupuestarias por partida + contrato. |
+
+## Estado actual (auditado 2026-04-29)
+
+| Métrica | Valor |
+|---|---:|
+| personas_fisicas (PF) | **763.082** |
+| personas_juridicas (PJ) | **496.609** |
+| relaciones PF→PJ | **1.719.418** |
+| agentes_publicos (cap+prov) | 178.356 |
+| agentes con DNI populado (Tier 2 heurístico) | 2.939 |
+| contratos | 1.393 (cap=1382, upc=11) |
+| presupuesto_ejecucion | 4.035 (capital) |
+| señales_cache | 13 |
+| Cobertura datasets cordobeses | ~70% |
+
+**Aún faltan cargar (alta prioridad para "completar Córdoba"):**
+- Tribunal de Cuentas Provincial (auditorias_tribunal_cuentas: 0)
+- Obras públicas (obras_publicas: 0)
+- Transferencias / subsidios (transferencias: 0)
+- Boletín Oficial Provincia (boe_cba_pdfs: 0)
+- OCR DDJJ municipales (1348 PDFs sin DNI populado)
+- Aportantes campañas — bloqueado por AFIP CNE (alternativa: Justicia
+  Electoral Provincial Córdoba, no implementado)
