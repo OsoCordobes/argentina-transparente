@@ -953,10 +953,21 @@ export async function initDb(): Promise<void> {
   catch { /* idempotente */ }
   try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_pf_apellido_norm ON personas_fisicas(apellido_nombre_norm)`) }
   catch { /* idempotente */ }
-  // ALTER idempotente para tablas pre-existentes (W1 pattern)
+  // ALTER idempotente para tablas pre-existentes (W1 pattern). Cubre el caso
+  // de una DB creada en una versión anterior del schema A1 — los CREATE TABLE
+  // marcan columnas como NOT NULL pero ALTER no las agrega con NOT NULL por
+  // limitación de DuckDB. Si la DB es vieja, las columnas ausentes se agregan
+  // como nullable; los INSERTs nuevos siempre proveen los valores via helper.
+  // Review #1: agregadas apellido_nombre_norm/primer_visto/ultimo_visto que
+  // estaban faltando en el ALTER list — cerraba un hueco real para DBs
+  // pre-A1 que ahora intentaran INSERT sin pasar por upsertPersonaFisica.
   for (const c of [
     `cuit TEXT`,
     `fuente_dni_url TEXT`,
+    `apellido_nombre_norm TEXT DEFAULT ''`,
+    `primer_visto TIMESTAMP`,
+    `ultimo_visto TIMESTAMP`,
+    `fuentes_url_json TEXT DEFAULT '[]'`,
     `t_efectivo TIMESTAMP`, `t_publicado TIMESTAMP`,
     `snapshot_id TEXT`, `superseded_by_id TEXT`,
   ]) {
