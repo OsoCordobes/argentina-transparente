@@ -54,6 +54,40 @@ export async function initGraph(): Promise<void> {
       await session.run(`CREATE CONSTRAINT conflicto_id IF NOT EXISTS FOR (c:Conflicto) REQUIRE c.id IS UNIQUE`)
       await session.run(`CREATE INDEX conflicto_jurisdiccion IF NOT EXISTS FOR (c:Conflicto) ON (c.jurisdiccion)`)
       await session.run(`CREATE INDEX conflicto_tipologia IF NOT EXISTS FOR (c:Conflicto) ON (c.tipologia)`)
+
+      // ─── B6: índices para hop expansion con cap por relevancia (PLAN-UI §6) ───
+      // La expansión 1°/2°/3° del UI necesita ORDER BY <relevancia> DESC LIMIT 500
+      // para cumplir el cap de nodos visibles. Sin índices sobre las propiedades
+      // de orden, las queries multi-hop hacen full scan.
+      //
+      // Relevancia por tipo de nodo:
+      //   - Conflicto: score (severidad numérica)
+      //   - Señal: score
+      //   - Contrato: monto (tamaño absoluto)
+      //   - Empresa: monto agregado de contratos firmados (no indexable directo —
+      //     se mantiene como propiedad cacheada vía detector cuando aplique)
+      await session.run(`CREATE INDEX conflicto_score IF NOT EXISTS FOR (c:Conflicto) ON (c.score)`)
+      await session.run(`CREATE INDEX conflicto_severidad IF NOT EXISTS FOR (c:Conflicto) ON (c.severidad)`)
+      await session.run(`CREATE INDEX senal_score IF NOT EXISTS FOR (s:Señal) ON (s.score)`)
+      await session.run(`CREATE INDEX senal_severidad IF NOT EXISTS FOR (s:Señal) ON (s.severidad)`)
+      await session.run(`CREATE INDEX contrato_monto IF NOT EXISTS FOR (c:Contrato) ON (c.monto)`)
+      await session.run(`CREATE INDEX empresa_total_contratado IF NOT EXISTS FOR (e:Empresa) ON (e.totalContratado)`)
+
+      // Relationship indexes (Neo4j 5.x+) para tier sobre DIRIGE
+      // Útil cuando expandimos PersonaFisica → Empresa y queremos priorizar
+      // direcciones de Tier 1 (CUIT exacto) sobre Tier 2-5 (inferencia).
+      // Wrappeado en try/catch: si el server es Neo4j 4.x este sintaxis falla
+      // pero las queries siguen funcionando, solo más lentas.
+      try {
+        await session.run(`CREATE INDEX dirige_tier IF NOT EXISTS FOR ()-[r:DIRIGE]-() ON (r.tier)`)
+      } catch (e) {
+        console.warn('[graph] B6 relationship index DIRIGE.tier no creado (Neo4j 4.x?):', String(e).split('\n')[0])
+      }
+      try {
+        await session.run(`CREATE INDEX detectado_en_rol IF NOT EXISTS FOR ()-[r:DETECTADO_EN]-() ON (r.rol)`)
+      } catch (e) {
+        console.warn('[graph] B6 relationship index DETECTADO_EN.rol no creado (Neo4j 4.x?):', String(e).split('\n')[0])
+      }
     } finally {
       await session.close()
     }
@@ -1476,6 +1510,178 @@ export async function upsertPagaNominaResumen(data: {
       status: data.status ?? 'activo',
     }
   ))
+}
+
+// ─── B6: Hop expansion con cap por relevancia (PLAN-UI §6) ──────────────────
+// Habilita la expansión 1°/2°/3° desde un nodo seleccionado en Profile o
+// landing, con cap duro de 500 nodos visibles y priorización por relevancia.
+
+export type HopRoot =
+  | { type: 'persona'; dni: string }
+  | { type: 'empresa'; cuit: string }
+  | { type: 'funcionario'; id: string }
+  | { type: 'conflicto'; id: string }
+  | { type: 'señal'; id: string }
+
+/**
+ * Expande el ego-graph desde un nodo central a N hops (1-3) con cap por
+ * relevancia. Aprovecha los índices de B6 sobre score, severidad, monto.
+ *
+ * Estrategia:
+ *   1. Match path de longitud 1..hops desde el centro
+ *   2. Para cada nodo destino calcula score de relevancia agregado
+ *      (severidad de señales tocadas + monto de contratos + jerarquía cargo)
+ *   3. ORDER BY relevancia DESC LIMIT cap
+ *
+ * Si Neo4j no está disponible, devuelve grafo vacío.
+ */
+export async function expandirEgo(opts: {
+  root: HopRoot
+  hops: 1 | 2 | 3
+  cap?: number
+}): Promise<Grafo & { capExcedido: boolean }> {
+  if (!_available) return { nodes: [], edges: [], capExcedido: false }
+  const cap = Math.min(opts.cap ?? 500, 500) // hard cap defensivo
+  const hops = Math.max(1, Math.min(3, opts.hops))
+
+  // Helper local: Neo4j devuelve algunos counters como BigInt (driver 5.x).
+  const toNumLocal = (v: unknown): number => {
+    if (typeof v === 'number') return v
+    if (typeof v === 'bigint') return Number(v)
+    if (v && typeof v === 'object' && 'toNumber' in v && typeof (v as { toNumber: () => number }).toNumber === 'function') {
+      return (v as { toNumber: () => number }).toNumber()
+    }
+    return Number(v ?? 0)
+  }
+
+  return withSession(async s => {
+    // Construir el match del nodo raíz según su tipo
+    let rootMatch = ''
+    let rootParam: Record<string, unknown> = {}
+    switch (opts.root.type) {
+      case 'persona':
+        rootMatch = `(root:PersonaFisica {dni: $rootKey})`
+        rootParam = { rootKey: opts.root.dni }
+        break
+      case 'empresa':
+        rootMatch = `(root:Empresa {cuit: $rootKey})`
+        rootParam = { rootKey: opts.root.cuit }
+        break
+      case 'funcionario':
+        rootMatch = `(root:Funcionario {id: $rootKey})`
+        rootParam = { rootKey: opts.root.id }
+        break
+      case 'conflicto':
+        rootMatch = `(root:Conflicto {id: $rootKey})`
+        rootParam = { rootKey: opts.root.id }
+        break
+      case 'señal':
+        rootMatch = `(root:Señal {id: $rootKey})`
+        rootParam = { rootKey: opts.root.id }
+        break
+    }
+
+    // Query: descubre nodos a 1..hops y agrega score de relevancia.
+    // - Conflicto/Señal: score directo
+    // - Contrato: monto / 1e6 (escala razonable)
+    // - PersonaFisica/Funcionario: 50 (peso moderado por defecto)
+    // - Empresa: 30 + sum(contratos vinculados) escala
+    const r = await s.run(
+      `MATCH path = ${rootMatch}-[*1..${hops}]-(target)
+       WITH DISTINCT target, length(path) AS distancia
+       OPTIONAL MATCH (target)-[:GANÓ|OPERA_EN]->(co:Contrato)
+       WITH target, distancia, COALESCE(SUM(co.monto), 0) AS montoVinculado
+       WITH target, distancia, montoVinculado,
+         CASE labels(target)[0]
+           WHEN 'Conflicto' THEN COALESCE(target.score, 50)
+           WHEN 'Señal'     THEN COALESCE(target.score, 50)
+           WHEN 'Contrato'  THEN COALESCE(target.monto, 0) / 1000000.0
+           WHEN 'Empresa'   THEN 30 + (montoVinculado / 1000000.0)
+           WHEN 'PersonaFisica' THEN 50
+           WHEN 'Funcionario'   THEN 50
+           ELSE 20
+         END AS relevancia
+       ORDER BY relevancia DESC, distancia ASC
+       LIMIT $cap
+       RETURN target, distancia, relevancia`,
+      { ...rootParam, cap: neo4j.int(cap) },
+    )
+
+    const nodes: GrafoNode[] = []
+    const seenIds = new Set<string>()
+    for (const rec of r.records) {
+      const t = rec.get('target') as { labels: string[]; properties: Record<string, unknown> }
+      const lbl = t.labels[0]
+      const props = t.properties
+      const id =
+        (props.dni as string) ??
+        (props.cuit as string) ??
+        (props.id as string) ??
+        ''
+      if (!id || seenIds.has(id)) continue
+      seenIds.add(id)
+      nodes.push({
+        id,
+        type: (lbl?.toLowerCase() ?? 'empresa') as GrafoNode['type'],
+        label: (props.nombre as string) ?? (props.razon_social as string) ?? (props.titulo as string) ?? id,
+        subtitle: (props.cuit as string | undefined) ?? (props.dni as string | undefined),
+        weight: toNumLocal(rec.get('relevancia')),
+        data: { ...props, distancia: toNumLocal(rec.get('distancia')) },
+      })
+    }
+
+    // Recolectar aristas entre los nodos del set (evitamos otra MATCH costosa
+    // — solo aristas con ambos endpoints en el set ya cap-limitado).
+    const ids = nodes.map(n => n.id)
+    const edges: GrafoEdge[] = []
+    if (ids.length > 0) {
+      const re = await s.run(
+        `MATCH (a)-[r]-(b)
+         WHERE (a.dni IN $ids OR a.cuit IN $ids OR a.id IN $ids)
+           AND (b.dni IN $ids OR b.cuit IN $ids OR b.id IN $ids)
+           AND id(a) < id(b)
+         RETURN a, type(r) AS rel, b, properties(r) AS props
+         LIMIT 5000`,
+        { ids },
+      )
+      const seenEdges = new Set<string>()
+      for (const rec of re.records) {
+        const a = rec.get('a') as { properties: Record<string, unknown> }
+        const b = rec.get('b') as { properties: Record<string, unknown> }
+        const sourceId =
+          (a.properties.dni as string) ??
+          (a.properties.cuit as string) ??
+          (a.properties.id as string)
+        const targetId =
+          (b.properties.dni as string) ??
+          (b.properties.cuit as string) ??
+          (b.properties.id as string)
+        if (!sourceId || !targetId) continue
+        const key = `${sourceId}|${targetId}|${rec.get('rel')}`
+        if (seenEdges.has(key)) continue
+        seenEdges.add(key)
+        const rel = String(rec.get('rel')).toLowerCase() as GrafoEdge['kind']
+        edges.push({
+          source: sourceId,
+          target: targetId,
+          kind: rel,
+          weight: 1,
+          data: rec.get('props') as Record<string, unknown>,
+        })
+      }
+    }
+
+    // Detectar si excedimos el cap (señal de "X nodos ocultos por relevancia")
+    const totalR = await s.run(
+      `MATCH path = ${rootMatch}-[*1..${hops}]-(target)
+       RETURN count(DISTINCT target) AS total`,
+      rootParam,
+    )
+    const total = toNumLocal(totalR.records[0]?.get('total') ?? 0)
+    const capExcedido = total > nodes.length
+
+    return { nodes, edges, capExcedido }
+  })
 }
 
 export async function closeGraph(): Promise<void> {
