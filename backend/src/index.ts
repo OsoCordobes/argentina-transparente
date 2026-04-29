@@ -32,6 +32,7 @@ import dineroRouter from './routes/dinero'
 import actoresD6Router from './routes/actores-d6'
 import watchlistD8Router from './routes/watchlist-d8'
 import compararRouter from './routes/comparar'
+import profileRouter from './routes/profile'
 import { registrarFuente } from './lib/db'
 import { fuenteCordobaCapital } from './connectors/cordoba-capital'
 import { fuenteArgentinaCompra } from './connectors/argentina-compra'
@@ -98,6 +99,7 @@ app.use('/api/dinero', dineroRouter)
 app.use('/api/actores-d6', actoresD6Router)
 app.use('/api/watchlist-d8', watchlistD8Router)
 app.use('/api/comparar', compararRouter)
+app.use('/api/profile', profileRouter)
 
 // Legacy routes (still used by current frontend)
 app.use('/analizar', analizarRouter)

@@ -20,7 +20,7 @@
  * Sin timeline unificado ni grafo 2-hop por ahora — Fase D los integra
  * usando <GraphCanvas> y el sistema de eventos del PLAN-UI §6.
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { getPersonaFisicaStub } from '@/lib/argos/fixtures/personas-stub'
 import { VerificacionBadge } from '@/components/argos/VerificacionBadge'
@@ -33,12 +33,50 @@ import {
 } from '@/components/argos/ProfileShared'
 import type { PersonaFisica } from '@/lib/argos/types'
 
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+
 export default function Persona() {
   const { dni } = useParams<{ dni: string }>()
   const [graphExpanded, setGraphExpanded] = useState(false)
+  const [pf, setPf] = useState<PersonaFisica | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Audit fix Fase F R6: fetch del backend real (con fallback a fixtures
+  // para los DNIs sintéticos del MVP que no están en BD).
+  useEffect(() => {
+    if (!dni) { setLoading(false); return }
+    const ac = new AbortController()
+    setLoading(true); setError(null)
+    fetch(`${API_URL}/api/profile/persona/${encodeURIComponent(dni)}`, { signal: ac.signal })
+      .then(async r => {
+        if (r.status === 404) {
+          // Fallback a fixture si no está en BD real
+          const stub = getPersonaFisicaStub(dni)
+          if (stub) { setPf(stub); return null }
+          throw new Error('Persona no encontrada')
+        }
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
+      .then(data => {
+        if (ac.signal.aborted || !data) return
+        setPf(data as PersonaFisica)
+      })
+      .catch(e => {
+        if (ac.signal.aborted) return
+        // Último fallback a fixture
+        const stub = getPersonaFisicaStub(dni)
+        if (stub) setPf(stub)
+        else setError((e as Error).message)
+      })
+      .finally(() => { if (!ac.signal.aborted) setLoading(false) })
+    return () => ac.abort()
+  }, [dni])
+
   if (!dni) return <NotFound dni="(sin parámetro)" />
-  const pf = getPersonaFisicaStub(dni)
-  if (!pf) return <NotFound dni={dni} />
+  if (loading) return <ProfileLoading />
+  if (error || !pf) return <NotFound dni={dni} />
 
   const sections: ProfileSection[] = [
     {
@@ -373,6 +411,18 @@ function FuentesList({ urls, dniUrl }: { urls: string[]; dniUrl: string | null }
 }
 
 // ─── Subcomponentes auxiliares (sólo los específicos de Persona) ──────────────
+
+function ProfileLoading() {
+  return (
+    <div style={{
+      background: '#0d1117', color: '#9BA3B4', minHeight: '100vh',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: 13,
+    }}>
+      Cargando perfil…
+    </div>
+  )
+}
 
 function NotFound({ dni }: { dni: string }) {
   return (

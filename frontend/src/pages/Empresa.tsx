@@ -18,7 +18,7 @@
  *   7. Señales asociadas (con badge de verificación universal)
  *   8. Fuentes
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { getPersonaJuridicaStub } from '@/lib/argos/fixtures/personas-stub'
 import { VerificacionBadge } from '@/components/argos/VerificacionBadge'
@@ -31,11 +31,40 @@ import {
 } from '@/components/argos/ProfileShared'
 import type { PersonaJuridica } from '@/lib/argos/types'
 
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+
 export default function Empresa() {
   const { cuit } = useParams<{ cuit: string }>()
   const [graphExpanded, setGraphExpanded] = useState(false)
+  const [pj, setPj] = useState<PersonaJuridica | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!cuit) { setLoading(false); return }
+    const ac = new AbortController()
+    setLoading(true)
+    fetch(`${API_URL}/api/profile/empresa/${encodeURIComponent(cuit)}`, { signal: ac.signal })
+      .then(async r => {
+        if (r.status === 404) {
+          const stub = getPersonaJuridicaStub(cuit)
+          if (stub) { setPj(stub); return null }
+          throw new Error('Empresa no encontrada')
+        }
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
+      .then(data => { if (!ac.signal.aborted && data) setPj(data as PersonaJuridica) })
+      .catch(() => {
+        if (ac.signal.aborted) return
+        const stub = getPersonaJuridicaStub(cuit)
+        if (stub) setPj(stub)
+      })
+      .finally(() => { if (!ac.signal.aborted) setLoading(false) })
+    return () => ac.abort()
+  }, [cuit])
+
   if (!cuit) return <NotFound cuit="(sin parámetro)" />
-  const pj = getPersonaJuridicaStub(cuit)
+  if (loading) return <ProfileLoading />
   if (!pj) return <NotFound cuit={cuit} />
 
   const sections: ProfileSection[] = [
@@ -391,6 +420,18 @@ function FuentesList({ urls }: { urls: string[] }) {
 }
 
 // ─── Subcomponentes auxiliares (sólo los específicos de Empresa) ──────────────
+
+function ProfileLoading() {
+  return (
+    <div style={{
+      background: '#0d1117', color: '#9BA3B4', minHeight: '100vh',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: 13,
+    }}>
+      Cargando perfil…
+    </div>
+  )
+}
 
 function NotFound({ cuit }: { cuit: string }) {
   return (

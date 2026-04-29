@@ -1313,6 +1313,87 @@ export async function initDb(): Promise<void> {
   ]) {
     try { await dbRun(alter) } catch { /* idempotente */ }
   }
+
+  // PLAN-DATOS Fase F (R5) — Vistas de conectividad lógica.
+  //
+  // Estas vistas materializan en SQL las preguntas más frecuentes del
+  // PLAN-UI: "¿qué empresas dirige esta persona?" "¿qué señales hay sobre
+  // este actor?" "¿cuál es el universo total de actores con métricas?".
+  // Sin esto, cada query de la UI tiene que reconstruir el path de joins
+  // PF.dni → igj_autoridades.numero_documento → igj_entidades.numero_correlativo
+  // → personas_juridicas.cuit a mano, lo cual es frágil y duplicativo.
+
+  // v_persona_dirige_empresa: PF (dni) → PJ (cuit) vía IGJ.
+  // El path canónico: personas_fisicas.dni = igj_autoridades.numero_documento
+  // → igj_autoridades.numero_correlativo = igj_entidades.numero_correlativo
+  // → igj_entidades.cuit = personas_juridicas.cuit.
+  // Una persona puede dirigir N empresas; una empresa puede tener N directores.
+  try {
+    await dbRun(`
+      CREATE OR REPLACE VIEW v_persona_dirige_empresa AS
+      SELECT
+        pf.dni                            AS dni,
+        pf.apellido_nombre                AS persona_nombre,
+        pj.cuit                           AS cuit,
+        pj.razon_social                   AS empresa_nombre,
+        ia.tipo_administrador             AS tipo_cargo,
+        pj.dom_fiscal_provincia           AS empresa_provincia,
+        pj.estado                         AS empresa_estado
+      FROM personas_fisicas pf
+      JOIN igj_autoridades ia ON ia.numero_documento = pf.dni
+      JOIN igj_entidades ie  ON ie.numero_correlativo = ia.numero_correlativo
+      JOIN personas_juridicas pj ON pj.cuit = (
+        SUBSTRING(REGEXP_REPLACE(ie.cuit, '\\D', '', 'g'), 1, 2) || '-' ||
+        SUBSTRING(REGEXP_REPLACE(ie.cuit, '\\D', '', 'g'), 3, 8) || '-' ||
+        SUBSTRING(REGEXP_REPLACE(ie.cuit, '\\D', '', 'g'), 11, 1)
+      )
+      WHERE LENGTH(REGEXP_REPLACE(ie.cuit, '\\D', '', 'g')) = 11
+    `)
+  } catch (err) {
+    console.warn('[db] v_persona_dirige_empresa no creada:', (err as Error).message)
+  }
+
+  // v_actor_universo: union de PF + PJ con métricas precomputadas para
+  // alimentar /actores y /comparar sin re-calcular subqueries en cada
+  // request. Cada fila tiene kind ('pf'|'pj'), id (dni|cuit), label,
+  // monto contratado total, count señales activas, flag verificada.
+  try {
+    await dbRun(`
+      CREATE OR REPLACE VIEW v_actor_universo AS
+      SELECT
+        'pf' AS kind,
+        pf.dni AS id,
+        pf.apellido_nombre AS label,
+        NULL::TEXT AS jurisdiccion,
+        0::DOUBLE AS monto_total,
+        (
+          SELECT COUNT(*) FROM señales_cache s
+           WHERE s.estado_verificacion != 'descartada'
+             AND (
+               s.entidades_cuit LIKE '%' || COALESCE(pf.cuit, '___none___') || '%'
+               OR s.titulo LIKE '%' || pf.apellido_nombre || '%'
+             )
+        ) AS senales_activas,
+        (pf.fuente_dni_url IS NOT NULL) AS verificada
+      FROM personas_fisicas pf
+      UNION ALL
+      SELECT
+        'pj' AS kind,
+        pj.cuit AS id,
+        pj.razon_social AS label,
+        pj.dom_fiscal_provincia AS jurisdiccion,
+        COALESCE((SELECT SUM(monto) FROM contratos c WHERE c.proveedor_cuit = pj.cuit), 0) AS monto_total,
+        (
+          SELECT COUNT(*) FROM señales_cache s
+           WHERE s.estado_verificacion != 'descartada'
+             AND s.entidades_cuit LIKE '%' || pj.cuit || '%'
+        ) AS senales_activas,
+        TRUE AS verificada
+      FROM personas_juridicas pj
+    `)
+  } catch (err) {
+    console.warn('[db] v_actor_universo no creada:', (err as Error).message)
+  }
 }
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
