@@ -27,7 +27,11 @@ interface ActorRow {
 
 actoresD6Router.get('/', async (req: Request, res: Response) => {
   const q = req.query.q ? String(req.query.q).trim().toLowerCase() : ''
-  const tipo = req.query.tipo ? String(req.query.tipo) : 'todos'  // 'pf'|'pj'|'todos'
+  // Audit fix SEC-W2: validar tipo contra allowlist; default 'todos' en caso
+  // de string desconocido (antes lo tomaba pero ningún branch matcheaba y
+  // el endpoint devolvía [] silenciosamente).
+  const tipoRaw = req.query.tipo ? String(req.query.tipo) : 'todos'
+  const tipo: 'todos' | 'pf' | 'pj' = (tipoRaw === 'pf' || tipoRaw === 'pj') ? tipoRaw : 'todos'
   const conSenales = req.query.conSenales === '1'
   const minMonto = req.query.minMonto ? Number(req.query.minMonto) : 0
   const limitRaw = Number(req.query.limit ?? 50)
@@ -140,7 +144,8 @@ actoresD6Router.get('/', async (req: Request, res: Response) => {
       paginacion: { total: items.length, limit, offset },
     })
   } catch (err) {
+    // Audit fix SEC-3: log completo en server, mensaje genérico al cliente.
     console.error('[actores-d6]', err)
-    return res.status(500).json({ error: (err as Error).message })
+    return res.status(500).json({ error: 'error interno' })
   }
 })

@@ -56,7 +56,11 @@ export default function ActoresD6() {
     return () => clearTimeout(t)
   }, [searchInput])
 
-  // Update URL when debounced search changes
+  // Update URL when debounced search changes.
+  // Audit fix: dependencias completas (incluye searchParams + setSearchParams).
+  // setSearchParams es referencialmente estable según react-router; searchParams
+  // es la fuente de verdad para `q`. La guard `debounced !== q` evita el loop
+  // infinito ya que tras setSearchParams los dos valores quedan iguales.
   useEffect(() => {
     if (debounced !== q) {
       const next = new URLSearchParams(searchParams)
@@ -64,8 +68,7 @@ export default function ActoresD6() {
       next.delete('page')
       setSearchParams(next)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debounced])
+  }, [debounced, q, searchParams, setSearchParams])
 
   const fetchPage = useCallback(() => {
     const ac = new AbortController()

@@ -149,13 +149,20 @@ export function MiniGraph({
           const handleClick = () => {
             if (onNodeClick) onNodeClick(n)
           }
+          // Review #2 D2: el atributo `transform` de SVG y la propiedad
+          // `transform` de CSS coexistían y se peleaban — el grupo terminaba
+          // en 2× la posición y la animación de scale corrompía el layout.
+          // Solución: solo CSS transform, que combina translate + scale en
+          // una sola transformación (transform-origin: center cuando los
+          // hijos están centrados sobre 0,0 — que es nuestro caso al usar
+          // <circle r=...> sin cx/cy y <text textAnchor="middle">).
           return (
             <g
               key={n.id}
-              transform={`translate(${pos.x}, ${pos.y})`}
               style={{
                 opacity: isRevealed ? 1 : 0,
                 transform: `translate(${pos.x}px, ${pos.y}px) scale(${isRevealed ? 1 : 0.4})`,
+                transformOrigin: '0 0',
                 transition: 'opacity 220ms ease-out, transform 220ms ease-out',
                 cursor: n.href || onNodeClick ? 'pointer' : 'default',
               }}

@@ -84,7 +84,7 @@ compararRouter.get('/empresa', async (req: Request, res: Response) => {
     return res.json(m)
   } catch (err) {
     console.error('[comparar/empresa]', err)
-    return res.status(500).json({ error: (err as Error).message })
+    return res.status(500).json({ error: 'error interno' })
   }
 })
 
@@ -101,6 +101,6 @@ compararRouter.get('/empresas-lookup', async (req: Request, res: Response) => {
     return res.json({ items: rows.map(r => ({ cuit: r.cuit, label: r.razon_social })) })
   } catch (err) {
     console.error('[comparar/empresas-lookup]', err)
-    return res.status(500).json({ error: (err as Error).message })
+    return res.status(500).json({ error: 'error interno' })
   }
 })

@@ -40,26 +40,41 @@ export default function WatchlistD8() {
     return () => window.removeEventListener('argos:watchlist-changed', refresh)
   }, [refresh])
 
-  // Fetch feed cuando hay items
+  const [feedError, setFeedError] = useState<string | null>(null)
+
+  // Fetch feed cuando hay items.
+  // Audit fix EH-1: NO silenciar errores. Antes catch swallow + sin r.ok.
+  // Ahora distinguimos OK / 5xx / red caída y mostramos banner.
+  // Audit fix W2: la dep era [items] (referencia que cambia siempre); ahora
+  // dependemos del set de IDs serializado, así no re-fetcheamos en cada
+  // refresh de la misma watchlist.
+  const idsKey = items.map(i => `${i.kind}:${i.id}:${i.lastSeenAt ?? ''}`).sort().join('|')
   useEffect(() => {
     if (items.length === 0) {
-      setAlertas([])
+      setAlertas([]); setFeedError(null)
       return
     }
     const ac = new AbortController()
-    setLoadingFeed(true)
+    setLoadingFeed(true); setFeedError(null)
     fetch(`${API_URL}/api/watchlist-d8/feed`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items }),
       signal: ac.signal,
     })
-      .then(r => r.json())
+      .then(async r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
       .then(d => { if (!ac.signal.aborted) setAlertas(d.alertas ?? []) })
-      .catch(() => { /* silent — alertas son informativas */ })
+      .catch(e => {
+        if (ac.signal.aborted) return
+        setFeedError((e as Error).message || 'error de red')
+      })
       .finally(() => { if (!ac.signal.aborted) setLoadingFeed(false) })
     return () => ac.abort()
-  }, [items])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey])
 
   function handleRemove(id: string) {
     removeFromWatchlist(id)
@@ -79,10 +94,11 @@ export default function WatchlistD8() {
   }
 
   function handleImport() {
-    if (importWatchlist(importText)) {
+    const r = importWatchlist(importText)
+    if (r.ok === true) {
       setShowImport(false); setImportText('')
     } else {
-      alert('JSON inválido')
+      alert(`No se pudo importar: ${(r as { ok: false; reason: string }).reason}`)
     }
   }
 
@@ -153,7 +169,13 @@ export default function WatchlistD8() {
             <h2 style={s.colTitle}>
               Alertas {loadingFeed ? '(cargando…)' : `(${alertas.length})`}
             </h2>
-            {alertas.length === 0 && !loadingFeed && (
+            {feedError && (
+              <div style={{ ...s.empty, color: '#E25656' }}>
+                No se pudo cargar el feed: {feedError}
+                {' '}(reintentaremos cuando cambies la watchlist).
+              </div>
+            )}
+            {alertas.length === 0 && !loadingFeed && !feedError && (
               <div style={s.empty}>
                 {items.length === 0
                   ? 'Agregá actores para empezar a recibir alertas.'

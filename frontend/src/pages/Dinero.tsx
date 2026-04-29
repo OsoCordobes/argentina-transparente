@@ -66,16 +66,29 @@ export default function Dinero() {
       Object.entries(extra).forEach(([k, v]) => { if (v !== undefined) p.set(k, String(v)) })
       return p.toString()
     }
-    Promise.all([
-      fetch(`${API_URL}/api/dinero/sankey?${qs({})}`, { signal: ac.signal }).then(r => r.json()),
-      fetch(`${API_URL}/api/dinero/partidas?${qs({ limit: 30 })}`, { signal: ac.signal }).then(r => r.json()),
-      fetch(`${API_URL}/api/dinero/jurisdicciones`, { signal: ac.signal }).then(r => r.json()),
+    // Audit fix FE-W1 + EH-W1: chequear r.ok antes de json() para que un 500
+    // con body HTML no rompa el parser silenciosamente. allSettled en lugar
+    // de all para que la falla de un endpoint no tumbe los otros dos.
+    const fetchJson = async <T,>(url: string): Promise<T> => {
+      const r = await fetch(url, { signal: ac.signal })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      return r.json() as Promise<T>
+    }
+    Promise.allSettled([
+      fetchJson<SankeyData>(`${API_URL}/api/dinero/sankey?${qs({})}`),
+      fetchJson<PartidasData>(`${API_URL}/api/dinero/partidas?${qs({ limit: 30 })}`),
+      fetchJson<JurisdiccionesData>(`${API_URL}/api/dinero/jurisdicciones`),
     ])
-      .then(([sk, pa, ju]) => {
+      .then(([skR, paR, juR]) => {
         if (ac.signal.aborted) return
-        setSankey(sk); setPartidas(pa); setJurisdicciones(ju)
+        if (skR.status === 'fulfilled') setSankey(skR.value); else setSankey(null)
+        if (paR.status === 'fulfilled') setPartidas(paR.value); else setPartidas(null)
+        if (juR.status === 'fulfilled') setJurisdicciones(juR.value); else setJurisdicciones(null)
+        const errs = [skR, paR, juR]
+          .filter(r => r.status === 'rejected')
+          .map(r => (r as PromiseRejectedResult).reason?.message ?? 'error')
+        if (errs.length > 0) setError(errs.join(' · '))
       })
-      .catch(e => { if (!ac.signal.aborted) setError((e as Error).message) })
       .finally(() => { if (!ac.signal.aborted) setLoading(false) })
     return () => ac.abort()
   }, [jurisdiccion, anio])

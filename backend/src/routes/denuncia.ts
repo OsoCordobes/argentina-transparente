@@ -63,7 +63,8 @@ router.post('/', async (req: Request, res: Response) => {
     res.send(buffer)
   } catch (err) {
     console.error('[denuncia] Error generando PDF:', err)
-    res.status(500).json({ ok: false, error: String(err) })
+    // Audit fix: mensaje genérico (no String(err) que filtra stack/paths).
+    res.status(500).json({ ok: false, error: 'error generando PDF' })
   }
 })
 
@@ -75,17 +76,26 @@ router.post('/pdf', async (req: Request, res: Response) => {
       || !body.hechos || !body.petitorio) {
     return res.status(400).json({ ok: false, error: 'Faltan campos requeridos' })
   }
+  // Audit fix SEC-W3 + W4: cap arrays + cap longitud de strings narrativos
+  // para evitar payloads abusivos. 200 ids/hashes es más que suficiente para
+  // cualquier denuncia razonable; >200 es señal de error o ataque.
+  const MAX_IDS = 200
+  const MAX_TEXT = 50_000
+  const cap = <T>(arr: T[] | undefined): T[] | undefined =>
+    Array.isArray(arr) ? arr.slice(0, MAX_IDS) : undefined
+  const truncate = (s: string | undefined): string =>
+    typeof s === 'string' ? s.slice(0, MAX_TEXT) : ''
   try {
     const input = await armarDenunciaDesdeIds({
       denunciante: body.denunciante,
       destinatario: body.destinatario,
-      casoTitulo: body.casoTitulo,
-      casoDescripcion: body.casoDescripcion,
-      hechos: body.hechos,
-      petitorio: body.petitorio,
-      senalIds: body.senalIds,
-      contratoHashes: body.contratoHashes,
-      entidadCuits: body.entidadCuits,
+      casoTitulo: truncate(body.casoTitulo),
+      casoDescripcion: body.casoDescripcion ? truncate(body.casoDescripcion) : undefined,
+      hechos: truncate(body.hechos),
+      petitorio: truncate(body.petitorio),
+      senalIds: cap(body.senalIds),
+      contratoHashes: cap(body.contratoHashes),
+      entidadCuits: cap(body.entidadCuits),
       incluirCadenaDePago: body.incluirCadenaDePago,
     })
 
@@ -111,8 +121,10 @@ router.post('/pdf', async (req: Request, res: Response) => {
       'X-Document-SHA256, X-Document-Timestamp, X-Document-ID')
     res.send(buffer)
   } catch (err) {
+    // Audit fix SEC-3 + EH-W5: log completo server-side, mensaje genérico
+    // al cliente para no exfiltrar stack traces / paths de filesystem.
     console.error('[denuncia/pdf]', err)
-    res.status(500).json({ ok: false, error: String(err) })
+    res.status(500).json({ ok: false, error: 'error generando PDF' })
   }
 })
 

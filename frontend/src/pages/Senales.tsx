@@ -135,42 +135,58 @@ export default function Senales() {
 
   function addToWatchlistBulk() {
     if (selected.size === 0) return
-    let added = 0
+    // Audit fix EH-2: NO mostrar toast de éxito sobre fallo. Detectamos errores
+    // de localStorage explícitamente y avisamos al usuario.
+    let raw: string | null
+    try { raw = localStorage.getItem('argos_watchlist_v1') } catch (e) {
+      setShareToast(`Error: ${(e as Error).message || 'storage no disponible'}`)
+      setTimeout(() => setShareToast(null), 3000)
+      return
+    }
+    let arr: Array<{ id: string; kind: 'pf' | 'pj' | 'signal'; label: string; addedAt: string }> = []
+    try { arr = raw ? JSON.parse(raw) : [] } catch {
+      arr = []  // storage corrupto — sobreescribimos
+    }
+    const existing = new Set(arr.map(x => x.id))
+    const toAdd = items.filter(it => selected.has(it.id))
+      .map(it => ({
+        id: `signal:${it.id}`,
+        kind: 'signal' as const,
+        label: it.titulo.slice(0, 80),
+        addedAt: new Date().toISOString(),
+      }))
+      .filter(x => !existing.has(x.id))
+    if (toAdd.length === 0) {
+      setShareToast('Ya estaban en watchlist'); setTimeout(() => setShareToast(null), 1800)
+      return
+    }
     try {
-      const raw = localStorage.getItem('argos_watchlist_v1')
-      const arr: Array<{ id: string; kind: 'pf' | 'pj' | 'signal'; label: string; addedAt: string }> =
-        raw ? JSON.parse(raw) : []
-      const existing = new Set(arr.map(x => x.id))
-      const toAdd = items.filter(it => selected.has(it.id))
-        .map(it => ({
-          id: `signal:${it.id}`,
-          kind: 'signal' as const,
-          label: it.titulo.slice(0, 80),
-          addedAt: new Date().toISOString(),
-        }))
-        .filter(x => !existing.has(x.id))
-      if (toAdd.length === 0) {
-        setShareToast('Ya estaban en watchlist'); setTimeout(() => setShareToast(null), 1800)
-        return
-      }
-      added = toAdd.length
       localStorage.setItem('argos_watchlist_v1', JSON.stringify([...arr, ...toAdd]))
-      window.dispatchEvent(new Event('argos:watchlist-changed'))
-      setShareToast(`+${added} a watchlist`); setTimeout(() => setShareToast(null), 1800)
-      setSelected(new Set())
-    } catch { /* ignore */ }
+    } catch (e) {
+      // QuotaExceededError o private mode bloqueado.
+      setShareToast(`No se pudo guardar: ${(e as Error).message || 'storage lleno'}`)
+      setTimeout(() => setShareToast(null), 3000)
+      return
+    }
+    window.dispatchEvent(new Event('argos:watchlist-changed'))
+    setShareToast(`+${toAdd.length} a watchlist`); setTimeout(() => setShareToast(null), 1800)
+    setSelected(new Set())
   }
 
-  function shareBulk() {
-    if (selected.size === 0) {
-      navigator.clipboard.writeText(window.location.href).catch(() => undefined)
-      setShareToast('URL copiada')
-    } else {
-      const url = `${window.location.origin}${window.location.pathname}?focus=${[...selected].join(',')}`
-      navigator.clipboard.writeText(url).catch(() => undefined)
-      setShareToast(`URL copiada (${selected.size} sel.)`)
+  async function shareBulk() {
+    // Audit fix EH-W4: el toast de "URL copiada" se mostraba aunque la
+    // copia hubiera fallado (HTTP / iframe / browser viejo). Ahora
+    // esperamos el await y mostramos toast distinto si falla.
+    const url = selected.size === 0
+      ? window.location.href
+      : `${window.location.origin}${window.location.pathname}?focus=${[...selected].join(',')}`
+    try {
+      await navigator.clipboard.writeText(url)
+      setShareToast(selected.size === 0 ? 'URL copiada' : `URL copiada (${selected.size} sel.)`)
+    } catch {
+      setShareToast('No se pudo copiar (HTTPS requerido)')
     }
-    setTimeout(() => setShareToast(null), 1800)
+    setTimeout(() => setShareToast(null), 2000)
   }
 
   return (
@@ -306,11 +322,15 @@ export default function Senales() {
                       <VerificacionBadge estado={it.estadoVerificacion} compact />
                     </td>
                     <td style={s.td}>
-                      <Link to={`/senales?focus=${it.id}`} style={s.action} onClick={(e) => {
+                      <Link to={`/senales?focus=${it.id}`} style={s.action} onClick={async (e) => {
                         e.preventDefault()
-                        navigator.clipboard.writeText(`${window.location.origin}/senales?focus=${it.id}`)
-                          .catch(() => undefined)
-                        setShareToast('URL copiada')
+                        // Audit fix EH-W4: feedback fiel al resultado real.
+                        try {
+                          await navigator.clipboard.writeText(`${window.location.origin}/senales?focus=${it.id}`)
+                          setShareToast('URL copiada')
+                        } catch {
+                          setShareToast('No se pudo copiar')
+                        }
                         setTimeout(() => setShareToast(null), 1500)
                       }}>copiar URL</Link>
                     </td>

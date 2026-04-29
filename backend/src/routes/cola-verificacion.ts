@@ -13,7 +13,7 @@
 //     verificacion-senales también valida, pero acá frenamos antes de SQL).
 //   - 404 explícito si la señal no existe (UPDATE silencioso es peor UX).
 
-import { Router, Request, Response } from 'express'
+import { Router, Request, Response, NextFunction } from 'express'
 import { dbAll } from '../lib/db'
 import {
   ESTADOS_VERIFICACION,
@@ -24,6 +24,27 @@ import {
 
 const colaVerificacionRouter = Router()
 export default colaVerificacionRouter
+
+// Audit fix SEC-1: middleware que requiere un secret token en el header
+// X-Argos-Admin-Token para cualquier operación de escritura sobre el estado
+// de las señales. Valor en env var ARGOS_ADMIN_TOKEN. Si la env var no
+// está seteada, el endpoint queda completamente cerrado (fail-closed) en
+// vez de aceptar cualquier request (fail-open). Esto previene el ataque
+// trolling masivo de "marcar todo descartada".
+function requireAdminToken(req: Request, res: Response, next: NextFunction) {
+  const expected = process.env.ARGOS_ADMIN_TOKEN
+  if (!expected || expected.length < 8) {
+    return res.status(503).json({
+      error: 'verificación deshabilitada',
+      detalle: 'el servidor no tiene configurado ARGOS_ADMIN_TOKEN',
+    })
+  }
+  const header = req.header('X-Argos-Admin-Token')
+  if (!header || header !== expected) {
+    return res.status(401).json({ error: 'token de auditor inválido o ausente' })
+  }
+  next()
+}
 
 interface SeñalRow {
   id: string
@@ -133,7 +154,7 @@ colaVerificacionRouter.get('/resumen', async (req: Request, res: Response) => {
   }
 })
 
-colaVerificacionRouter.post('/:id', async (req: Request, res: Response) => {
+colaVerificacionRouter.post('/:id', requireAdminToken, async (req: Request, res: Response) => {
   const id = String(req.params.id)
   const body = req.body ?? {}
   const estado = String(body.estado ?? '')

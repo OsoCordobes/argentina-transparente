@@ -139,7 +139,7 @@ landingRouter.get('/', async (_req: Request, res: Response) => {
     return res.json({ hero, feed, sumario })
   } catch (err) {
     console.error('[landing GET]', err)
-    return res.status(500).json({ error: 'error interno', detalle: (err as Error).message })
+    return res.status(500).json({ error: 'error interno' })
   }
 })
 

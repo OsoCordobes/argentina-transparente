@@ -20,6 +20,8 @@ export default function CasoD7() {
   const [caso, setCaso] = useState<CasoLS | null>(null)
   const [activeSection, setActiveSection] = useState('senales')
   const [generatingPdf, setGeneratingPdf] = useState(false)
+  // Audit fix EH-W3: error inline copiable en lugar de alert() bloqueante.
+  const [pdfError, setPdfError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -68,7 +70,7 @@ export default function CasoD7() {
   }
 
   async function generarPdf() {
-    setGeneratingPdf(true)
+    setGeneratingPdf(true); setPdfError(null)
     try {
       const r = await fetch(`${API_URL}/api/denuncia/pdf`, {
         method: 'POST',
@@ -87,8 +89,10 @@ export default function CasoD7() {
         }),
       })
       if (!r.ok) {
-        const txt = await r.text()
-        alert(`Error generando PDF: ${txt}`)
+        // Audit fix EH-W3: error inline en lugar de alert (que era
+        // bloqueante + no copiable + se le escapaba al usuario).
+        const txt = await r.text().catch(() => 'sin detalle')
+        setPdfError(`HTTP ${r.status}: ${txt.slice(0, 300)}`)
         return
       }
       const blob = await r.blob()
@@ -99,7 +103,7 @@ export default function CasoD7() {
       setTimeout(() => URL.revokeObjectURL(url), 0)
       update('estado', 'generado')
     } catch (e) {
-      alert(`Error de red: ${(e as Error).message}`)
+      setPdfError(`Error de red: ${(e as Error).message}`)
     } finally {
       setGeneratingPdf(false)
     }
@@ -139,6 +143,32 @@ export default function CasoD7() {
             </button>
           </div>
         </header>
+        {pdfError && (
+          <div style={{
+            padding: 12, background: '#3a1d1d', color: '#E25656', borderRadius: 4,
+            marginBottom: 12, fontSize: 12, fontFamily: 'ui-monospace, monospace',
+            display: 'flex', alignItems: 'center', gap: 12,
+          }}>
+            <span style={{ flex: 1 }}>{pdfError}</span>
+            <button
+              onClick={() => navigator.clipboard.writeText(pdfError)
+                .then(() => setPdfError(null))
+                .catch(() => undefined)}
+              style={{
+                background: 'transparent', border: '1px solid #E25656',
+                color: '#E25656', padding: '4px 10px', borderRadius: 3, fontSize: 11,
+                cursor: 'pointer',
+              }}
+            >Copiar detalle</button>
+            <button
+              onClick={() => setPdfError(null)}
+              style={{
+                background: 'transparent', border: 'none', color: '#E25656',
+                cursor: 'pointer', fontSize: 14,
+              }}
+            >×</button>
+          </div>
+        )}
 
         <div style={s.twoPane}>
           <div style={s.formPane}>

@@ -5,7 +5,7 @@
  * Output: URL shareable, agregar a caso, exportar CSV.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { ForensicHeader, ForensicFooter } from '@/components/argos/ForensicHeader'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
@@ -26,6 +26,7 @@ interface MetricasEmpresa {
 
 export default function Comparar() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const cuitA = searchParams.get('a') ?? ''
   const cuitB = searchParams.get('b') ?? ''
 
@@ -63,9 +64,15 @@ export default function Comparar() {
     setSearchParams(next)
   }
 
-  function shareUrl() {
-    navigator.clipboard.writeText(window.location.href).catch(() => undefined)
-    setShareToast('URL copiada'); setTimeout(() => setShareToast(null), 1800)
+  async function shareUrl() {
+    // Audit fix EH-W4: feedback fiel al resultado.
+    try {
+      await navigator.clipboard.writeText(window.location.href)
+      setShareToast('URL copiada')
+    } catch {
+      setShareToast('No se pudo copiar (HTTPS requerido)')
+    }
+    setTimeout(() => setShareToast(null), 2000)
   }
 
   function exportCsv() {
@@ -99,8 +106,10 @@ export default function Comparar() {
 
   function addToCase() {
     if (!a || !b) return
+    // Audit fix FE-W3: usar SPA navigation en lugar de window.location.href
+    // (que recargaba la página entera y perdía estado).
     const ids = [a.cuit, b.cuit].join(',')
-    window.location.href = `/casos?adjuntar=${encodeURIComponent(ids)}&kind=pj`
+    navigate(`/casos?adjuntar=${encodeURIComponent(ids)}&kind=pj`)
   }
 
   return (
@@ -238,14 +247,28 @@ function SlotPicker({
 }) {
   const [search, setSearch] = useState('')
   const [results, setResults] = useState<Array<{ cuit: string; label: string }>>([])
+  const [lookupError, setLookupError] = useState<string | null>(null)
   useEffect(() => {
-    if (search.trim().length < 2) { setResults([]); return }
+    if (search.trim().length < 2) { setResults([]); setLookupError(null); return }
     const ac = new AbortController()
     const t = setTimeout(() => {
       fetch(`${API_URL}/api/comparar/empresas-lookup?q=${encodeURIComponent(search)}`, { signal: ac.signal })
-        .then(r => r.json())
-        .then(d => { if (!ac.signal.aborted) setResults(d.items ?? []) })
-        .catch(() => undefined)
+        // Audit fix EH-3: chequear r.ok antes de json() — un 500 con body
+        // HTML rompe el parser y caía silenciado al catch.
+        .then(async r => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`)
+          return r.json()
+        })
+        .then(d => {
+          if (ac.signal.aborted) return
+          setResults(Array.isArray(d.items) ? d.items : [])
+          setLookupError(null)
+        })
+        .catch(e => {
+          if (ac.signal.aborted) return
+          setLookupError((e as Error).message || 'error de red')
+          setResults([])
+        })
     }, 220)
     return () => { clearTimeout(t); ac.abort() }
   }, [search])
@@ -289,6 +312,11 @@ function SlotPicker({
               <span style={s.suggestionId}>{r.cuit}</span>
             </button>
           ))}
+        </div>
+      )}
+      {lookupError && (
+        <div style={{ ...s.error, marginTop: 6, fontSize: 11 }}>
+          Buscador no disponible: {lookupError}
         </div>
       )}
       {cuit && !m && (

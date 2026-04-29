@@ -20,9 +20,28 @@ interface AlertaItem {
   ts: string                          // ISO timestamp de cuando ocurrió
 }
 
+const KIND_WHITELIST = new Set(['pf', 'pj', 'signal'])
+const MAX_ITEMS = 50
+
 watchlistD8Router.post('/feed', async (req: Request, res: Response) => {
-  const items: Array<{ id: string; kind: 'pf' | 'pj' | 'signal'; lastSeenAt?: string }> =
-    Array.isArray(req.body?.items) ? req.body.items : []
+  // Audit fix SEC-2: validación estricta del payload + cap de items para
+  // evitar DoS por N+1 queries. Antes: items=[1..1000] generaba 1000+
+  // queries en serie sin auth.
+  const rawItems = Array.isArray(req.body?.items) ? req.body.items : []
+  if (rawItems.length > MAX_ITEMS) {
+    return res.status(400).json({
+      error: `máximo ${MAX_ITEMS} items por request (recibido: ${rawItems.length})`,
+    })
+  }
+  const items: Array<{ id: string; kind: 'pf' | 'pj' | 'signal'; lastSeenAt?: string }> = []
+  for (const it of rawItems) {
+    if (!it || typeof it.id !== 'string' || it.id.length === 0 || it.id.length > 64) continue
+    if (!KIND_WHITELIST.has(it.kind)) continue
+    items.push({
+      id: it.id, kind: it.kind,
+      lastSeenAt: typeof it.lastSeenAt === 'string' ? it.lastSeenAt.slice(0, 32) : undefined,
+    })
+  }
   if (items.length === 0) return res.json({ alertas: [] })
 
   try {
@@ -61,32 +80,34 @@ watchlistD8Router.post('/feed', async (req: Request, res: Response) => {
     }
 
     if (dnis.length > 0) {
-      // PF: matchear por nombre en el título de la señal (heurística MVP).
-      // La forma propia sería resolver el DNI vs personas_fisicas y luego
-      // cruzar — pero el setup mínimo evita esa indirection.
-      const rows = await dbAll<{
-        dni: string; apellido_nombre: string;
-      }>(
+      // Audit fix SEC-2: el patrón anterior era N+1 (1 query por dni).
+      // Ahora: 1 query para resolver los nombres + 1 query con OR LIKE
+      // que captura todas las señales potenciales. La performance es
+      // O(1+1) en lugar de O(N).
+      const pfRows = await dbAll<{ dni: string; apellido_nombre: string }>(
         `SELECT dni, apellido_nombre FROM personas_fisicas
           WHERE dni IN (${dnis.map(() => '?').join(',')})`,
         dnis,
       )
-      for (const pf of rows) {
+      if (pfRows.length > 0) {
         const sigs = await dbAll<{ id: string; titulo: string; computado_en: string }>(
           `SELECT id, titulo, computado_en FROM señales_cache
             WHERE estado_verificacion != 'descartada'
-              AND titulo LIKE ?
+              AND (${pfRows.map(() => 'titulo LIKE ?').join(' OR ')})
             ORDER BY computado_en DESC
-            LIMIT 20`,
-          [`%${pf.apellido_nombre}%`],
+            LIMIT 200`,
+          pfRows.map(p => `%${p.apellido_nombre}%`),
         )
-        const item = items.find(i => i.id === pf.dni)!
-        for (const s of sigs) {
-          if (item.lastSeenAt && s.computado_en <= item.lastSeenAt) continue
-          alertas.push({
-            actorId: pf.dni, actorKind: 'pf', tipo: 'nueva_senal',
-            refId: s.id, titulo: s.titulo, ts: s.computado_en,
-          })
+        for (const pf of pfRows) {
+          const item = items.find(i => i.id === pf.dni)!
+          for (const s of sigs) {
+            if (!s.titulo.includes(pf.apellido_nombre)) continue
+            if (item.lastSeenAt && s.computado_en <= item.lastSeenAt) continue
+            alertas.push({
+              actorId: pf.dni, actorKind: 'pf', tipo: 'nueva_senal',
+              refId: s.id, titulo: s.titulo, ts: s.computado_en,
+            })
+          }
         }
       }
     }
@@ -95,6 +116,6 @@ watchlistD8Router.post('/feed', async (req: Request, res: Response) => {
     return res.json({ alertas: alertas.slice(0, 100), total: alertas.length })
   } catch (err) {
     console.error('[watchlist-d8/feed]', err)
-    return res.status(500).json({ error: (err as Error).message })
+    return res.status(500).json({ error: 'error interno' })
   }
 })

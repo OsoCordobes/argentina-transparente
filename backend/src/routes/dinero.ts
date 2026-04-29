@@ -69,7 +69,7 @@ dineroRouter.get('/sankey', async (req: Request, res: Response) => {
     })
   } catch (err) {
     console.error('[dinero/sankey]', err)
-    return res.status(500).json({ error: (err as Error).message })
+    return res.status(500).json({ error: 'error interno' })
   }
 })
 
@@ -94,7 +94,7 @@ dineroRouter.get('/jurisdicciones', async (_req: Request, res: Response) => {
     })
   } catch (err) {
     console.error('[dinero/jurisdicciones]', err)
-    return res.status(500).json({ error: (err as Error).message })
+    return res.status(500).json({ error: 'error interno' })
   }
 })
 
@@ -178,6 +178,6 @@ dineroRouter.get('/partidas', async (req: Request, res: Response) => {
     return res.json({ filtro: { jurisdiccion, anio, programa }, partidas: out })
   } catch (err) {
     console.error('[dinero/partidas]', err)
-    return res.status(500).json({ error: (err as Error).message })
+    return res.status(500).json({ error: 'error interno' })
   }
 })

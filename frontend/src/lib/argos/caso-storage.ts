@@ -78,19 +78,34 @@ export function getCaso(id: string): CasoLS | null {
   return getCasos().find(c => c.id === id) ?? null
 }
 
-export function saveCaso(c: CasoLS): void {
+export function saveCaso(c: CasoLS): { ok: true } | { ok: false; reason: string } {
+  // Audit fix: NO mutar el argumento. Antes el caller pasaba la React state
+  // y la mutación rompía las comparaciones por referencia + corrompía el
+  // árbol de estado. Shallow clone con timestamp actualizado.
+  const toSave: CasoLS = { ...c, modificadoEn: new Date().toISOString() }
   const all = getCasos()
-  const idx = all.findIndex(x => x.id === c.id)
-  c.modificadoEn = new Date().toISOString()
-  if (idx >= 0) all[idx] = c; else all.push(c)
-  localStorage.setItem(KEY, JSON.stringify(all))
+  const idx = all.findIndex(x => x.id === toSave.id)
+  if (idx >= 0) all[idx] = toSave; else all.push(toSave)
+  // Audit fix: detectar QuotaExceededError o storage bloqueado y devolver
+  // status para que el caller decida si avisar al usuario.
+  try {
+    localStorage.setItem(KEY, JSON.stringify(all))
+  } catch (err) {
+    return { ok: false, reason: (err as Error).message || 'localStorage no disponible' }
+  }
   window.dispatchEvent(new Event('argos:casos-changed'))
+  return { ok: true }
 }
 
-export function deleteCaso(id: string): void {
+export function deleteCaso(id: string): { ok: true } | { ok: false; reason: string } {
   const all = getCasos().filter(c => c.id !== id)
-  localStorage.setItem(KEY, JSON.stringify(all))
+  try {
+    localStorage.setItem(KEY, JSON.stringify(all))
+  } catch (err) {
+    return { ok: false, reason: (err as Error).message || 'localStorage no disponible' }
+  }
   window.dispatchEvent(new Event('argos:casos-changed'))
+  return { ok: true }
 }
 
 export function exportCaso(c: CasoLS): string {

@@ -15,7 +15,7 @@
  *
  * Sigue el sistema visual Premium Forensic dark.
  */
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 export interface ProfileSection {
   id: string
@@ -79,12 +79,19 @@ export function ProfileTwoPane({ header, sections, actorId, actorKind }: Props) 
     } catch { /* ignore */ }
   }
 
-  function copyShareUrl() {
+  // Audit fix EH-W4: el toast de "✓ Copiado" se mostraba aunque la copia
+  // fallara silenciosamente. Ahora esperamos el await y reaccionamos al
+  // resultado real.
+  async function copyShareUrl() {
     try {
-      navigator.clipboard.writeText(window.location.href)
+      await navigator.clipboard.writeText(window.location.href)
       setShareToast(true)
       setTimeout(() => setShareToast(false), 1800)
-    } catch { /* ignore */ }
+    } catch {
+      setShareToast(false)
+      // El botón no muestra feedback de error en este componente compartido;
+      // el caller lo puede sobreescribir si necesita.
+    }
   }
 
   function addToCaso() {
@@ -93,7 +100,8 @@ export function ProfileTwoPane({ header, sections, actorId, actorKind }: Props) 
     window.location.href = `/casos?adjuntar=${encodeURIComponent(actorId)}&kind=${actorKind}`
   }
 
-  const sectionList = useMemo(() => sections, [sections])
+  // Audit fix FE-W4: removí `useMemo(() => sections, [sections])` que era
+  // un no-op (devuelve la misma referencia que ya tiene `sections`).
 
   function jumpTo(id: string) {
     setActiveId(id)
@@ -139,7 +147,7 @@ export function ProfileTwoPane({ header, sections, actorId, actorKind }: Props) 
 
       <div style={s.body}>
         <nav style={s.sidenav}>
-          {sectionList.map(sec => (
+          {sections.map(sec => (
             <button
               key={sec.id}
               onClick={() => jumpTo(sec.id)}
@@ -156,7 +164,7 @@ export function ProfileTwoPane({ header, sections, actorId, actorKind }: Props) 
           ))}
         </nav>
         <div style={s.content}>
-          {sectionList.map(sec => (
+          {sections.map(sec => (
             <div
               key={sec.id}
               ref={el => { sectionRefs.current[sec.id] = el }}

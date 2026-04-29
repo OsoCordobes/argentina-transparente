@@ -23,41 +23,51 @@ export function getWatchlist(): WatchlistItem[] {
   } catch { return [] }
 }
 
-export function saveWatchlist(items: WatchlistItem[]): void {
-  localStorage.setItem(KEY, JSON.stringify(items))
+export function saveWatchlist(items: WatchlistItem[]): { ok: true } | { ok: false; reason: string } {
+  // Audit fix: detectar storage bloqueado/lleno y devolver status. El caller
+  // decide si avisar al usuario o silenciar.
+  try {
+    localStorage.setItem(KEY, JSON.stringify(items))
+  } catch (err) {
+    return { ok: false, reason: (err as Error).message || 'localStorage no disponible' }
+  }
   window.dispatchEvent(new Event('argos:watchlist-changed'))
+  return { ok: true }
 }
 
-export function addToWatchlist(item: Omit<WatchlistItem, 'addedAt'>): boolean {
+export type StorageResult = { ok: true } | { ok: false; reason: string }
+
+/** Devuelve `'duplicate'` si ya estaba, `{ok:true}` si se agregó, `{ok:false, reason}` si storage falló. */
+export function addToWatchlist(item: Omit<WatchlistItem, 'addedAt'>): StorageResult | 'duplicate' {
   const all = getWatchlist()
-  if (all.some(x => x.id === item.id)) return false
+  if (all.some(x => x.id === item.id)) return 'duplicate'
   all.push({ ...item, addedAt: new Date().toISOString() })
-  saveWatchlist(all)
-  return true
+  return saveWatchlist(all)
 }
 
-export function removeFromWatchlist(id: string): void {
-  saveWatchlist(getWatchlist().filter(x => x.id !== id))
+export function removeFromWatchlist(id: string): StorageResult {
+  return saveWatchlist(getWatchlist().filter(x => x.id !== id))
 }
 
 export function isInWatchlist(id: string): boolean {
   return getWatchlist().some(x => x.id === id)
 }
 
-export function markAllSeen(): void {
+export function markAllSeen(): StorageResult {
   const now = new Date().toISOString()
-  saveWatchlist(getWatchlist().map(x => ({ ...x, lastSeenAt: now })))
+  return saveWatchlist(getWatchlist().map(x => ({ ...x, lastSeenAt: now })))
 }
 
 export function exportWatchlist(): string {
   return JSON.stringify(getWatchlist(), null, 2)
 }
 
-export function importWatchlist(json: string): boolean {
+export function importWatchlist(json: string): StorageResult {
   try {
     const parsed = JSON.parse(json) as WatchlistItem[]
-    if (!Array.isArray(parsed)) return false
-    saveWatchlist(parsed)
-    return true
-  } catch { return false }
+    if (!Array.isArray(parsed)) return { ok: false, reason: 'no es un array de watchlist' }
+    return saveWatchlist(parsed)
+  } catch (err) {
+    return { ok: false, reason: (err as Error).message || 'JSON inválido' }
+  }
 }
