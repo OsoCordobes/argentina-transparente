@@ -54,7 +54,7 @@ describe('A1 review #1 — upsertPersonaFisica', () => {
     })).rejects.toThrow(/no es de Persona Física/)
   })
 
-  it('inserta PF nueva con DNI válido y deriva CUIT automáticamente', async () => {
+  it('inserta PF nueva con DNI válido — cuit queda null si caller no lo pasa (review #2)', async () => {
     const dni = await upsertPersonaFisica({
       dni: '12345678',
       apellidoNombre: 'Pérez, Juan',
@@ -64,8 +64,20 @@ describe('A1 review #1 — upsertPersonaFisica', () => {
     const pf = await getPersonaFisicaPorDNI('12345678')
     expect(pf).not.toBeNull()
     expect(pf!.apellidoNombreNorm).toBe('PEREZ JUAN')
-    expect(pf!.cuit).toMatch(/^(20|23|24|27)-12345678-\d$/) // CUIT derivado
+    // Review #2 A1: ya no auto-derivamos CUIT con prefijo 20 — eso asignaba
+    // género masculino por default. Sin confirmación externa, cuit queda null.
+    expect(pf!.cuit).toBeNull()
     expect(pf!.fuentesUrl).toContain('https://example.test/source-1')
+  })
+
+  it('inserta PF con CUIT explícito (caller lo pasa) y lo guarda formateado', async () => {
+    await upsertPersonaFisica({
+      dni: '14289301',
+      cuit: '20-14289301-1', // CUIT válido módulo-11
+      apellidoNombre: 'Test Caller',
+    })
+    const pf = await getPersonaFisicaPorDNI('14289301')
+    expect(pf!.cuit).toBe('20-14289301-1')
   })
 
   it('upsert preserva primer_visto al actualizar', async () => {

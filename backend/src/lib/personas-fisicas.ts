@@ -8,7 +8,6 @@ import {
   validarDNI,
   validarCUIT,
   normalizarDNI,
-  derivarCUITsCandidatos,
   esCuitPersonaFisica,
 } from './identidad-validator'
 import type { PersonaFisica } from '../types/index'
@@ -86,7 +85,14 @@ export async function upsertPersonaFisica(input: {
     throw new Error(`upsertPersonaFisica: DNI inválido "${input.dni}"`)
   }
 
-  // CUIT: si se pasó, validar; si no, derivar
+  // CUIT: solo lo guardamos si el caller lo pasó explícitamente y es válido.
+  //
+  // Review #2 A1: NO auto-derivamos CUIT desde DNI. derivarCUITsCandidatos
+  // devuelve [20-..., 23-..., 27-...]; tomar el primero asignaría género
+  // masculino por default — sesgo + dato falso. Si el CUIT no está confirmado
+  // por una fuente externa, queda null. Los callers que tienen CUIT
+  // (DDJJ post-OCR, IGJ, AFIP padrón) lo pasan; los que solo tienen DNI
+  // dejan que el resolver lo busque después.
   let cuitFinal: string | null = null
   if (input.cuit) {
     if (!validarCUIT(input.cuit)) {
@@ -95,15 +101,8 @@ export async function upsertPersonaFisica(input: {
     if (!esCuitPersonaFisica(input.cuit)) {
       throw new Error(`upsertPersonaFisica: CUIT "${input.cuit}" no es de Persona Física (prefijo 30/33/34 reservado a PJ)`)
     }
-    cuitFinal = input.cuit.replace(/\D/g, '')
-    cuitFinal = `${cuitFinal.slice(0, 2)}-${cuitFinal.slice(2, 10)}-${cuitFinal.slice(10)}`
-  } else {
-    // Derivar: tomar el primer candidato válido (prefijo 20 = masculino default)
-    const candidatos = derivarCUITsCandidatos(dniNorm)
-    if (candidatos.length > 0) {
-      const norm = candidatos[0]
-      cuitFinal = `${norm.slice(0, 2)}-${norm.slice(2, 10)}-${norm.slice(10)}`
-    }
+    const digits = input.cuit.replace(/\D/g, '')
+    cuitFinal = `${digits.slice(0, 2)}-${digits.slice(2, 10)}-${digits.slice(10)}`
   }
 
   const apellidoNorm = normalizarApellidoNombre(input.apellidoNombre)
@@ -127,13 +126,29 @@ export async function upsertPersonaFisica(input: {
     primerVisto = now
   }
 
-  await dbRun(`DELETE FROM personas_fisicas WHERE dni = ?`, [dniNorm])
+  // Review #2 A1: usar INSERT...ON CONFLICT en lugar de DELETE+INSERT. El
+  // patrón anterior tenía dos problemas:
+  //   - Race: dos llamadas concurrentes podían hacer DELETE+INSERT entreveradas.
+  //   - Leaks de FK: si otra tabla referenciaba dni con CASCADE, el DELETE
+  //     borraba sus referencias.
+  // ON CONFLICT (dni) DO UPDATE preserva la row existente y la actualiza en
+  // una sola operación atómica.
   await dbRun(
     `INSERT INTO personas_fisicas
        (dni, cuit, apellido_nombre, apellido_nombre_norm, fuentes_url_json,
         fuente_dni_url, primer_visto, ultimo_visto, t_efectivo, t_publicado,
         snapshot_id, superseded_by_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+     ON CONFLICT (dni) DO UPDATE SET
+       cuit                = EXCLUDED.cuit,
+       apellido_nombre     = EXCLUDED.apellido_nombre,
+       apellido_nombre_norm= EXCLUDED.apellido_nombre_norm,
+       fuentes_url_json    = EXCLUDED.fuentes_url_json,
+       fuente_dni_url      = EXCLUDED.fuente_dni_url,
+       ultimo_visto        = EXCLUDED.ultimo_visto,
+       t_efectivo          = EXCLUDED.t_efectivo,
+       t_publicado         = EXCLUDED.t_publicado,
+       snapshot_id         = EXCLUDED.snapshot_id`,
     [
       dniNorm,
       cuitFinal,
