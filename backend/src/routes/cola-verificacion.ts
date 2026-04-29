@@ -14,7 +14,7 @@
 //   - 404 explícito si la señal no existe (UPDATE silencioso es peor UX).
 
 import { Router, Request, Response } from 'express'
-import { dbAll, dbRun } from '../lib/db'
+import { dbAll } from '../lib/db'
 import {
   ESTADOS_VERIFICACION,
   esEstadoVerificacionValido,
@@ -50,8 +50,15 @@ colaVerificacionRouter.get('/', async (req: Request, res: Response) => {
   const tipologia = req.query.tipologia ? String(req.query.tipologia) : undefined
   const municipio = req.query.municipio ? String(req.query.municipio) : undefined
   const minScore = req.query.minScore !== undefined ? Number(req.query.minScore) : undefined
-  const limit = Math.min(Number(req.query.limit ?? 50), 200)
-  const offset = Math.max(Number(req.query.offset ?? 0), 0)
+
+  // Review #2 E2: parsear limit/offset con clamp + defensa contra NaN.
+  // Antes: si query.limit='abc' → Number('abc')=NaN → SQL `LIMIT NaN` rompía.
+  // Si limit=-10 → Math.min(-10,200)=-10 → SQL `LIMIT -10` también rompía.
+  // Ahora: si parseInt da NaN o negativo, fallback al default. Cap a 200.
+  const limitRaw = Number(req.query.limit ?? 50)
+  const offsetRaw = Number(req.query.offset ?? 0)
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 50
+  const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0
 
   if (estado !== 'todas' && !esEstadoVerificacionValido(estado)) {
     return res.status(400).json({
@@ -130,7 +137,14 @@ colaVerificacionRouter.post('/:id', async (req: Request, res: Response) => {
   const id = String(req.params.id)
   const body = req.body ?? {}
   const estado = String(body.estado ?? '')
-  const auditor = body.auditor ? String(body.auditor) : undefined
+  // Review #2 E2: validar que auditor sea string primitivo. Antes
+  // `body.auditor ? String(body.auditor) : undefined` aceptaba arrays/objetos
+  // y los coercionaba ("[object Object]"). Pasaba la validación trim()!=''
+  // pero la BD recibía basura. Ahora rechazamos explícitamente.
+  if (body.auditor !== undefined && typeof body.auditor !== 'string') {
+    return res.status(400).json({ error: 'auditor debe ser string' })
+  }
+  const auditor = body.auditor ? String(body.auditor).slice(0, 200) : undefined
 
   if (!esEstadoVerificacionValido(estado)) {
     return res.status(400).json({
@@ -142,20 +156,22 @@ colaVerificacionRouter.post('/:id', async (req: Request, res: Response) => {
     return res.status(400).json({ error: `estado "${estado}" requiere campo "auditor"` })
   }
 
-  // Verificar existencia primero (UPDATE silencioso = mala UX).
-  const existe = await dbAll<{ id: string }>(
-    `SELECT id FROM señales_cache WHERE id = ?`, [id],
-  )
-  if (existe.length === 0) {
-    return res.status(404).json({ error: 'señal no encontrada', id })
-  }
-
+  // Review #2 E2: removí el SELECT existence check redundante. A7 review #2
+  // añadió el mismo check dentro de actualizarEstadoSeñal — la lib es la
+  // fuente de verdad. Si la señal no existe, lib lanza; el catch traduce a
+  // 404 con mensaje claro.
   try {
     await actualizarEstadoSeñal(id, estado, auditor)
     return res.json({ ok: true, id, estadoNuevo: estado })
   } catch (err) {
+    // Review #2 E2: traducir el error específico de "señal no existe" a 404.
+    // Otros errores (validación, BD) van a 500 con detalle.
+    const msg = (err as Error).message
+    if (msg.includes('no existe en señales_cache')) {
+      return res.status(404).json({ error: 'señal no encontrada', id })
+    }
     console.error('[cola-verificacion POST]', err)
-    return res.status(500).json({ error: 'error al actualizar', detalle: (err as Error).message })
+    return res.status(500).json({ error: 'error al actualizar', detalle: msg })
   }
 })
 

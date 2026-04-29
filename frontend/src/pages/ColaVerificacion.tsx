@@ -59,39 +59,56 @@ export default function ColaVerificacion() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [auditor, setAuditor] = useState(() => localStorage.getItem('argos_auditor') ?? '')
+  // Review #2 E2: counter que se incrementa tras cada acción exitosa para
+  // forzar un re-fetch sin necesidad de exponer fetchPagina como callable.
+  const [refreshTick, setRefreshTick] = useState(0)
 
-  const fetchPagina = useCallback(async () => {
+  // Review #2 E2: AbortController por efecto. Si el usuario cambia el filtro
+  // antes de que la primera request termine, la response vieja podría llegar
+  // después y pisar la nueva (race UI). El AbortController abortándose en
+  // cleanup evita race + warning de setState post-unmount.
+  useEffect(() => {
+    const ac = new AbortController()
     setLoading(true); setError(null)
-    try {
-      const params = new URLSearchParams({
-        estado,
-        limit: String(PAGE_SIZE),
-        offset: String(page * PAGE_SIZE),
+    const params = new URLSearchParams({
+      estado,
+      limit: String(PAGE_SIZE),
+      offset: String(page * PAGE_SIZE),
+    })
+    if (severidad !== 'todas') params.set('severidad', severidad)
+    fetch(`${API_URL}/api/cola-verificacion?${params.toString()}`, { signal: ac.signal })
+      .then(async r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
       })
-      if (severidad !== 'todas') params.set('severidad', severidad)
-      const r = await fetch(`${API_URL}/api/cola-verificacion?${params.toString()}`)
-      if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      const data = await r.json()
-      setItems(data.items)
-      setTotal(data.paginacion.total)
-    } catch (e) {
-      setError((e as Error).message)
-    } finally {
-      setLoading(false)
-    }
-  }, [estado, severidad, page])
+      .then(data => {
+        if (ac.signal.aborted) return
+        setItems(data.items)
+        setTotal(data.paginacion.total)
+      })
+      .catch(e => {
+        if (ac.signal.aborted) return
+        setError((e as Error).message)
+      })
+      .finally(() => {
+        if (ac.signal.aborted) return
+        setLoading(false)
+      })
+    return () => ac.abort()
+  }, [estado, severidad, page, refreshTick])
 
-  const fetchResumen = useCallback(async () => {
-    try {
-      const r = await fetch(`${API_URL}/api/cola-verificacion/resumen`)
-      if (!r.ok) return
-      const data = await r.json()
-      setResumen(data)
-    } catch { /* silencioso — resumen es informativo */ }
+  // fetchResumen se actualiza tras cada acción (verificar/descartar/etc).
+  // Lo invocamos al montar y también después de un POST exitoso. AbortController
+  // mismo razonamiento.
+  const fetchResumen = useCallback(() => {
+    const ac = new AbortController()
+    fetch(`${API_URL}/api/cola-verificacion/resumen`, { signal: ac.signal })
+      .then(async r => { if (r.ok) setResumen(await r.json()) })
+      .catch(() => { /* silencioso — resumen es informativo */ })
+    return () => ac.abort()
   }, [])
 
-  useEffect(() => { fetchPagina() }, [fetchPagina])
-  useEffect(() => { fetchResumen() }, [fetchResumen])
+  useEffect(() => fetchResumen(), [fetchResumen])
 
   // Persistir auditor en localStorage para no preguntarlo en cada acción.
   useEffect(() => { if (auditor) localStorage.setItem('argos_auditor', auditor) }, [auditor])
@@ -114,8 +131,9 @@ export default function ColaVerificacion() {
         alert(`Error: ${txt}`)
         return
       }
-      await fetchPagina()
-      await fetchResumen()
+      // Forzar re-fetch de la página + resumen.
+      setRefreshTick(t => t + 1)
+      fetchResumen()
     } catch (e) {
       alert(`Error de red: ${(e as Error).message}`)
     }
