@@ -38,7 +38,15 @@ tmp_*.cjs
 
 # DuckDB data files — local persistence, not committed
 backend/data/
+*.duckdb
 # Evidence.dev
 reports/.evidence/
 reports/build/
 reports/node_modules/
+
+# Tooling state — local only
+.claude/
+**/.claude/
+
+# Windows OS metadata
+desktop.ini
