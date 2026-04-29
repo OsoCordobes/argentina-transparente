@@ -2,9 +2,21 @@
 
 Motor anticorrupción ciudadano. Análisis automatizado del gasto público argentino.
 
+> 📖 **Para periodistas, fiscales, ciudadanos**: leer primero [`docs/COMO-LO-HICIMOS.md`](./docs/COMO-LO-HICIMOS.md) — explica metodología, fuentes, garantías de proceso y limitaciones honestas.
+>
+> 📐 **Para desarrolladores**: las decisiones canónicas viven en [`docs/PLAN-DATOS.md`](./docs/PLAN-DATOS.md) (modelo de datos) y [`docs/PLAN-UI.md`](./docs/PLAN-UI.md) (interfaz). Son los specs de versión que no se rompen sin actualizarlos.
+
 ## ¿Qué hace ARGOS?
 
-ARGOS descarga, normaliza y analiza datos de compras y contrataciones públicas para detectar señales de riesgo (prórrogas excesivas, concentración de proveedores, contrataciones directas sospechosas, fraccionamiento, gasto fin ejercicio, redes de empresas con directores compartidos, aparición offshore, entre otras) y generar **expedientes ciudadanos verificables** que pueden presentarse ante Tribunal de Cuentas, Fiscalía, CNDC, ARCA o Defensoría del Pueblo.
+ARGOS descarga, normaliza y analiza datos de compras y contrataciones públicas para detectar señales de riesgo (prórrogas excesivas, concentración de proveedores, contrataciones directas sospechosas, fraccionamiento, gasto fin ejercicio, redes de empresas con directores compartidos, aparición offshore, conflictos funcionario↔proveedor, aportantes-de-campaña-y-proveedor, DDJJ omitidas, deuda flotante anómala, entre otras) y generar **expedientes ciudadanos verificables** que pueden presentarse ante Tribunal de Cuentas, Fiscalía, CNDC, ARCA o Defensoría del Pueblo.
+
+## Garantías de proceso (resumen — detalle en [`docs/COMO-LO-HICIMOS.md`](./docs/COMO-LO-HICIMOS.md))
+
+1. **Identidad primero**: PF tiene DNI+CUIT, PJ tiene CUIT. Validación módulo-11 obligatoria. Tier 4-5 LLM-ambiguous NUNCA entra a detectores publicables.
+2. **Cap dinámico de score**: sin DNI verificado, cap-60 (severidad ≤ moderada). Con DNI verificado, cap-95.
+3. **Filtro geográfico**: PJ proveedora con domicilio fiscal en otra provincia que la del funcionario → la señal no se emite.
+4. **Badge de verificación universal**: ✓ verificada / ◌ sin verificar / ✗ descartada / ⚠ bloqueada. Innegociable.
+5. **Toda fila con `fuente_url`, toda señal con evidencia trazable**. Sin URL, no entra.
 
 ## Stack
 
@@ -148,4 +160,14 @@ Para reducir tier 4: cargar `seed:afip-padron` + `seed:cordoba-padron-prov`.
 
 ## Licencia
 
-Por definir. El proyecto pasará a open source post-validación del beta.
+Por definir (probablemente AGPL o MIT post-beta). Detalle de licencia + responsabilidad en [`docs/COMO-LO-HICIMOS.md`](./docs/COMO-LO-HICIMOS.md) §9.
+
+## Specs canónicos
+
+Los dos documentos versionados que rigen las decisiones del proyecto:
+
+- [`docs/PLAN-DATOS.md`](./docs/PLAN-DATOS.md) v1.1 — modelo de datos (identidad PF/PJ, ciclo presupuestario, plan en 5 fases A→E, glosario).
+- [`docs/PLAN-UI.md`](./docs/PLAN-UI.md) v1.0 — UI (átomo `ActorProfile`, 5 superficies con grafo, Graph Visual Language, expansión por grados).
+- [`docs/COMO-LO-HICIMOS.md`](./docs/COMO-LO-HICIMOS.md) — landing publicable orientada a periodistas/fiscales/ciudadanos.
+
+Si una decisión de UI requiere cambiar el modelo de datos, primero se actualiza el doc, después se toca código.
