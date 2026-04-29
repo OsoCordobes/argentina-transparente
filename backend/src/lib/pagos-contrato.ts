@@ -92,16 +92,23 @@ export async function getTotalPagadoPorContrato(contratoHash: string): Promise<n
 
 /**
  * Resumen agregado por contrato — devuelve hash, monto adjudicado (de contratos)
- * y total pagado (suma de pagos_contrato). Util para el detector C4
+ * y total pagado + fechas primer/último pago. Útil para el detector C4
  * "gap_compromiso_pagado" y para la sección "Pagos recibidos" del Profile.
  *
- * `solo_con_pagos`: si true, omite contratos sin pagos cargados.
+ * Review #1: agregadas primerPago/ultimoPago al output (estaban computadas
+ * en la query SQL pero la signature los omitía — denuncia-builder ya los
+ * pedía como NonNullable e inicializaba a null porque este helper no los
+ * devolvía. Ahora denuncia-builder podrá usarlos sin null).
+ *
+ * `soloConPagos`: si true, omite contratos sin pagos cargados.
  */
 export async function getResumenPagosContratos(opts: { soloConPagos?: boolean } = {}): Promise<Array<{
   contratoHash: string
   montoAdjudicado: number
   totalPagado: number
   cantidadPagos: number
+  primerPago: string | null
+  ultimoPago: string | null
 }>> {
   const join = opts.soloConPagos ? 'INNER' : 'LEFT'
   const rows = await dbAll<{
@@ -109,12 +116,16 @@ export async function getResumenPagosContratos(opts: { soloConPagos?: boolean } 
     monto_adjudicado: number
     total_pagado: number | null
     cantidad_pagos: number
+    primer_pago: string | null
+    ultimo_pago: string | null
   }>(
     `SELECT
        c.hash AS contrato_hash,
        c.monto AS monto_adjudicado,
        COALESCE(SUM(p.monto), 0) AS total_pagado,
-       COUNT(p.id) AS cantidad_pagos
+       COUNT(p.id) AS cantidad_pagos,
+       MIN(p.fecha_pago) AS primer_pago,
+       MAX(p.fecha_pago) AS ultimo_pago
      FROM contratos c
      ${join} JOIN pagos_contrato p ON p.contrato_hash = c.hash
      GROUP BY c.hash, c.monto`,
@@ -124,5 +135,16 @@ export async function getResumenPagosContratos(opts: { soloConPagos?: boolean } 
     montoAdjudicado: Number(r.monto_adjudicado),
     totalPagado: Number(r.total_pagado ?? 0),
     cantidadPagos: Number(r.cantidad_pagos),
+    primerPago: r.primer_pago,
+    ultimoPago: r.ultimo_pago,
   }))
+}
+
+/**
+ * Review #1: elimina un pago por id. Útil cuando un seed cargó un pago
+ * erróneamente y hay que limpiarlo sin re-correr el seed completo.
+ * Idempotente — si el id no existe, es no-op.
+ */
+export async function eliminarPagoContrato(id: string): Promise<void> {
+  await dbRun(`DELETE FROM pagos_contrato WHERE id = ?`, [id])
 }

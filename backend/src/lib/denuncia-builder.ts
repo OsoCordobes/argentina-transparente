@@ -130,8 +130,9 @@ export async function armarDenunciaDesdeIds(args: ArmarDenunciaArgs): Promise<De
         montoAdjudicado: r.montoAdjudicado,
         totalPagado: r.totalPagado,
         cantidadPagos: r.cantidadPagos,
-        primerPago: null, // no devuelto por getResumenPagosContratos por default
-        ultimoPago: null,
+        // Review #1 B-modules: getResumenPagosContratos ahora expone fechas
+        primerPago: r.primerPago,
+        ultimoPago: r.ultimoPago,
       }))
   }
 
