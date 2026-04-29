@@ -157,3 +157,51 @@ export function extraerDNIdeCUIT(cuit: string | null | undefined): string | null
   const dni = norm.slice(2, 10).replace(/^0+/, '')
   return dni.length >= 6 ? dni : null
 }
+
+// ─── Review iteración #1: helpers de ergonomía ──────────────────────────────
+
+/**
+ * Formatea DNI con puntos cada 3 dígitos desde la derecha.
+ * "12345678" → "12.345.678", "1234567" → "1.234.567".
+ * Acepta DNI sucio (con puntos/espacios) y los normaliza primero.
+ * Devuelve el input crudo si no se puede normalizar (no rompe UI).
+ */
+export function formatDNI(s: string | null | undefined): string {
+  if (s == null) return ''
+  const norm = normalizarDNI(s)
+  if (!norm) return String(s)
+  return norm.replace(/(\d)(?=(\d{3})+$)/g, '$1.')
+}
+
+/**
+ * Categoriza un CUIT: 'PF' (prefijos 20/23/24/27), 'PJ' (30/33/34), o null si
+ * inválido. Reemplaza el patrón
+ *   if (esCuitPersonaFisica(c)) { ... } else if (esCuitPersonaJuridica(c)) ...
+ * con un único switch.
+ */
+export function categorizarCUIT(cuit: string | null | undefined): 'PF' | 'PJ' | null {
+  if (!validarCUIT(cuit)) return null
+  const norm = normalizarCUIT(cuit)!
+  const prefijo = norm.slice(0, 2)
+  if (PREFIJOS_PF.has(prefijo)) return 'PF'
+  if (PREFIJOS_PJ.has(prefijo)) return 'PJ'
+  return null
+}
+
+/**
+ * Devuelve true si dos CUITs apuntan a la misma persona física canónica
+ * (mismo DNI, posiblemente distinto prefijo de género).
+ *
+ * Ejemplo: 20-12345678-6 y 27-12345678-0 son la "misma persona" porque ambos
+ * son CUITs válidos derivados del DNI 12345678. Útil cuando un dataset trae
+ * la misma persona con dos prefijos distintos por error de captura.
+ *
+ * Devuelve false si alguno es inválido, alguno es PJ, o si el DNI extraído
+ * difiere.
+ */
+export function mismoDNI(cuit1: string | null | undefined, cuit2: string | null | undefined): boolean {
+  const dni1 = extraerDNIdeCUIT(cuit1)
+  const dni2 = extraerDNIdeCUIT(cuit2)
+  if (!dni1 || !dni2) return false
+  return dni1 === dni2
+}

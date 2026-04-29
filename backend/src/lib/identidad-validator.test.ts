@@ -13,6 +13,10 @@ import {
   formatCUIT,
   derivarCUITsCandidatos,
   extraerDNIdeCUIT,
+  // review #1
+  formatDNI,
+  categorizarCUIT,
+  mismoDNI,
 } from './identidad-validator'
 
 describe('normalizarDNI', () => {
@@ -253,6 +257,64 @@ describe('extraerDNIdeCUIT', () => {
     expect(extraerDNIdeCUIT('basura')).toBeNull()
     expect(extraerDNIdeCUIT(null)).toBeNull()
     expect(extraerDNIdeCUIT('99-12345678-0')).toBeNull()
+  })
+})
+
+// ─── Review #1: nuevos helpers de ergonomía ──────────────────────────────
+
+describe('formatDNI (review #1)', () => {
+  it('formatea 8 dígitos con puntos', () => {
+    expect(formatDNI('12345678')).toBe('12.345.678')
+  })
+  it('formatea 7 dígitos con puntos', () => {
+    expect(formatDNI('1234567')).toBe('1.234.567')
+  })
+  it('normaliza input sucio antes de formatear', () => {
+    expect(formatDNI('12.345.678')).toBe('12.345.678')
+    expect(formatDNI('12 345 678')).toBe('12.345.678')
+    expect(formatDNI('12-345-678')).toBe('12.345.678')
+  })
+  it('devuelve input crudo (no rompe UI) si no se puede normalizar', () => {
+    expect(formatDNI('abc')).toBe('abc')
+    expect(formatDNI('')).toBe('')
+  })
+  it('acepta null/undefined sin tirar', () => {
+    expect(formatDNI(null)).toBe('')
+    expect(formatDNI(undefined)).toBe('')
+  })
+})
+
+describe('categorizarCUIT (review #1)', () => {
+  it('clasifica PF correctamente', () => {
+    expect(categorizarCUIT('20-12345678-6')).toBe('PF')
+    expect(categorizarCUIT('27-12345678-0')).toBe('PF')
+  })
+  it('clasifica PJ correctamente', () => {
+    expect(categorizarCUIT('30-12345678-1')).toBe('PJ')
+    expect(categorizarCUIT('33-69345023-9')).toBe('PJ')
+  })
+  it('devuelve null para CUIT inválido', () => {
+    expect(categorizarCUIT('20-12345678-7')).toBeNull() // DV erróneo
+    expect(categorizarCUIT('99-12345678-0')).toBeNull() // prefijo desconocido
+    expect(categorizarCUIT('basura')).toBeNull()
+    expect(categorizarCUIT(null)).toBeNull()
+  })
+})
+
+describe('mismoDNI (review #1)', () => {
+  it('detecta misma persona con prefijos distintos (20 vs 27)', () => {
+    // 20-12345678-6 y 27-12345678-0 derivan del mismo DNI 12345678
+    expect(mismoDNI('20-12345678-6', '27-12345678-0')).toBe(true)
+  })
+  it('detecta DNIs distintos como personas distintas', () => {
+    expect(mismoDNI('20-12345678-6', '20-87654321-2')).toBe(false)
+  })
+  it('devuelve false si alguno es PJ', () => {
+    expect(mismoDNI('20-12345678-6', '30-12345678-1')).toBe(false)
+  })
+  it('devuelve false si alguno es inválido', () => {
+    expect(mismoDNI('20-12345678-6', 'basura')).toBe(false)
+    expect(mismoDNI('20-12345678-6', null)).toBe(false)
   })
 })
 
