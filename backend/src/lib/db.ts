@@ -1109,9 +1109,16 @@ export async function initDb(): Promise<void> {
   catch { /* idempotente */ }
   try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_pj_dom_legal_prov ON personas_juridicas(dom_legal_provincia)`) }
   catch { /* idempotente */ }
-  // ALTER idempotente para tablas pre-existentes (W1 pattern)
+  // ALTER idempotente para tablas pre-existentes (W1 pattern). Review #1:
+  // agregadas razon_social_norm, fuentes_url_json, primer_visto, ultimo_visto
+  // al ALTER list — mismo bug detectado en A1: el CREATE las marca NOT NULL
+  // pero el ALTER no las agregaba para DBs pre-A2.
   for (const c of [
+    `razon_social_norm TEXT DEFAULT ''`,
     `alias_json TEXT DEFAULT '[]'`,
+    `fuentes_url_json TEXT DEFAULT '[]'`,
+    `primer_visto TIMESTAMP`,
+    `ultimo_visto TIMESTAMP`,
     `tipo_societario TEXT`,
     `fecha_constitucion TEXT`,
     `dom_fiscal_provincia TEXT`, `dom_fiscal_localidad TEXT`,
