@@ -1113,6 +1113,78 @@ export async function initDb(): Promise<void> {
     catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
   }
 
+  // ─── Vista cadena_de_pago — flujo completo del peso (PLAN-DATOS Fase B4) ────
+  // Une presupuesto_ejecucion → contratos → pagos_contrato en una sola
+  // vista. Permite responder de una sola query:
+  //   "Para la partida X / programa Y, ¿cuánto se sancionó (crédito_inicial),
+  //    cuánto se modificó (crédito_vigente), cuánto se firmó en órdenes
+  //    (compromiso), cuánto se devengó (devengado), cuánto se pagó
+  //    (pagado), y A QUIÉN se le pagó (proveedor + cuit)?"
+  //
+  // El JOIN contrato↔partida es por (partida_presupuestaria, anio). Datos
+  // sparse hoy (la columna partida_presupuestaria es nueva en B2 y los seeds
+  // todavía no la populan), pero la vista existe y se llena automáticamente
+  // cuando los seeds se actualicen.
+  //
+  // El JOIN pagos↔contrato es por contrato_hash. Pagos agregados por SUM/COUNT.
+  //
+  // Wrappeado en try/catch por idempotencia: si alguna columna upstream todavía
+  // no existe en una migración temprana, el CREATE VIEW falla pero la DB queda
+  // funcional. El próximo initDb() lo reintenta.
+  try {
+    await dbRun(`
+      CREATE OR REPLACE VIEW cadena_de_pago AS
+      SELECT
+        -- Partida presupuestaria (top del ciclo)
+        pe.id                    AS partida_id,
+        pe.jurisdiccion          AS partida_jurisdiccion,
+        pe.anio                  AS partida_anio,
+        pe.trimestre             AS partida_trimestre,
+        pe.programa,
+        pe.partida,
+        pe.partida_nombre,
+        -- Las 5 etapas del ciclo presupuestario (Ley 24.156)
+        pe.credito_inicial,
+        pe.credito_vigente,
+        pe.compromiso,
+        pe.devengado,
+        pe.pagado                AS pagado_partida,
+        pe.fuente_url            AS partida_fuente_url,
+        -- Contrato adjudicado bajo esa partida (LEFT JOIN: partidas sin contrato siguen apareciendo)
+        c.hash                   AS contrato_hash,
+        c.tipo                   AS contrato_tipo,
+        c.proveedor,
+        c.proveedor_norm,
+        c.proveedor_cuit,        -- Tier 1-3 — el confiable
+        c.proveedor_cuit_inferido, -- Tier 4-5 — separado, no para detectores publicables
+        c.numero_orden_compra,
+        c.area                   AS contrato_area,
+        c.monto                  AS contrato_monto_adjudicado,
+        c.fuente_url             AS contrato_fuente_url,
+        -- Pagos efectivos atomizados (LEFT JOIN: contratos sin pagos cargados quedan en 0)
+        COALESCE(pagos_agg.total_pagado, 0)  AS contrato_total_pagado,
+        COALESCE(pagos_agg.cantidad_pagos, 0) AS contrato_cantidad_pagos,
+        pagos_agg.primer_pago    AS contrato_primer_pago,
+        pagos_agg.ultimo_pago    AS contrato_ultimo_pago
+      FROM presupuesto_ejecucion pe
+      LEFT JOIN contratos c
+        ON c.partida_presupuestaria = pe.partida
+        AND c.anio = pe.anio
+      LEFT JOIN (
+        SELECT
+          contrato_hash,
+          SUM(monto) AS total_pagado,
+          COUNT(*)   AS cantidad_pagos,
+          MIN(fecha_pago) AS primer_pago,
+          MAX(fecha_pago) AS ultimo_pago
+        FROM pagos_contrato
+        GROUP BY contrato_hash
+      ) pagos_agg ON pagos_agg.contrato_hash = c.hash
+    `)
+  } catch (err) {
+    console.warn('[db] cadena_de_pago no creada:', (err as Error).message)
+  }
+
   // ─── Vistas universo cordobés N2 (Phase F5) ─────────────────────────────────
   // El dataset IGJ trae 2.7M filas nationales y la mayoría son ruido para un
   // beta acotado a Córdoba Capital. Estas views materializan el "universo
