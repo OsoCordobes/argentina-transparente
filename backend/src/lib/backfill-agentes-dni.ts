@@ -44,9 +44,24 @@ interface CandidatoRow {
  *     vacío). Esto permite que un fiscal vuelva al PDF original.
  */
 export async function backfillAgentesDni(opts: BackfillOpts = {}): Promise<BackfillResult> {
-  const wherejur = opts.jurisdiccion
-    ? `AND a.jurisdiccion = '${opts.jurisdiccion.replace(/'/g, "''")}'`
-    : ''
+  // Review #2 A4: jurisdicción parametrizada. Antes interpolábamos string-
+  // escapado con replace(/'/g, "''") — funciona pero es frágil (un día alguien
+  // pasa la string desde un input no sanitizado y se rompe). Parámetro `?` es
+  // siempre seguro.
+  const wherejur = opts.jurisdiccion ? `AND a.jurisdiccion = ?` : ''
+  const wherejurCount = opts.jurisdiccion ? ` AND jurisdiccion = ?` : ''
+  const params: unknown[] = opts.jurisdiccion ? [opts.jurisdiccion] : []
+  const paramsCount: unknown[] = opts.jurisdiccion ? [opts.jurisdiccion] : []
+
+  // Review #2 A4: totalNull ANTES del apply. El semantic correcto es "cuántos
+  // había para backfillear" (input al apply), no "cuántos quedan después".
+  // Si el caller llama dos veces, debe ver el progreso real.
+  const totalNullRows = await dbAll<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM agentes_publicos
+      WHERE dni IS NULL${wherejurCount}`,
+    paramsCount,
+  )
+  const totalNull = Number(totalNullRows[0]?.n ?? 0)
 
   // El JOIN normaliza apellido_nombre al vuelo (UPPER + remoción tildes ASCII)
   // para alinear con DDJJ.apellido_nombre_norm. Si DDJJ.apellido_nombre_norm
@@ -68,8 +83,12 @@ export async function backfillAgentesDni(opts: BackfillOpts = {}): Promise<Backf
       AND a.apellido_nombre IS NOT NULL
       AND d.dni IS NOT NULL
       ${wherejur}
-  `)
+  `, params)
 
+  // Review #2 A4: removí branch muerto `if (!entry.fuente && c.pdf_url)`.
+  // entry.fuente siempre se inicializa con pdf_url || fuente_url en el create
+  // del Map; declaraciones_juradas.fuente_url es NOT NULL en schema → entry.fuente
+  // nunca cae a undefined/empty. La condición nunca se cumplía.
   const porAgente = new Map<string, { dnis: Set<string>; fuente: string }>()
   for (const c of candidatos) {
     if (!validarDNI(c.dni)) continue
@@ -79,7 +98,6 @@ export async function backfillAgentesDni(opts: BackfillOpts = {}): Promise<Backf
       porAgente.set(c.agente_id, entry)
     }
     entry.dnis.add(c.dni)
-    if (!entry.fuente && c.pdf_url) entry.fuente = c.pdf_url
   }
 
   let matched = 0
@@ -94,12 +112,6 @@ export async function backfillAgentesDni(opts: BackfillOpts = {}): Promise<Backf
       ambiguos++
     }
   }
-
-  const totalNullRows = await dbAll<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM agentes_publicos
-      WHERE dni IS NULL${opts.jurisdiccion ? ` AND jurisdiccion = '${opts.jurisdiccion.replace(/'/g, "''")}'` : ''}`,
-  )
-  const totalNull = Number(totalNullRows[0]?.n ?? 0)
 
   if (opts.apply) {
     for (const u of updates) {
