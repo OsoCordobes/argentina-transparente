@@ -931,6 +931,56 @@ export async function initDb(): Promise<void> {
     catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
   }
 
+  // ─── Cargos funcionarios — trayectoria con vigencia (PLAN-DATOS Fase A6) ─────
+  // Derivada de agentes_publicos (que tiene N filas/persona/año) en filas
+  // canónicas de "carrera": un funcionario en un mismo cargo y repartición
+  // colapsa a UNA fila con vigente_desde y vigente_hasta. Habilita:
+  //
+  //   - Profile §3.1 sección "Cargos públicos" con tabla limpia de vigencia
+  //   - Detector C1 refactor: bonus por cargo con poder de adjudicación
+  //     (Director, Secretario, Jefe — usando `facultades_json`)
+  //   - Filtro temporal en señales (¿el funcionario estaba vigente cuando el
+  //     contrato se firmó?)
+  //
+  // El campo `dni` queda nullable hasta que Fase A4-A5 backfileen DNIs desde
+  // DDJJ + boletín. El JOIN cross-tabla mientras tanto va por
+  // (apellido_nombre_norm, jurisdiccion).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS cargos_funcionarios (
+      id                    TEXT PRIMARY KEY,    -- sha256(jurisdiccion + apellido_norm + cargo + reparticion)
+      dni                   TEXT,                -- FK personas_fisicas.dni; NULL hasta backfill A4-A5
+      apellido_nombre       TEXT NOT NULL,       -- mejor versión humana
+      apellido_nombre_norm  TEXT NOT NULL,       -- UPPER sin tildes/puntuación
+      jurisdiccion          TEXT NOT NULL,       -- 'cordoba-capital' | 'cordoba-provincia' | 'nacion'
+      reparticion           TEXT,                -- ministerio / secretaría / dependencia
+      cargo                 TEXT NOT NULL,       -- 'Director de Compras' | 'Concejal' | etc.
+      vigente_desde         TEXT,                -- ISO YYYY-MM-DD o solo año si es lo único conocido
+      vigente_hasta         TEXT,                -- null si vigente
+      facultades_json       TEXT NOT NULL DEFAULT '[]', -- JSON array curado (poder adjudicación, etc.)
+      fuente_url            TEXT NOT NULL,
+      cargado_en            TEXT NOT NULL,
+      t_efectivo            TIMESTAMP,           -- bitemporal W1
+      t_publicado           TIMESTAMP,
+      snapshot_id           TEXT,
+      superseded_by_id      TEXT
+    )
+  `)
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_cf_dni ON cargos_funcionarios(dni)`) }
+  catch { /* idempotente */ }
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_cf_apellido_norm ON cargos_funcionarios(apellido_nombre_norm)`) }
+  catch { /* idempotente */ }
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_cf_jurisdiccion ON cargos_funcionarios(jurisdiccion)`) }
+  catch { /* idempotente */ }
+  for (const c of [
+    `dni TEXT`,
+    `facultades_json TEXT DEFAULT '[]'`,
+    `t_efectivo TIMESTAMP`, `t_publicado TIMESTAMP`,
+    `snapshot_id TEXT`, `superseded_by_id TEXT`,
+  ]) {
+    try { await dbRun(`ALTER TABLE cargos_funcionarios ADD COLUMN ${c}`) }
+    catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
+  }
+
   // ─── Personas Jurídicas — tabla maestra canónica (PLAN-DATOS Fase A2) ────────
   // Una empresa = un CUIT = una URL canónica. Consolida empresas + igj_entidades
   // + rns_personas_juridicas en una entidad única. Las tablas originales

@@ -42,6 +42,7 @@
     "seed:neo4j-señales": "npx ts-node src/scripts/seed-neo4j-señales.ts",
     "resolve:identities": "npx ts-node src/scripts/resolve-identities.ts",
     "migrate:bitemporal": "npx ts-node src/scripts/migrate-bitemporal.ts",
+    "migrate:cargos-funcionarios": "npx ts-node src/scripts/migrate-cargos-funcionarios.ts",
     "build:organigrama": "npx ts-node src/scripts/build-organigrama-cordoba.ts",
     "seed:boe-cba": "npx ts-node src/scripts/seed-boe-cba.ts",
     "worker:boletin-ocr": "npx ts-node src/scripts/worker-boletin-ocr.ts",
