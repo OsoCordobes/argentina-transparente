@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>capture-setup</title></head>
+<body><script>
+  localStorage.setItem('argos.onboarding_seen.v1', '1')
+  const target = new URL(location.href).searchParams.get('to') || '/'
+  location.replace(target)
+</script></body></html>
