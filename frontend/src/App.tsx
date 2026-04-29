@@ -39,6 +39,9 @@ const Dinero = lazy(() => import('./pages/Dinero'))
 const Senales = lazy(() => import('./pages/Senales'))
 // PLAN-UI D6 — Actores directorio
 const ActoresD6 = lazy(() => import('./pages/ActoresD6'))
+// PLAN-UI D7 — Casos / Caso (workspace)
+const CasosD7 = lazy(() => import('./pages/CasosD7'))
+const CasoD7 = lazy(() => import('./pages/CasoD7'))
 
 function PageLoader() {
   return (
@@ -87,6 +90,23 @@ export default function App() {
           element={
             <Suspense fallback={<PageLoader />}>
               <ActoresD6 />
+            </Suspense>
+          }
+        />
+        {/* PLAN-UI D7: Casos workspace (sobreescribe legacy) */}
+        <Route
+          path="/casos"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <CasosD7 />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/caso/:id"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <CasoD7 />
             </Suspense>
           }
         />
@@ -148,22 +168,9 @@ export default function App() {
               </Suspense>
             }
           />
-          <Route
-            path="/casos"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <Casos />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/caso/:id"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <Caso />
-              </Suspense>
-            }
-          />
+          {/* /casos y /caso/:id quedaron migrados a D7 fuera del AppShell.
+              La ruta de denuncia legacy se mantiene por si hay flujos viejos
+              que apuntan a /caso/:id/denuncia */}
           <Route
             path="/caso/:id/denuncia"
             element={
