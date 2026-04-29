@@ -132,6 +132,67 @@ export async function upsertCargoFuncionario(c: Omit<CargoFuncionario, 'id' | 'c
   return id
 }
 
+// ─── Review iteración #1: filtros temporales ────────────────────────────────
+//
+// El detector M4.1 (C1) chequea overlap_temporal por años — pero compara
+// `c.anios_funcionario` con `c.anios_contrato`, no con la vigencia real del
+// cargo. Cuando se backfileen las vigencias (A4-A5 + A6 derivación), estos
+// helpers permiten preguntas más precisas:
+//
+//   - "¿Estaba este funcionario en su cargo el día que firmó este contrato?"
+//   - "¿Quién tenía facultad de adjudicación en jurisdicción X en fecha Y?"
+//
+// La comparación de fechas es por ISO string (lexicográficamente equivalente
+// a comparación cronológica para formato YYYY-MM-DD).
+
+/**
+ * ¿El cargo estuvo vigente en una fecha específica?
+ * Compara contra vigente_desde y vigente_hasta del CargoFuncionario.
+ *
+ * Reglas:
+ *   - Si vigente_desde es null, asumimos que sí (data incompleta — no descarta)
+ *   - Si vigente_hasta es null, asumimos vigente actualmente
+ *   - Si fecha > vigente_hasta, NO vigente
+ *   - Si fecha < vigente_desde, NO vigente
+ */
+export function cargoVigenteEnFecha(cargo: Pick<CargoFuncionario, 'vigenteDesde' | 'vigenteHasta'>, fechaIso: string): boolean {
+  // Normalizar fechaIso a YYYY-MM-DD (toleramos timestamps completos)
+  const fecha = fechaIso.length >= 10 ? fechaIso.slice(0, 10) : fechaIso
+  if (cargo.vigenteDesde) {
+    const desde = cargo.vigenteDesde.length >= 10 ? cargo.vigenteDesde.slice(0, 10) : cargo.vigenteDesde
+    if (fecha < desde) return false
+  }
+  if (cargo.vigenteHasta) {
+    const hasta = cargo.vigenteHasta.length >= 10 ? cargo.vigenteHasta.slice(0, 10) : cargo.vigenteHasta
+    if (fecha > hasta) return false
+  }
+  return true
+}
+
+/**
+ * Lista cargos vigentes en una fecha específica, filtrando por jurisdicción.
+ * Útil para el detector M4.1: "¿qué funcionarios tenían cargo activo cuando
+ * se firmó el contrato del año X?".
+ *
+ * SQL: aprovecha que vigente_desde y vigente_hasta están en formato
+ * lexicográficamente comparable (ISO YYYY-MM-DD).
+ */
+export async function cargosVigentesEnFecha(
+  jurisdiccion: string,
+  fechaIso: string,
+): Promise<CargoFuncionario[]> {
+  const fecha = fechaIso.length >= 10 ? fechaIso.slice(0, 10) : fechaIso
+  const rows = await dbAll<CargoRow>(
+    `SELECT * FROM cargos_funcionarios
+     WHERE jurisdiccion = ?
+       AND (vigente_desde IS NULL OR vigente_desde <= ?)
+       AND (vigente_hasta IS NULL OR vigente_hasta >= ?)
+     ORDER BY apellido_nombre_norm`,
+    [jurisdiccion, fecha, fecha],
+  )
+  return rows.map(rowToCargo)
+}
+
 /**
  * Migración: deriva cargos_funcionarios a partir de agentes_publicos.
  *

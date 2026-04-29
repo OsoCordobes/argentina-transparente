@@ -8,6 +8,9 @@ import {
   getCargosPorDNI,
   getCargosPorApellidoNombre,
   derivarCargosFuncionariosDesdeAgentes,
+  // review #1
+  cargoVigenteEnFecha,
+  cargosVigentesEnFecha,
 } from './cargos-funcionarios'
 
 const TEST_JURISDICCION = '__test_a6_cargos__'
@@ -160,6 +163,61 @@ describe('A6 — upsert + get', () => {
     const cargos = await getCargosPorDNI('99887766')
     expect(cargos.length).toBeGreaterThanOrEqual(1)
     expect(cargos.some(c => c.cargo === 'Cargo con DNI')).toBe(true)
+  })
+})
+
+// ─── Review iteración #1: filtros temporales ────────────────────────────────
+
+describe('A6 review #1 — cargoVigenteEnFecha', () => {
+  const c = (desde: string | null, hasta: string | null) => ({
+    vigenteDesde: desde,
+    vigenteHasta: hasta,
+  })
+
+  it('vigente cuando fecha está en rango', () => {
+    expect(cargoVigenteEnFecha(c('2020-01-01', '2024-12-31'), '2022-06-15')).toBe(true)
+    expect(cargoVigenteEnFecha(c('2020-01-01', '2024-12-31'), '2020-01-01')).toBe(true) // boundary
+    expect(cargoVigenteEnFecha(c('2020-01-01', '2024-12-31'), '2024-12-31')).toBe(true) // boundary
+  })
+
+  it('NO vigente cuando fecha es anterior al desde', () => {
+    expect(cargoVigenteEnFecha(c('2020-01-01', '2024-12-31'), '2019-12-31')).toBe(false)
+  })
+
+  it('NO vigente cuando fecha es posterior al hasta', () => {
+    expect(cargoVigenteEnFecha(c('2020-01-01', '2024-12-31'), '2025-01-01')).toBe(false)
+  })
+
+  it('vigenteHasta null = vigente actualmente (sin tope superior)', () => {
+    expect(cargoVigenteEnFecha(c('2020-01-01', null), '2099-01-01')).toBe(true)
+  })
+
+  it('vigenteDesde null = sin tope inferior (data incompleta no descarta)', () => {
+    expect(cargoVigenteEnFecha(c(null, '2024-12-31'), '1990-01-01')).toBe(true)
+  })
+
+  it('ambos null = vigente para cualquier fecha (data totalmente faltante)', () => {
+    expect(cargoVigenteEnFecha(c(null, null), '2050-06-15')).toBe(true)
+  })
+
+  it('tolera timestamps completos en cualquier campo', () => {
+    expect(cargoVigenteEnFecha(c('2020-01-01T00:00:00Z', '2024-12-31T23:59:59Z'), '2022-06-15T10:00:00Z')).toBe(true)
+  })
+})
+
+describe('A6 review #1 — cargosVigentesEnFecha (integration)', () => {
+  it('SQL retorna estructura iterable (puede ser vacía si DB no tiene cargos)', async () => {
+    const cargos = await cargosVigentesEnFecha('cordoba-capital', '2022-06-15')
+    expect(Array.isArray(cargos)).toBe(true)
+    // Cada uno debe respetar la regla de vigencia en el momento del query
+    for (const c of cargos) {
+      expect(cargoVigenteEnFecha(c, '2022-06-15')).toBe(true)
+    }
+  })
+
+  it('respeta filtro de jurisdicción', async () => {
+    const cargos = await cargosVigentesEnFecha('jurisdiccion-inexistente-test', '2022-06-15')
+    expect(cargos).toEqual([])
   })
 })
 
