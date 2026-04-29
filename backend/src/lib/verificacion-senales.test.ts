@@ -11,6 +11,9 @@ import {
   marcarSeñalBloqueada,
   reseteEstadoSeñal,
   contarSeñalesPorEstado,
+  // review #1
+  getSeñalesParaVerificar,
+  contarSeñalesPorEstadoYSeveridad,
 } from './verificacion-senales'
 
 const TEST_MUNICIPIO = '__test_a7_verificacion__'
@@ -144,6 +147,57 @@ describe('A7 — flujos de verificación', () => {
     expect(rows[0].estado_verificacion).toBe('sin_verificar')
     expect(rows[0].verificado_por).toBeNull()
     expect(rows[0].verificado_en).toBeNull()
+  })
+
+  it('getSeñalesParaVerificar devuelve solo sin_verificar, ordenado por score DESC', async () => {
+    // Insertar serialmente — Promise.all causa race con lookup `latest by computado_en`
+    // (los 3 lookups pueden retornar el mismo row si ocurren en el mismo segundo).
+    const ids: string[] = []
+    for (let i = 0; i < 3; i++) ids.push(await insertarSeñalDeTest())
+    // Marcar una como verificada — esa NO debería aparecer en cola
+    await marcarSeñalVerificada(ids[0], 'auditor@test')
+
+    const cola = await getSeñalesParaVerificar({ jurisdiccion: TEST_MUNICIPIO })
+    const idsCola = cola.map(s => s.id)
+    expect(idsCola).not.toContain(ids[0]) // verificada excluida
+    expect(idsCola).toContain(ids[1])
+    expect(idsCola).toContain(ids[2])
+    // Orden por score DESC + computado_en ASC
+    for (let i = 1; i < cola.length; i++) {
+      expect(cola[i].score).toBeLessThanOrEqual(cola[i - 1].score)
+    }
+  })
+
+  it('getSeñalesParaVerificar respeta filtro de severidad', async () => {
+    const cola = await getSeñalesParaVerificar({ jurisdiccion: TEST_MUNICIPIO, severidad: 'grave' })
+    for (const s of cola) {
+      expect(s.severidad).toBe('grave')
+    }
+  })
+
+  it('getSeñalesParaVerificar respeta minScore', async () => {
+    const cola = await getSeñalesParaVerificar({ jurisdiccion: TEST_MUNICIPIO, minScore: 999 })
+    expect(cola).toEqual([])
+  })
+
+  it('contarSeñalesPorEstadoYSeveridad expone breakdown 4×3', async () => {
+    const r = await contarSeñalesPorEstadoYSeveridad(TEST_MUNICIPIO)
+    // Estructura siempre presente con los 4 estados × 3 severidades
+    expect(r.porEstadoYSeveridad.sin_verificar).toBeDefined()
+    expect(r.porEstadoYSeveridad.sin_verificar.grave).toBeGreaterThanOrEqual(0)
+    expect(r.porEstadoYSeveridad.verificada.grave).toBeGreaterThanOrEqual(0)
+    expect(r.porEstadoYSeveridad.descartada.moderada).toBeGreaterThanOrEqual(0)
+    expect(r.porEstadoYSeveridad.bloqueada.leve).toBeGreaterThanOrEqual(0)
+    // Totales coherentes: por estado debe sumar a totalesPorEstado
+    for (const estado of ESTADOS_VERIFICACION) {
+      const sumPorSeveridad = r.porEstadoYSeveridad[estado].grave +
+                              r.porEstadoYSeveridad[estado].moderada +
+                              r.porEstadoYSeveridad[estado].leve
+      expect(sumPorSeveridad).toBe(r.totalesPorEstado[estado])
+    }
+    // Total general coherente
+    const sumTotalEstados = ESTADOS_VERIFICACION.reduce((s, e) => s + r.totalesPorEstado[e], 0)
+    expect(sumTotalEstados).toBe(r.total)
   })
 
   it('contarSeñalesPorEstado devuelve registry con los 4 estados', async () => {

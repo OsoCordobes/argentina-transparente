@@ -89,6 +89,96 @@ export async function reseteEstadoSeñal(id: string): Promise<void> {
 }
 
 /**
+ * Review #1: queue de señales para verificación humana.
+ * Alimenta E2 (UI cola "señales para verificar"). Devuelve señales en estado
+ * 'sin_verificar' filtradas y ordenadas por relevancia (score DESC, luego
+ * computado_en ASC para que las más viejas no se queden en la cola).
+ *
+ * Filtros opcionales:
+ *   - jurisdiccion (municipio en señales_cache)
+ *   - severidad (grave|moderada|leve) — la cola típica empieza por graves
+ *   - tipologia (para revisores especializados en un detector)
+ *   - minScore (umbral inferior — útil para excluir señales triviales)
+ *
+ * Cap default 100 — la UI puede paginar si necesita más.
+ */
+export interface SeñalEnCola {
+  id: string
+  municipio: string
+  tipologia: string
+  titulo: string
+  resumen: string
+  score: number
+  severidad: 'grave' | 'moderada' | 'leve'
+  computado_en: string
+}
+
+export async function getSeñalesParaVerificar(opts: {
+  jurisdiccion?: string
+  severidad?: 'grave' | 'moderada' | 'leve'
+  tipologia?: string
+  minScore?: number
+  limit?: number
+} = {}): Promise<SeñalEnCola[]> {
+  const where: string[] = [`estado_verificacion = 'sin_verificar'`]
+  const params: unknown[] = []
+  if (opts.jurisdiccion) { where.push('municipio = ?'); params.push(opts.jurisdiccion) }
+  if (opts.severidad) { where.push('severidad = ?'); params.push(opts.severidad) }
+  if (opts.tipologia) { where.push('tipologia = ?'); params.push(opts.tipologia) }
+  if (opts.minScore !== undefined) { where.push('score >= ?'); params.push(opts.minScore) }
+  const limit = opts.limit ?? 100
+  return dbAll<SeñalEnCola>(
+    `SELECT id, municipio, tipologia, titulo, resumen, score, severidad, computado_en
+     FROM señales_cache
+     WHERE ${where.join(' AND ')}
+     ORDER BY score DESC, computado_en ASC
+     LIMIT ${limit}`,
+    params,
+  )
+}
+
+/**
+ * Review #1: conteo cruzado estado × severidad. Permite al dashboard mostrar
+ * "X graves sin verificar / Y totales" — granularidad que contarSeñalesPorEstado
+ * no expone (solo agrega por estado, no por severidad).
+ */
+export async function contarSeñalesPorEstadoYSeveridad(municipio?: string): Promise<{
+  porEstadoYSeveridad: Record<EstadoVerificacionSeñal, Record<'grave' | 'moderada' | 'leve', number>>
+  totalesPorEstado: Record<EstadoVerificacionSeñal, number>
+  totalesPorSeveridad: Record<'grave' | 'moderada' | 'leve', number>
+  total: number
+}> {
+  const where = municipio ? 'WHERE municipio = ?' : ''
+  const params = municipio ? [municipio] : []
+  const rows = await dbAll<{ estado: string; severidad: string; cnt: number }>(
+    `SELECT estado_verificacion AS estado, severidad, COUNT(*) AS cnt
+     FROM señales_cache
+     ${where}
+     GROUP BY estado_verificacion, severidad`,
+    params,
+  )
+  const empty = (): Record<'grave' | 'moderada' | 'leve', number> => ({ grave: 0, moderada: 0, leve: 0 })
+  const por: Record<EstadoVerificacionSeñal, Record<'grave' | 'moderada' | 'leve', number>> = {
+    sin_verificar: empty(), verificada: empty(), descartada: empty(), bloqueada: empty(),
+  }
+  const totEstado: Record<EstadoVerificacionSeñal, number> = {
+    sin_verificar: 0, verificada: 0, descartada: 0, bloqueada: 0,
+  }
+  const totSev: Record<'grave' | 'moderada' | 'leve', number> = empty()
+  let total = 0
+  for (const r of rows) {
+    if (!esEstadoVerificacionValido(r.estado)) continue
+    if (r.severidad !== 'grave' && r.severidad !== 'moderada' && r.severidad !== 'leve') continue
+    const c = Number(r.cnt)
+    por[r.estado][r.severidad] = c
+    totEstado[r.estado] += c
+    totSev[r.severidad] += c
+    total += c
+  }
+  return { porEstadoYSeveridad: por, totalesPorEstado: totEstado, totalesPorSeveridad: totSev, total }
+}
+
+/**
  * Cuenta señales por estado de verificación. Útil para el dashboard del
  * PLAN-UI (North Star metrics: "X señales graves verificadas") y para la
  * cola de "señales para verificar humano".
