@@ -161,6 +161,15 @@ async function main() {
   console.log('\nEjecutando bulk INSERT...SELECT (DuckDB SQL)...')
   const start = Date.now()
 
+  // Filter de calidad de nombre: el apellido_nombre debe tener al menos 4
+  // chars Y contener al menos 3 letras consecutivas. Esto descarta basura
+  // tipo '.', 'S', '12345', 'STMAN E' que IGJ trajo en algunas filas.
+  // El filtro va EN el populate (no como cleanup posterior) para que el
+  // dataset siempre esté limpio.
+  // (filter de calidad embebido en cada subquery del UNION ALL abajo)
+  // Más simple: contar chars alfabéticos via UNICODE > 64.
+  // Aún más simple: STRLEN(apellido_nombre) >= 4 + apellido_nombre matches a-zA-Z al menos 3 veces.
+  // Con DuckDB usamos regexp_matches.
   await dbRun(`
     CREATE OR REPLACE TEMPORARY TABLE tmp_pf_universe AS
     WITH unioned AS (
@@ -173,12 +182,16 @@ async function main() {
         FROM declaraciones_juradas
        WHERE dni IS NOT NULL AND apellido_nombre IS NOT NULL
          AND LENGTH(dni) BETWEEN 6 AND 8
+         AND LENGTH(TRIM(apellido_nombre)) >= 4
+         AND regexp_matches(apellido_nombre, '[A-Za-z].*[A-Za-z].*[A-Za-z]')
       UNION ALL
       -- agentes_publicos (priority 2)
       SELECT dni, apellido_nombre, cuit, fuente_url, 2
         FROM agentes_publicos
        WHERE dni IS NOT NULL AND apellido_nombre IS NOT NULL
          AND LENGTH(dni) BETWEEN 6 AND 8
+         AND LENGTH(TRIM(apellido_nombre)) >= 4
+         AND regexp_matches(apellido_nombre, '[A-Za-z].*[A-Za-z].*[A-Za-z]')
       UNION ALL
       -- IGJ autoridades (priority 3)
       SELECT numero_documento,
@@ -189,14 +202,16 @@ async function main() {
         FROM igj_autoridades
        WHERE numero_documento IS NOT NULL AND apellido_nombre IS NOT NULL
          AND LENGTH(numero_documento) BETWEEN 6 AND 8
-         AND numero_documento ~ '^[0-9]+$'
+         AND regexp_matches(numero_documento, '^[0-9]+$')
+         AND LENGTH(TRIM(apellido_nombre)) >= 4
+         AND regexp_matches(apellido_nombre, '[A-Za-z].*[A-Za-z].*[A-Za-z]')
     ),
     -- Filter only purely-numeric dni_raw and remove leading zeros
     cleaned AS (
       SELECT REGEXP_REPLACE(dni_raw, '^0+', '') AS dni_norm,
              apellido_nombre, cuit, fuente_url, priority
         FROM unioned
-       WHERE dni_raw ~ '^[0-9]+$'
+       WHERE regexp_matches(dni_raw, '^[0-9]+$')
     )
     -- Dedup por dni_norm con preferencia priority ASC
     SELECT dni_norm AS dni,

@@ -151,7 +151,11 @@ describe('A1 review #1 — lookups', () => {
   })
 
   it('lookup con DNI inexistente devuelve null', async () => {
-    expect(await getPersonaFisicaPorDNI('99999999')).toBeNull()
+    // Audit fix R1.1: 99999999 colisionaba con DNIs reales cargados desde
+    // IGJ. Usamos un DNI con padding extremo (>8 dígitos válidos) que el
+    // normalizer reduce a longitud no-DNI y por ende nunca se popula.
+    const dniInexistente = '999999999999'  // 12 dígitos → fuera de rango DNI
+    expect(await getPersonaFisicaPorDNI(dniInexistente)).toBeNull()
     expect(await getPersonaFisicaPorCUIT('20-99999999-9')).toBeNull()
   })
 })
