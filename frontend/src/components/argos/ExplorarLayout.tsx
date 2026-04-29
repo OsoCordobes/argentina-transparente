@@ -13,6 +13,10 @@
  * Stream coalescing: rAF buffer en `makeChunkBuffer`.
  */
 
+// El componente se autocontiene visualmente: importa su propio CSS para
+// que no rompa cuando lo monta un wrapper liviano (Profile en /persona/:dni)
+// que no lo trae.
+import '@/styles/argos.css'
 import { useReducer, useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { GraphCanvas } from './GraphCanvas'
@@ -982,9 +986,18 @@ function PlaceholderSection({
 interface ExplorarLayoutProps {
   graph: ArgosGraph
   isLoading: boolean
+  /**
+   * Nodo a poner en foco al montar (ej. cuando el usuario aterriza en
+   * /persona/:dni o /empresa/:cuit). Si está presente, ExplorarLayout
+   * dispatcha SELECT_NODE con este id una vez que el grafo carga, lo que:
+   *   - cierra el modo hero (sale del estado "investigá hoy"),
+   *   - centra el grafo en el nodo,
+   *   - abre el NodeDetailPanel con la info del actor.
+   */
+  initialFocusedNodeId?: string
 }
 
-export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
+export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: ExplorarLayoutProps) {
   const [s, dispatch] = useReducer(reducer, initialState)
   const inputRef = useRef<HTMLInputElement>(null)
   const [phIdx, setPhIdx] = useState(0)
@@ -1025,12 +1038,16 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
       dispatch({ t: 'THREAD_RESTORED', thread: saved })
     }
 
+    // initialFocusedNodeId tiene precedencia sobre el deeplink — viene de
+    // un wrapper como /persona/:dni o /empresa/:cuit que ya sabe el nodo.
+    const focusFromProp = initialFocusedNodeId ?? null
     // Procesar deeplink ?focus=&q= si vino en la URL
     const dl = parseDeeplink()
-    if (dl.focusNodeId) {
+    const focusToApply = focusFromProp ?? dl.focusNodeId ?? null
+    if (focusToApply) {
       // Esperamos al graph estar cargado para enfocar — usamos timeout corto
       setTimeout(() => {
-        dispatch({ t: 'SELECT_NODE', id: dl.focusNodeId! })
+        dispatch({ t: 'SELECT_NODE', id: focusToApply })
       }, 200)
     }
     if (dl.query && saved.length === 0) {

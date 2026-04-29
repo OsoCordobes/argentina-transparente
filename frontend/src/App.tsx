@@ -68,6 +68,25 @@ export default function App() {
           }
         />
         <Route path="/explorar" element={<Navigate to="/" replace />} />
+        {/* Profile graph-first: /persona/:dni y /empresa/:cuit reusan
+            ExplorarLayout (mismo shell que /) con foco preset al actor.
+            Salen del AppShell para mantener el feel fullscreen del home. */}
+        <Route
+          path="/persona/:dni"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <Persona />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/empresa/:cuit"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <Empresa />
+            </Suspense>
+          }
+        />
         {/* PLAN-UI D4: Dinero con drill-down URL-driven */}
         <Route
           path="/dinero/:jurisdiccion?/:anio?"
@@ -241,24 +260,6 @@ export default function App() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <Huecos />
-              </Suspense>
-            }
-          />
-          {/* PLAN-UI §3.1 — Profile canónico de Persona Física por DNI */}
-          <Route
-            path="/persona/:dni"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <Persona />
-              </Suspense>
-            }
-          />
-          {/* PLAN-UI §3.2 — Profile canónico de Persona Jurídica por CUIT */}
-          <Route
-            path="/empresa/:cuit"
-            element={
-              <Suspense fallback={<PageLoader />}>
-                <Empresa />
               </Suspense>
             }
           />
