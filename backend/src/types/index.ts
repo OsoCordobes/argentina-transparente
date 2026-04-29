@@ -10,6 +10,16 @@ export interface Contrato {
   numeroContrato?: string     // número de resolución/decreto
   fechaContrato?: string      // "2022-03-15"
 
+  // ── PLAN-DATOS Fase B2: identidad del proveedor verificada ────────────────
+  // proveedorCuit: CUIT verificado (Tier 1-3 del identity_resolver). Es el
+  // campo que detectores publicables consumen. Puede estar undefined cuando
+  // el connector no popula la columna o cuando identity_resolver no encontró
+  // match Tier 1-3 todavía.
+  proveedorCuit?: string
+  // proveedorCuitInferido: CUIT inferido por LLM (Tier 4-5) — separado
+  // intencionalmente. NUNCA usar en detectores publicables.
+  proveedorCuitInferido?: string
+
   // ── Trazabilidad de extracción (CLAUDE.md §4) ──────────────────────────────
   // Defaultea a alto/api_estructurada al insertarse si no se especifica.
   nivelConfianza?: NivelConfianza        // 'alto' (API), 'medio' (OCR), 'bajo' (scraper)

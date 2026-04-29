@@ -3,6 +3,7 @@ import {
   calcularSeñales,
   detectarProrrogas,
   detectarConcentracion,
+  detectarConcentracionPorCuit,
   detectarContratacionesDirectas,
   detectarMonopolioRubro,
   detectarServiciosSinHistorial,
@@ -208,6 +209,124 @@ describe('detectarConcentracion', () => {
     // EMPRESA SA has 60M of 80M = 75% → should fire as grave
     expect(señal).not.toBeNull()
     expect(señal!.legal.severidad).toBe('grave')
+  })
+})
+
+// ─── detectarConcentracionPorCuit (PLAN-DATOS C5) ────────────────────────────
+
+describe('detectarConcentracionPorCuit', () => {
+  it('returns null when ningún contrato tiene proveedorCuit', () => {
+    const contratos = [
+      c({ proveedor: 'EMPRESA A', monto: 70_000_000 }),
+      c({ proveedor: 'OTRO', monto: 30_000_000 }),
+    ]
+    expect(detectarConcentracionPorCuit(contratos)).toBeNull()
+  })
+
+  it('returns null cuando top CUIT < umbral', () => {
+    const contratos = [
+      c({ proveedor: 'A', monto: 25_000_000, proveedorCuit: '30-1-1' }),
+      c({ proveedor: 'B', monto: 25_000_000, proveedorCuit: '30-2-2' }),
+      c({ proveedor: 'C', monto: 25_000_000, proveedorCuit: '30-3-3' }),
+      c({ proveedor: 'D', monto: 25_000_000, proveedorCuit: '30-4-4' }),
+    ]
+    expect(detectarConcentracionPorCuit(contratos)).toBeNull()
+  })
+
+  it('emite tipologia concentracion_cuit cuando top CUIT >= umbral', () => {
+    const contratos = [
+      c({ proveedor: 'GIGANTE SA', monto: 40_000_000, proveedorCuit: '30-12345678-9' }),
+      c({ proveedor: 'EMPRESA B', monto: 30_000_000, proveedorCuit: '30-22222222-2' }),
+      c({ proveedor: 'EMPRESA C', monto: 30_000_000, proveedorCuit: '30-33333333-3' }),
+    ]
+    const señal = detectarConcentracionPorCuit(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.tipologia).toBe('concentracion_cuit')
+    expect(señal!.titulo).toContain('GIGANTE SA')
+    expect(señal!.titulo).toContain('30-12345678-9')
+    expect(señal!.cuits).toEqual(['30-12345678-9'])
+  })
+
+  it('agrupa correctamente cuando dos contratos con MISMO CUIT pero distinto nombre (alias)', () => {
+    // Mismo CUIT, razón social escrita distinto en cada contrato.
+    // Por nombre se separarían; por CUIT se unen.
+    const contratos = [
+      c({ proveedor: 'ACME S.A.', monto: 35_000_000, proveedorCuit: '30-12345678-9' }),
+      c({ proveedor: 'Acme SA', monto: 35_000_000, proveedorCuit: '30-12345678-9' }),
+      c({ proveedor: 'OTRO', monto: 30_000_000, proveedorCuit: '30-99999999-1' }),
+    ]
+    const señal = detectarConcentracionPorCuit(contratos)
+    expect(señal).not.toBeNull()
+    // 70M de 100M = 70% → grave
+    expect(señal!.legal.severidad).toBe('grave')
+  })
+
+  it('NO se confunde con dos empresas distintas que comparten razón social (homonimia)', () => {
+    // Dos empresas con MISMA razón social pero CUITs distintos.
+    // El detector legacy (por nombre) las uniría incorrectamente.
+    // El de CUIT las separa.
+    const contratos = [
+      c({ proveedor: 'CONSTRUCTORA SA', monto: 35_000_000, proveedorCuit: '30-11111111-1' }),
+      c({ proveedor: 'CONSTRUCTORA SA', monto: 35_000_000, proveedorCuit: '30-22222222-2' }),
+      c({ proveedor: 'OTRO', monto: 30_000_000, proveedorCuit: '30-33333333-3' }),
+    ]
+    const señal = detectarConcentracionPorCuit(contratos)
+    // Cada CUIT tiene 35% — empata por debajo del umbral 35% por la división del total
+    // 35/100 = exactamente 35%, igual al umbral. Pasa.
+    expect(señal).not.toBeNull()
+    // Pero NO debería ser grave (cada CUIT individualmente 35%, no 70%)
+    expect(señal!.legal.severidad).not.toBe('grave')
+  })
+
+  it('marca grave cuando top CUIT >= 60%', () => {
+    const contratos = [
+      c({ proveedor: 'MONOPOLIO SRL', monto: 70_000_000, proveedorCuit: '30-12345678-9' }),
+      c({ proveedor: 'OTRO', monto: 30_000_000, proveedorCuit: '30-22222222-2' }),
+    ]
+    const señal = detectarConcentracionPorCuit(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.legal.severidad).toBe('grave')
+  })
+
+  it('considera contratos sin proveedorCuit en el TOTAL pero NO los agrupa', () => {
+    // Si la mitad del gasto NO tiene CUIT verificado, una empresa con CUIT que
+    // domine en el resto debería tener un % calculado contra el total completo
+    // (no contra el subset). Eso refleja la realidad del gasto.
+    const contratos = [
+      c({ proveedor: 'GIGANTE', monto: 40_000_000, proveedorCuit: '30-12345678-9' }),
+      c({ proveedor: 'SIN_CUIT_A', monto: 30_000_000 }),
+      c({ proveedor: 'SIN_CUIT_B', monto: 30_000_000 }),
+    ]
+    const señal = detectarConcentracionPorCuit(contratos)
+    // GIGANTE: 40M de 100M total = 40%, supera umbral 35%
+    expect(señal).not.toBeNull()
+    expect(señal!.titulo).toContain('GIGANTE')
+  })
+
+  it('IGNORA proveedorCuitInferido (Tier 4-5)', () => {
+    const contratos = [
+      c({ proveedor: 'INFERIDO SA', monto: 70_000_000, proveedorCuitInferido: '30-99999999-9' }),
+      c({ proveedor: 'OTRO', monto: 30_000_000, proveedorCuit: '30-12345678-9' }),
+    ]
+    // INFERIDO no tiene proveedorCuit (solo proveedorCuitInferido) → no entra al bucket
+    // Solo OTRO está en el bucket pero su 30% no supera el umbral 35%
+    const señal = detectarConcentracionPorCuit(contratos)
+    expect(señal).toBeNull()
+  })
+
+  it('evidencia incluye top + 3 siguientes con CUIT cada uno', () => {
+    const contratos = [
+      c({ proveedor: 'A', monto: 40_000_000, proveedorCuit: '30-1-1' }),
+      c({ proveedor: 'B', monto: 25_000_000, proveedorCuit: '30-2-2' }),
+      c({ proveedor: 'C', monto: 20_000_000, proveedorCuit: '30-3-3' }),
+      c({ proveedor: 'D', monto: 15_000_000, proveedorCuit: '30-4-4' }),
+    ]
+    const señal = detectarConcentracionPorCuit(contratos)
+    expect(señal).not.toBeNull()
+    const ev = señal!.evidencia.map(e => e.descripcion).join(' ')
+    expect(ev).toContain('30-1-1')
+    expect(ev).toContain('30-2-2')
+    expect(ev).toContain('30-3-3')
   })
 })
 

@@ -23,6 +23,7 @@ import config from '../engine/detectors-config.json'
 const TIPOLOGIA_TO_DETECTOR: Record<string, string> = {
   prorrogas_excesivas: 'detectarProrrogas',
   concentracion_proveedor: 'detectarConcentracion',
+  concentracion_cuit: 'detectarConcentracion', // C5 reusa config del legacy
   contrataciones_directas: 'detectarContratacionesDirectas',
   monopolio_rubro: 'detectarMonopolioRubro',
   servicio_sin_historial: 'detectarServiciosSinHistorial',

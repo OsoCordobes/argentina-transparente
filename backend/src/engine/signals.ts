@@ -139,6 +139,90 @@ export function detectarConcentracion(contratos: Contrato[]): Señal | null {
   }
 }
 
+// ─── PLAN-DATOS Fase C5: detectarConcentracionPorCuit ──────────────────────
+// Variante Tier 1 de detectarConcentracion que agrupa contratos por
+// proveedorCuit (Tier 1-3 verificado del identity_resolver) en lugar de por
+// nombre normalizado. Habilita señal publicable cuando los datos están
+// completos. Si NO hay contratos con proveedorCuit, devuelve null y deja
+// que detectarConcentracion (legacy por nombre) emita su señal con cap-95.
+//
+// Ventajas frente a la versión por nombre:
+//   - Inmune a alias de razón social ("ACME SA" vs "Acme S.A.").
+//   - Inmune a homonimia (dos empresas con razón social idéntica pero CUIT
+//     distinto se separan correctamente).
+//   - Permite cruzar con personas_juridicas para enriquecer evidencia
+//     (domicilio fiscal, estado, fecha constitución).
+//
+// Tipologia: 'concentracion_cuit'. NO sustituye 'concentracion_proveedor'
+// (legacy) — coexisten. La UI puede preferir esta cuando exista.
+function agruparPorCuit(cs: Contrato[]): Map<string, Contrato[]> {
+  const map = new Map<string, Contrato[]>()
+  for (const c of cs) {
+    if (!c.proveedorCuit) continue
+    const k = c.proveedorCuit
+    if (!map.has(k)) map.set(k, [])
+    map.get(k)!.push(c)
+  }
+  return map
+}
+
+export function detectarConcentracionPorCuit(contratos: Contrato[]): Señal | null {
+  const C = cfg('detectarConcentracion') // reusa thresholds del legacy
+  const UMBRAL_MIN = (C.umbral_minimo as number | undefined) ?? 35
+  const UMBRAL_GRAVE = (C.umbral_grave as number | undefined) ?? 60
+
+  // Solo opera sobre el subset con CUIT verificado. Los contratos sin
+  // proveedorCuit caen al detector legacy concentracion_proveedor.
+  const verificados = contratos.filter(c => !!c.proveedorCuit)
+  if (verificados.length === 0) return null
+
+  // El total se calcula sobre TODOS los contratos del set (no solo verificados)
+  // para que el % sea comparable con la versión legacy. La señal solo se emite
+  // si el top tiene CUIT verificado.
+  const total = montoTotal(contratos)
+  if (total === 0) return null
+
+  const porCuit = agruparPorCuit(verificados)
+  if (porCuit.size === 0) return null
+
+  const ranking = Array.from(porCuit.entries())
+    .map(([cuit, cs]) => ({
+      cuit,
+      displayName: cs[0].proveedor,
+      m: montoTotal(cs),
+      n: cs.length,
+    }))
+    .sort((a, b) => b.m - a.m)
+
+  const top = ranking[0]
+  const pct = (top.m / total) * 100
+  if (pct < UMBRAL_MIN) return null
+
+  return {
+    tipologia: 'concentracion_cuit',
+    score: Math.min(95, Math.round(50 + pct)),
+    titulo: `Concentración extrema verificada: ${top.displayName} (CUIT ${top.cuit}) recibe el ${pct.toFixed(1)}% del gasto`,
+    resumen: `El proveedor "${top.displayName}" (CUIT ${top.cuit}, identidad verificada Tier 1-3) concentra ${ars(top.m)} (${pct.toFixed(1)}% del gasto total de ${ars(total)}) en ${top.n} contrato(s). El agrupamiento es por CUIT, lo cual es inmune a alias de razón social y a homonimia. Una concentración superior al ${UMBRAL_MIN}% en un solo CUIT contradice los principios de concurrencia.`,
+    evidencia: [
+      {
+        descripcion: `${top.displayName} (CUIT ${top.cuit}): ${ars(top.m)} (${pct.toFixed(1)}% del total) en ${top.n} contrato(s).`,
+        fuenteUrl: contratos[0].fuenteUrl,
+      },
+      ...ranking.slice(1, 4).map(r => ({
+        descripcion: `Top siguiente — ${r.displayName} (CUIT ${r.cuit}): ${ars(r.m)} (${((r.m / total) * 100).toFixed(1)}%).`,
+        fuenteUrl: contratos[0].fuenteUrl,
+      })),
+    ],
+    legal: {
+      articulos: [C.norma!],
+      severidad: pct >= UMBRAL_GRAVE ? 'grave' : 'moderada',
+      denunciarAnte: (C.denunciar_ante as string[] | undefined) ?? ORGANISMOS,
+    },
+    caveat: C.caveat,
+    cuits: [top.cuit],
+  }
+}
+
 export function detectarContratacionesDirectas(contratos: Contrato[]): Señal | null {
   // Match el FRASE completa (no substring overlap). Acepta acentos opcionales.
   // Patrones aceptados: "CONTRATACION DIRECTA", "CONTRATACIÓN DIRECTA",
@@ -1040,6 +1124,7 @@ export async function calcularSeñales(
   const detectoresSinc = [
     detectarProrrogas,
     detectarConcentracion,
+    detectarConcentracionPorCuit, // C5: variante Tier 1 sobre proveedorCuit
     detectarContratacionesDirectas,
     detectarMonopolioRubro,
     detectarServiciosSinHistorial,
