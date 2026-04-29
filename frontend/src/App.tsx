@@ -25,6 +25,7 @@ const Cobertura = lazy(() => import('./pages/Cobertura'))
 const Huecos = lazy(() => import('./pages/Huecos'))
 // PLAN-UI §3 — Profiles canónicos por DNI/CUIT (Stub-4 / Stub-5)
 const Persona = lazy(() => import('./pages/Persona'))
+const Empresa = lazy(() => import('./pages/Empresa'))
 
 function PageLoader() {
   return (
@@ -174,6 +175,15 @@ export default function App() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <Persona />
+              </Suspense>
+            }
+          />
+          {/* PLAN-UI §3.2 — Profile canónico de Persona Jurídica por CUIT */}
+          <Route
+            path="/empresa/:cuit"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <Empresa />
               </Suspense>
             }
           />
