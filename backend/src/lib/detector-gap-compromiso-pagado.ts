@@ -74,6 +74,21 @@ export async function encontrarPartidasConGap(opts: {
   const minGapPct = opts.minGapPct ?? 0.30
   const minGapAbs = opts.minGapAbs ?? 1_000_000
   const soloCerrados = opts.soloAniosCerrados ?? true
+
+  // Review #1 C4: validación de inputs. Sin esto un caller que pasa
+  // minGapPct: 30 (pensando 30% como entero) no genera señales y sin error
+  // — silent no-output. Detect early and throw.
+  if (minGapPct < 0 || minGapPct > 1) {
+    throw new Error(
+      `encontrarPartidasConGap: minGapPct debe estar en [0, 1] (fracción, no porcentaje). Recibido: ${minGapPct}`,
+    )
+  }
+  if (minGapAbs < 0) {
+    throw new Error(
+      `encontrarPartidasConGap: minGapAbs debe ser >= 0. Recibido: ${minGapAbs}`,
+    )
+  }
+
   const anioActual = new Date().getFullYear()
 
   const jurisdiccionesFilter = opts.jurisdicciones?.length

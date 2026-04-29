@@ -127,6 +127,27 @@ describe('M4.4/C4 — partidaConGapASeñal', () => {
   })
 })
 
+describe('M4.4/C4 review #1 — validación de inputs', () => {
+  it('rechaza minGapPct fuera de [0, 1] (anticipa el bug "30 en lugar de 0.30")', async () => {
+    const { encontrarPartidasConGap } = await import('./detector-gap-compromiso-pagado')
+    await expect(encontrarPartidasConGap({ minGapPct: 30 })).rejects.toThrow(/fracción, no porcentaje/)
+    await expect(encontrarPartidasConGap({ minGapPct: -0.1 })).rejects.toThrow(/\[0, 1\]/)
+    await expect(encontrarPartidasConGap({ minGapPct: 1.5 })).rejects.toThrow(/\[0, 1\]/)
+  })
+
+  it('acepta minGapPct=0 y minGapPct=1 (boundaries OK)', async () => {
+    const { encontrarPartidasConGap } = await import('./detector-gap-compromiso-pagado')
+    // No throw, devuelve array (puede ser vacío)
+    await expect(encontrarPartidasConGap({ minGapPct: 0 })).resolves.toBeInstanceOf(Array)
+    await expect(encontrarPartidasConGap({ minGapPct: 1 })).resolves.toBeInstanceOf(Array)
+  })
+
+  it('rechaza minGapAbs negativo', async () => {
+    const { encontrarPartidasConGap } = await import('./detector-gap-compromiso-pagado')
+    await expect(encontrarPartidasConGap({ minGapAbs: -100 })).rejects.toThrow(/>= 0/)
+  })
+})
+
 describe('M4.4/C4 — registro en señales_cache', () => {
   it('detector está registrado en señales_cache cuando ya corrió', async () => {
     const r = await dbAll<{ c: number }>(
