@@ -57,6 +57,18 @@ export async function actualizarEstadoSeñal(
   if (estado !== 'sin_verificar' && (!por || por.trim() === '')) {
     throw new Error(`actualizarEstadoSeñal: estado "${estado}" requiere argumento "por" (auditor identificable)`)
   }
+  // Review #2 A7: verificar que la señal existe antes del UPDATE. Sin esto,
+  // un caller que pasa un id incorrecto recibe `void` exitoso aunque la
+  // operación no haya tenido efecto — silencioso y peligroso para auditoría.
+  // El route cola-verificacion también valida, pero la lib se usa desde
+  // múltiples caminos (CLI, scripts, futuras automatizaciones); defensa
+  // en profundidad.
+  const exists = await dbAll<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM señales_cache WHERE id = ?`, [id],
+  )
+  if (Number(exists[0]?.n ?? 0) === 0) {
+    throw new Error(`actualizarEstadoSeñal: señal "${id}" no existe en señales_cache`)
+  }
   const now = new Date().toISOString()
   await dbRun(
     `UPDATE señales_cache
