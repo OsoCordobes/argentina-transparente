@@ -57,6 +57,44 @@ export interface CruceCandidato {
   contratos_count: number
   monto_total: number
   fuente_url_contratos: string[]      // URLs canónicas de los contratos
+  // ── PLAN-DATOS Fase C1: filtro geográfico + verificación DNI ─────────────
+  dom_fiscal_provincia: string | null    // provincia del domicilio fiscal de la PJ (rns_personas_juridicas)
+  coincide_provincia: 'si' | 'no' | 'desconocido'
+  // DNI confirmado del funcionario (vía DDJJ u otra fuente externa). Si != null
+  // y coincide con dni_director → verificación Tier 1 → cap-95. Si null → cap-60.
+  dni_funcionario_confirmado: string | null
+}
+
+// Mapeo jurisdicción del funcionario → provincia esperada del proveedor para
+// que el conflicto sea geográficamente plausible. Mata el falso positivo
+// estructural tipo MOSQUERA(funcionario cordoba-capital) ↔ Renault Argentina
+// S.A. (director CABA): la PJ no opera donde el funcionario tiene poder.
+const JURISDICCION_PROVINCIA: Record<string, string> = {
+  'cordoba-capital': 'CORDOBA',
+  'cordoba-provincia': 'CORDOBA',
+  // 'nacion' deliberadamente no mapeado — funcionario nacional puede tener
+  // contraparte en cualquier provincia, no se filtra geográficamente.
+}
+
+/**
+ * Decide si la provincia del domicilio fiscal de la empresa es compatible
+ * con la jurisdicción del funcionario.
+ *
+ *   'si'          → match estricto, conflicto plausible
+ *   'no'          → mismatch confirmado (ej. funcionario Córdoba ↔ empresa CABA)
+ *   'desconocido' → no se conoce la provincia (PJ no está en RNS o no se mapea
+ *                   la jurisdicción del funcionario, ej. nacionales)
+ */
+export function coincideProvinciaFuncionario(
+  jurisdiccion: string,
+  domFiscalProvincia: string | null,
+): 'si' | 'no' | 'desconocido' {
+  const provinciaEsperada = JURISDICCION_PROVINCIA[jurisdiccion]
+  if (!provinciaEsperada) return 'desconocido' // no mapeo (ej. nacion)
+  if (!domFiscalProvincia) return 'desconocido' // PJ sin RNS o RNS sin provincia
+  // Normalizar: RNS a veces trae 'CÓRDOBA' con tilde u otras variantes.
+  const norm = domFiscalProvincia.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
+  return norm === provinciaEsperada ? 'si' : 'no'
 }
 
 const NORM_SQL = (col: string) =>
@@ -72,11 +110,16 @@ export async function encontrarCrucesCandidatos(opts: {
   minMonto?: number                // descartar contratos muy chicos (default 0)
   toleranciaAniosTemporal?: number // ±N años entre actividad funcionario y año contrato (default 2)
   excluirSinOverlap?: boolean      // si true, descarta cruces sin overlap temporal (default true)
+  // PLAN-DATOS Fase C1: por defecto excluye crosses con coincide_provincia='no'
+  // (mismatch geográfico confirmado). 'desconocido' SI se incluye — falta data
+  // RNS, no falta evidencia. Pasar false para corridas exploratorias.
+  excluirProvinciaDistinta?: boolean
 } = {}): Promise<CruceCandidato[]> {
   const maxDnis = opts.maxDnisIGJ ?? 3
   const minMonto = opts.minMonto ?? 0
   const tolerancia = opts.toleranciaAniosTemporal ?? 2
   const excluirSinOverlap = opts.excluirSinOverlap ?? true
+  const excluirProvinciaDistinta = opts.excluirProvinciaDistinta ?? true
   const municipiosFilter = opts.municipios?.length
     ? `AND f.jurisdiccion IN (${opts.municipios.map(m => `'${m.replace(/'/g, "''")}'`).join(',')})`
     : ''
@@ -101,6 +144,16 @@ export async function encontrarCrucesCandidatos(opts: {
          GROUP BY f.norm
         HAVING COUNT(DISTINCT ia.numero_documento) BETWEEN 1 AND ${maxDnis}
       ),
+      rns_dom AS (
+        -- Dedup por cuit (RNS tiene snapshots mensuales). Tomamos un solo
+        -- valor por cuit con ANY_VALUE — la provincia es estable entre snapshots.
+        SELECT cuit,
+               ANY_VALUE(dom_fiscal_provincia) AS dom_fiscal_provincia
+          FROM rns_personas_juridicas
+         WHERE cuit IS NOT NULL
+           AND dom_fiscal_provincia IS NOT NULL
+         GROUP BY cuit
+      ),
       cruces_raw AS (
         SELECT f.apellido_nombre AS funcionario,
                f.norm AS funcionario_norm,
@@ -108,11 +161,13 @@ export async function encontrarCrucesCandidatos(opts: {
                r.dnis AS unique_dnis_igj,
                ie.razon_social AS empresa,
                ie.cuit AS cuit_empresa,
-               ia.numero_documento AS dni_director
+               ia.numero_documento AS dni_director,
+               rns.dom_fiscal_provincia AS dom_fiscal_provincia
           FROM funcs f
           JOIN funcs_raros r ON r.norm = f.norm
           JOIN igj_autoridades ia ON ${NORM_SQL('ia.apellido_nombre')} = f.norm
           JOIN igj_entidades ie ON ie.numero_correlativo = ia.numero_correlativo
+          LEFT JOIN rns_dom rns ON rns.cuit = ie.cuit
       ),
       contratos_agg AS (
         SELECT proveedor_norm, municipio,
@@ -123,7 +178,7 @@ export async function encontrarCrucesCandidatos(opts: {
       )
     SELECT cr.funcionario, cr.funcionario_norm, cr.jurisdiccion,
            cr.unique_dnis_igj, cr.empresa, cr.cuit_empresa,
-           cr.dni_director, c.cnt, c.tot
+           cr.dni_director, cr.dom_fiscal_provincia, c.cnt, c.tot
       FROM cruces_raw cr
       JOIN contratos_agg c
         ON (UPPER(cr.empresa) = c.proveedor_norm
@@ -138,6 +193,7 @@ export async function encontrarCrucesCandidatos(opts: {
   for (const r of rows) {
     const key = `${r.funcionario_norm}||${r.cuit_empresa}||${r.jurisdiccion}`
     if (!grouped.has(key)) {
+      const domFiscal: string | null = r.dom_fiscal_provincia ?? null
       grouped.set(key, {
         funcionario: r.funcionario,
         funcionario_norm: r.funcionario_norm,
@@ -155,6 +211,10 @@ export async function encontrarCrucesCandidatos(opts: {
         contratos_count: Number(r.cnt),
         monto_total: Number(r.tot),
         fuente_url_contratos: [],  // populated below via separate query
+        // PLAN-DATOS Fase C1: filtro geográfico + verificación DNI
+        dom_fiscal_provincia: domFiscal,
+        coincide_provincia: coincideProvinciaFuncionario(r.jurisdiccion, domFiscal),
+        dni_funcionario_confirmado: null, // populado externamente cuando hay DDJJ + match
       })
     }
   }
@@ -202,8 +262,13 @@ export async function encontrarCrucesCandidatos(opts: {
     c.apellido_freq_agentes = Number(fr[0]?.n ?? 0)
   }
 
-  const all = [...grouped.values()].sort((a, b) => b.monto_total - a.monto_total)
-  return excluirSinOverlap ? all.filter(c => c.overlap_temporal) : all
+  let all = [...grouped.values()].sort((a, b) => b.monto_total - a.monto_total)
+  if (excluirSinOverlap) all = all.filter(c => c.overlap_temporal)
+  // PLAN-DATOS Fase C1: descarta crosses con mismatch geográfico confirmado
+  // (la PJ está en otra provincia que la del funcionario). 'desconocido' SI
+  // pasa — no hay evidencia de mismatch, solo falta data RNS.
+  if (excluirProvinciaDistinta) all = all.filter(c => c.coincide_provincia !== 'no')
+  return all
 }
 
 // Cargos con poder real de adjudicación o influencia sobre contratos.
@@ -250,21 +315,44 @@ export function factorBaseRate(apellido_freq_agentes: number): number {
 }
 
 /**
+ * Devuelve el cap de score apropiado según verificación de identidad.
+ * PLAN-DATOS Fase C1:
+ *   - Cap 60 cuando el DNI del funcionario NO está confirmado externamente.
+ *     Score nunca llega a 'grave' (≥75) sin un humano que verifique.
+ *   - Cap 95 cuando dni_funcionario_confirmado === dni_director (match Tier 1
+ *     contra fuente externa como DDJJ). Score puede escalar hasta 95 — el
+ *     último 5 queda como margen para auditoría judicial.
+ */
+export function capScoreSegunVerificacion(c: { dni_director: string; dni_funcionario_confirmado: string | null }): number {
+  if (c.dni_funcionario_confirmado && c.dni_funcionario_confirmado === c.dni_director) {
+    return 95 // DNI verificado → cap normal
+  }
+  return 60 // sin verificación → no puede escalar a 'grave'
+}
+
+/**
  * Convierte un candidato en una Señal estándar de ARGOS.
  *
  * Scoring:
  *   - Base: 30 puntos (señal Tier 2 sin verificación DNI)
  *   - Monto: log10(monto) * 6, max 50
- *   - Rareza: (4 - dnis) * 8, max 24
+ *   - Rareza: (4 - dnis) * 8 * factor base rate
  *   - Cargo con poder de adjudicación: +15
- *   - Cap: 95 (nunca 100 hasta DNI verificado)
+ *
+ * Cap dinámico (C1):
+ *   - 60 sin DNI confirmado → max severidad 'moderada'
+ *   - 95 con DNI confirmado → max severidad 'grave'
+ *
+ * Filtro geográfico aplicado en encontrarCrucesCandidatos: este punto solo
+ * recibe candidatos con coincide_provincia ∈ {'si', 'desconocido'}.
  */
 export function candidatoASeñal(c: CruceCandidato): Señal {
   const scoreMonto = Math.min(50, Math.log10(Math.max(c.monto_total, 1)) * 6)
   const factor = factorBaseRate(c.apellido_freq_agentes)
   const scoreRareza = (4 - c.unique_dnis_igj) * 8 * factor
   const scoreCargo = bonusPorCargo(c.cargos)
-  const score = Math.min(95, Math.round(scoreMonto + scoreRareza + scoreCargo + 30))
+  const cap = capScoreSegunVerificacion(c)
+  const score = Math.min(cap, Math.round(scoreMonto + scoreRareza + scoreCargo + 30))
 
   const severidad: 'grave' | 'moderada' | 'leve' =
     score >= 75 ? 'grave' : score >= 55 ? 'moderada' : 'leve'
@@ -275,9 +363,22 @@ export function candidatoASeñal(c: CruceCandidato): Señal {
   const aniosContratoStr = c.anios_contrato.length > 0
     ? `${c.anios_contrato[0]}-${c.anios_contrato[c.anios_contrato.length - 1]}`
     : 'sin año'
+  // Texto del filtro geográfico para evidencia (PLAN-DATOS Fase C1)
+  const provinciaTxt =
+    c.coincide_provincia === 'si'
+      ? `Filtro geográfico OK: PJ tiene domicilio fiscal en ${c.dom_fiscal_provincia} (provincia compatible con ${c.jurisdiccion}).`
+      : c.coincide_provincia === 'desconocido'
+      ? `Filtro geográfico INCONCLUSO: la PJ no figura en el Registro Nacional de Sociedades (rns_personas_juridicas) o no declara provincia fiscal. Riesgo de cross-jurisdiccional no descartable.`
+      : `Filtro geográfico FALLA: PJ tiene domicilio fiscal en ${c.dom_fiscal_provincia} pero el funcionario es de ${c.jurisdiccion}. NO debería haber pasado el filtro — bug si ves esta señal en cache.`
+
+  const verifTxt =
+    c.dni_funcionario_confirmado && c.dni_funcionario_confirmado === c.dni_director
+      ? `DNI VERIFICADO: dni_funcionario_confirmado=${c.dni_funcionario_confirmado} coincide con director IGJ (cap-95).`
+      : `VERIFICACIÓN PENDIENTE: el match es por apellido_nombre normalizado, no por DNI directo. El DNI ${c.dni_director} es del director IGJ; falta confirmar que coincide con el DNI del funcionario antes de considerar la señal como evidencia. Cap-60 hasta verificación humana — score nunca llega a 'grave' sin DNI confirmado.`
+
   const evidencia: EvidenciaItem[] = [
     {
-      descripcion: `Funcionario "${c.funcionario}" (${c.jurisdiccion}, áreas: ${c.reparticiones.join(', ') || 'sin datos'}, ${aniosFuncStr}) tiene apellido_nombre normalizado idéntico al del director DNI ${c.dni_director} de la empresa "${c.empresa}" (CUIT ${c.cuit_empresa}). Esa empresa recibió ${c.contratos_count} contrato(s) por $${Math.round(c.monto_total).toLocaleString('es-AR')} del mismo municipio en ${aniosContratoStr}. Overlap temporal: ${c.overlap_temporal ? 'SÍ' : 'NO'}.`,
+      descripcion: `Funcionario "${c.funcionario}" (${c.jurisdiccion}, áreas: ${c.reparticiones.join(', ') || 'sin datos'}, ${aniosFuncStr}) tiene apellido_nombre normalizado idéntico al del director DNI ${c.dni_director} de la empresa "${c.empresa}" (CUIT ${c.cuit_empresa}). Esa empresa recibió ${c.contratos_count} contrato(s) por $${Math.round(c.monto_total).toLocaleString('es-AR')} del mismo municipio en ${aniosContratoStr}. Overlap temporal: ${c.overlap_temporal ? 'SÍ' : 'NO'}. ${provinciaTxt}`,
       fuenteUrl: c.fuente_url_contratos[0] ?? '',
     },
     ...c.fuente_url_contratos.slice(1).map(url => ({
@@ -285,7 +386,7 @@ export function candidatoASeñal(c: CruceCandidato): Señal {
       fuenteUrl: url,
     })),
     {
-      descripcion: `IMPORTANTE — VERIFICACIÓN REQUERIDA: el match es por apellido_nombre normalizado, no por DNI directo (agentes_publicos no tiene DNI poblado). El DNI ${c.dni_director} es del director IGJ; falta confirmar que coincide con el DNI del funcionario antes de considerar la señal como evidencia. Filtro de rareza: solo ${c.unique_dnis_igj} DNI(s) distinto(s) en IGJ con este apellido — bajo riesgo de homonimia pero no nulo.`,
+      descripcion: `IMPORTANTE — ${verifTxt} Filtro de rareza: solo ${c.unique_dnis_igj} DNI(s) distinto(s) en IGJ con este apellido — bajo riesgo de homonimia pero no nulo.`,
       fuenteUrl: 'https://datos.jus.gob.ar/dataset/da045e06-35cb-4bdd-9b5e-ddee6712c86c',
     },
   ]
@@ -341,6 +442,10 @@ export interface CrucePatronSistemico {
   empresas_count: number
   contratos_total: number
   monto_total: number
+  // PLAN-DATOS Fase C1: si todas las direcciones del patrón comparten el
+  // mismo dni_director (y este coincide con el dni_funcionario_confirmado),
+  // entonces el patrón puede escalar al cap-95.
+  dni_funcionario_confirmado: string | null
 }
 
 /**
@@ -390,6 +495,10 @@ export function aggregarPatronesSistemicos(
       }
     }).sort((a, b) => b.monto - a.monto)
 
+    // dni_funcionario_confirmado del patrón = el del head si coincide en TODOS
+    // los candidatos del grupo (mismo funcionario, una sola persona física).
+    const dnis = new Set(group.map(g => g.dni_funcionario_confirmado).filter((x): x is string => !!x))
+    const dniConfirmado = dnis.size === 1 ? group[0].dni_funcionario_confirmado : null
     patrones.push({
       funcionario: head.funcionario,
       funcionario_norm: head.funcionario_norm,
@@ -402,6 +511,7 @@ export function aggregarPatronesSistemicos(
       empresas_count: empresas.length,
       contratos_total: empresas.reduce((s, e) => s + e.contratos_count, 0),
       monto_total: empresas.reduce((s, e) => s + e.monto, 0),
+      dni_funcionario_confirmado: dniConfirmado,
     })
   }
 
@@ -425,7 +535,15 @@ export function patronASeñal(p: CrucePatronSistemico, apellidoFreqAgentes = 1):
   const scoreRareza = Math.min(24, (4 - p.unique_dnis_igj) * 6 * factor)
   const scoreCantidad = Math.min(25, (p.empresas_count - 1) * 5)
   const scoreCargo = bonusPorCargo(p.cargos)
-  const score = Math.min(95, Math.round(50 + scoreMonto + scoreRareza + scoreCantidad + scoreCargo))
+  // PLAN-DATOS Fase C1: cap-60 sin DNI verificado, cap-95 con DNI verificado.
+  // El DNI del patrón debe coincidir con el dni_director de TODAS las empresas
+  // implicadas — si un patrón tiene 3 empresas con 3 directores distintos
+  // (homonimia distribuida), no se escala aunque haya verificación parcial.
+  const algunDniNoCoincide = p.dni_funcionario_confirmado
+    ? p.empresas.some(e => e.dni_director !== p.dni_funcionario_confirmado)
+    : true
+  const cap = (p.dni_funcionario_confirmado && !algunDniNoCoincide) ? 95 : 60
+  const score = Math.min(cap, Math.round(50 + scoreMonto + scoreRareza + scoreCantidad + scoreCargo))
 
   const severidad: 'grave' | 'moderada' | 'leve' =
     score >= 75 ? 'grave' : score >= 55 ? 'moderada' : 'leve'
