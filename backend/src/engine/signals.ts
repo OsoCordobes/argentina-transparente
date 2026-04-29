@@ -203,6 +203,12 @@ export function detectarConcentracionPorCuit(contratos: Contrato[]): Señal | nu
       displayName: cs[0].proveedor,
       m: montoTotal(cs),
       n: cs.length,
+      // Review #2 C5: usar la fuente_url del propio set por CUIT, no la del
+      // primer contrato del dataset total. Antes: una señal sobre CUIT-A
+      // citaba la URL de un contrato de CUIT-B; un fiscal abriendo la
+      // evidencia llegaba a otro proveedor.
+      fuenteUrl: cs[0].fuenteUrl,
+      contratos: cs,
     }))
     .sort((a, b) => b.m - a.m)
 
@@ -218,11 +224,11 @@ export function detectarConcentracionPorCuit(contratos: Contrato[]): Señal | nu
     evidencia: [
       {
         descripcion: `${top.displayName} (CUIT ${top.cuit}): ${ars(top.m)} (${pct.toFixed(1)}% del total) en ${top.n} contrato(s).`,
-        fuenteUrl: contratos[0].fuenteUrl,
+        fuenteUrl: top.fuenteUrl,
       },
       ...ranking.slice(1, 4).map(r => ({
         descripcion: `Top siguiente — ${r.displayName} (CUIT ${r.cuit}): ${ars(r.m)} (${((r.m / total) * 100).toFixed(1)}%).`,
-        fuenteUrl: contratos[0].fuenteUrl,
+        fuenteUrl: r.fuenteUrl,
       })),
     ],
     legal: {
