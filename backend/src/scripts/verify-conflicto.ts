@@ -25,6 +25,8 @@ import {
   marcarSeñalBloqueada,
 } from '../lib/verificacion-senales'
 import { validarDNI, normalizarDNI } from '../lib/identidad-validator'
+// Review #1 E1: reusar el normalizador canónico (review A1 #1)
+import { normalizarApellidoNombre } from '../lib/personas-fisicas'
 
 interface Args {
   signalId: string | undefined
@@ -76,7 +78,7 @@ interface DDJJRow {
   fuente_url: string
 }
 
-function extraerDNIDirectorEvidencia(evidenciaJson: string): string | null {
+export function extraerDNIDirectorEvidencia(evidenciaJson: string): string | null {
   try {
     const ev = JSON.parse(evidenciaJson) as Array<{ descripcion: string }>
     // Match "DNI <digits>" en cualquier descripción de evidencia
@@ -90,18 +92,25 @@ function extraerDNIDirectorEvidencia(evidenciaJson: string): string | null {
   return null
 }
 
-function extraerFuncionarioYJurisdiccion(titulo: string, resumen: string): { funcionario: string | null; jurisdiccion: string | null } {
-  // Titulo: "Conflicto potencial: APELLIDO NOMBRE (jurisdiccion) y EMPRESA ($X)"
-  const m = titulo.match(/Conflicto potencial:\s+([^(]+?)\s+\(([^)]+)\)/)
+/**
+ * Review #1 E1: parser tolerante a las dos tipologias del detector M4.1.
+ *   - conflicto_funcionario_proveedor → "Conflicto potencial: APELLIDO NOMBRE (jurisdiccion)..."
+ *   - conflicto_funcionario_multiproveedor → "Patrón sistémico: APELLIDO NOMBRE (jurisdiccion)..."
+ *
+ * Antes solo cubría la primera. Una señal de patrón sistémico no se podía
+ * verificar por este script — caía en el fallback de resumen, menos preciso.
+ */
+export function extraerFuncionarioYJurisdiccion(titulo: string, resumen: string): { funcionario: string | null; jurisdiccion: string | null } {
+  // Cubre ambas tipologias del detector M4.1
+  const m = titulo.match(/(?:Conflicto potencial|Patrón sistémico):\s+([^(]+?)\s+\(([^)]+)\)/)
   if (m) return { funcionario: m[1].trim(), jurisdiccion: m[2].trim() }
   // Fallback al resumen
   const m2 = resumen.match(/funcionario\s+([A-ZÁÉÍÓÚÑ][^,]*?)\s+comparte/)
   return { funcionario: m2 ? m2[1].trim() : null, jurisdiccion: null }
 }
 
-function normalizarApellidoNombre(s: string): string {
-  return s.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z\s]/g, ' ').replace(/\s+/g, ' ').trim()
-}
+// normalizarApellidoNombre ahora viene de personas-fisicas.ts (review A1 #1)
+// Antes había una copia local — duplicación eliminada.
 
 async function main() {
   console.log('=== ARGOS — verify-conflicto (Fase E1) ===\n')
@@ -243,4 +252,8 @@ async function main() {
 
   process.exit(0)
 }
-main().catch(err => { console.error(err); process.exit(1) })
+// Solo correr main() cuando se ejecuta como CLI directo (no cuando se importa
+// para tests). require.main check es la forma estándar en Node.
+if (require.main === module) {
+  main().catch(err => { console.error(err); process.exit(1) })
+}
