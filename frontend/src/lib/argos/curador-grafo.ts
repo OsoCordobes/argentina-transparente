@@ -50,7 +50,11 @@ function relevanciaTotal(n: ArgosNode): number {
 export interface CuracionOpts {
   /** Cap superior de nodos visibles. PLAN-UI §4.1 default 80. */
   maxNodos?: number
-  /** Si true, mantiene nodos con severidad alta aunque queden huérfanos. */
+  /**
+   * Deprecado en review #1 (post-bug fix). El algoritmo nuevo (seed+expand)
+   * ya no descarta huérfanos por construcción. La opción se mantiene en la
+   * interfaz por backwards-compat con callers existentes pero se ignora.
+   */
   mantenerSeveros?: boolean
 }
 
@@ -62,12 +66,25 @@ export interface CuracionResultado {
 }
 
 /**
- * Cap por relevancia. Devuelve el grafo curado + metadata de cuántos nodos
- * se ocultaron (la UI puede mostrar "X nodos ocultos por orden de relevancia").
+ * Cap por relevancia con expansión por vecindad.
+ *
+ * BUG FIX (review #1): el algoritmo anterior tomaba top N y FILTRABA
+ * orphans, lo que reducía el resultado a 6-10 nodos cuando el grafo era
+ * disperso (típico: señales conectan a empresas que NO están en el top N
+ * por relevancia, así que después del filtro de edges quedan orphans y
+ * se descartan).
+ *
+ * Estrategia nueva (seed + expansión):
+ *   1. Tomar TOP_SEEDS nodos por relevancia (default 40)
+ *   2. Agregar todos sus vecinos directos (1-hop) hasta llenar maxNodos
+ *   3. Filtrar edges al conjunto resultante
+ *   4. NO descartar nodos sin edges — el render los maneja como aislados
+ *
+ * Garantía: el resultado tiene exactamente min(maxNodos, totalOriginal)
+ * nodos. Sin "shrinkage" sorpresivo del 80 a 6.
  */
 export function curarTopN(graph: ArgosGraph, opts: CuracionOpts = {}): CuracionResultado {
   const maxNodos = opts.maxNodos ?? 80
-  const mantenerSeveros = opts.mantenerSeveros ?? true
   const totalOriginal = graph.nodes.length
 
   if (graph.nodes.length <= maxNodos) {
@@ -76,34 +93,54 @@ export function curarTopN(graph: ArgosGraph, opts: CuracionOpts = {}): CuracionR
 
   // 1. Ranking por relevancia
   const ranked = [...graph.nodes].sort((a, b) => relevanciaTotal(b) - relevanciaTotal(a))
-  const top = ranked.slice(0, maxNodos)
-  const topIds = new Set(top.map(n => n.id))
 
-  // 2. Filtrar edges: solo entre nodos sobrevivientes
-  const edgesFiltradas: ArgosEdge[] = graph.edges.filter(e => {
+  // 2. Seed: 50% del cap como semillas de alta relevancia
+  const seedCount = Math.max(1, Math.floor(maxNodos * 0.5))
+  const seeds = ranked.slice(0, seedCount)
+  const seleccionados = new Set<string>(seeds.map(n => n.id))
+
+  // 3. Indexar edges por nodo para expansión rápida
+  const edgesPorNodo = new Map<string, Set<string>>()
+  for (const e of graph.edges) {
     const sid = typeof e.source === 'string' ? e.source : e.source.id
     const tid = typeof e.target === 'string' ? e.target : e.target.id
-    return topIds.has(sid) && topIds.has(tid)
-  })
-
-  // 3. Ids con al menos una arista (no-huérfanos)
-  const conectados = new Set<string>()
-  for (const e of edgesFiltradas) {
-    const sid = typeof e.source === 'string' ? e.source : e.source.id
-    const tid = typeof e.target === 'string' ? e.target : e.target.id
-    conectados.add(sid)
-    conectados.add(tid)
+    if (!edgesPorNodo.has(sid)) edgesPorNodo.set(sid, new Set())
+    if (!edgesPorNodo.has(tid)) edgesPorNodo.set(tid, new Set())
+    edgesPorNodo.get(sid)!.add(tid)
+    edgesPorNodo.get(tid)!.add(sid)
   }
 
-  // 4. Decidir nodos finales: conectados + (severos huérfanos si mantenerSeveros)
-  const nodosFinal = top.filter(n => {
-    if (conectados.has(n.id)) return true
-    if (mantenerSeveros && n.flags?.severidad === 'grave') return true
-    return false
+  // 4. Expansión: agregar vecinos de las semillas hasta llenar el cap
+  const idToNode = new Map(graph.nodes.map(n => [n.id, n]))
+  for (const seed of seeds) {
+    if (seleccionados.size >= maxNodos) break
+    const vecinos = edgesPorNodo.get(seed.id) ?? new Set()
+    // Vecinos ordenados por relevancia (los más interesantes primero)
+    const vecinosOrdenados = [...vecinos]
+      .map(id => idToNode.get(id))
+      .filter((n): n is ArgosNode => !!n)
+      .sort((a, b) => relevanciaTotal(b) - relevanciaTotal(a))
+    for (const v of vecinosOrdenados) {
+      if (seleccionados.size >= maxNodos) break
+      seleccionados.add(v.id)
+    }
+  }
+
+  // 5. Si todavía faltan slots, completar con los siguientes en el ranking
+  for (const n of ranked) {
+    if (seleccionados.size >= maxNodos) break
+    seleccionados.add(n.id)
+  }
+
+  const nodosFinal = graph.nodes.filter(n => seleccionados.has(n.id))
+  const edgesFinales: ArgosEdge[] = graph.edges.filter(e => {
+    const sid = typeof e.source === 'string' ? e.source : e.source.id
+    const tid = typeof e.target === 'string' ? e.target : e.target.id
+    return seleccionados.has(sid) && seleccionados.has(tid)
   })
 
   return {
-    graph: { nodes: nodosFinal, edges: edgesFiltradas },
+    graph: { nodes: nodosFinal, edges: edgesFinales },
     capExcedido: true,
     nodosOcultados: totalOriginal - nodosFinal.length,
     totalOriginal,
