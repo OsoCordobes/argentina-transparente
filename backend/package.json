@@ -37,6 +37,7 @@
     "seed:aportantes-cne": "npx ts-node src/scripts/seed-aportantes-cne.ts",
     "detect:conflictos": "npx ts-node src/scripts/detect-conflictos.ts",
     "detect:aportante-proveedor": "npx ts-node src/scripts/detect-aportante-proveedor.ts",
+    "detect:ddjj-omitida": "npx ts-node src/scripts/detect-ddjj-omitida.ts",
     "inspect:presupuesto": "npx ts-node src/scripts/inspect-presupuesto-debug.ts",
     "seed:rns": "npx ts-node src/scripts/seed-rns.ts",
     "seed:neo4j-actores": "npx ts-node src/scripts/seed-neo4j-actores.ts",
