@@ -23,6 +23,8 @@ const Watchlist = lazy(() => import('./pages/Watchlist'))
 const Actores = lazy(() => import('./pages/Actores'))
 const Cobertura = lazy(() => import('./pages/Cobertura'))
 const Huecos = lazy(() => import('./pages/Huecos'))
+// PLAN-UI §3 — Profiles canónicos por DNI/CUIT (Stub-4 / Stub-5)
+const Persona = lazy(() => import('./pages/Persona'))
 
 function PageLoader() {
   return (
@@ -163,6 +165,15 @@ export default function App() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <Huecos />
+              </Suspense>
+            }
+          />
+          {/* PLAN-UI §3.1 — Profile canónico de Persona Física por DNI */}
+          <Route
+            path="/persona/:dni"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <Persona />
               </Suspense>
             }
           />
