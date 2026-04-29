@@ -32,36 +32,67 @@ export interface FlagOpts {
 }
 
 /**
+ * Review #2 A5: helper interno que abstrae las 3 funciones públicas. La
+ * lógica era idéntica salvo:
+ *   - tabla a actualizar
+ *   - columna que define "identidad NULL" (dni / proveedor_cuit / beneficiario_cuit)
+ *   - columna del filtro (jurisdiccion / municipio)
+ *
+ * Centralizar:
+ *   - Parametriza el filtro (antes string-interpolación con replace de
+ *     comillas; frágil contra inputs no sanitizados).
+ *   - Una sola fuente de verdad para la semántica de marcadas / yaMarcadas.
+ */
+async function flagTablaNameOnly(args: {
+  tabla: 'agentes_publicos' | 'contratos' | 'transferencias'
+  identityCol: 'dni' | 'proveedor_cuit' | 'beneficiario_cuit'
+  filterCol: 'jurisdiccion' | 'municipio' | null
+  filterValue: string | undefined
+}): Promise<FlagResult> {
+  const filtroSQL = args.filterCol && args.filterValue ? ` AND ${args.filterCol} = ?` : ''
+  const filtroParams: unknown[] = args.filterCol && args.filterValue ? [args.filterValue] : []
+
+  const yaRows = await dbAll<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM ${args.tabla}
+       WHERE ${args.identityCol} IS NULL AND name_only_unmatched = TRUE${filtroSQL}`,
+    filtroParams,
+  )
+  const yaMarcadas = Number(yaRows[0]?.n ?? 0)
+
+  await dbRun(
+    `UPDATE ${args.tabla}
+        SET name_only_unmatched = TRUE
+      WHERE ${args.identityCol} IS NULL
+        AND name_only_unmatched = FALSE${filtroSQL}`,
+    filtroParams,
+  )
+
+  const totalNullRows = await dbAll<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM ${args.tabla} WHERE ${args.identityCol} IS NULL${filtroSQL}`,
+    filtroParams,
+  )
+  const totalNull = Number(totalNullRows[0]?.n ?? 0)
+  // marcadas = filas que pasaron de FALSE → TRUE en este run.
+  // Total POST-UPDATE de filas con identidad NULL es estable (UPDATE no toca
+  // identidad). yaMarcadas es subset de totalNull, así que totalNull - yaMarcadas
+  // ≥ 0 — el Math.max defensivo es redundante pero sin costo, lo dejamos.
+  const marcadas = Math.max(0, totalNull - yaMarcadas)
+  return { marcadas, yaMarcadas, totalNull }
+}
+
+/**
  * Marca agentes_publicos con dni IS NULL como name_only_unmatched.
  * Asume que A4 (backfillAgentesDni) ya corrió. Si no corrió, marcaremos
  * filas que potencialmente sí podrían resolverse — por eso el script CLI
  * advierte si A4 nunca se aplicó (heurística: 0% dni populated).
  */
 export async function flagAgentesNameOnly(opts: FlagOpts = {}): Promise<FlagResult> {
-  const wherejur = opts.jurisdiccion
-    ? ` AND jurisdiccion = '${opts.jurisdiccion.replace(/'/g, "''")}'`
-    : ''
-
-  const yaRows = await dbAll<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM agentes_publicos
-       WHERE dni IS NULL AND name_only_unmatched = TRUE${wherejur}`,
-  )
-  const yaMarcadas = Number(yaRows[0]?.n ?? 0)
-
-  await dbRun(
-    `UPDATE agentes_publicos
-        SET name_only_unmatched = TRUE
-      WHERE dni IS NULL
-        AND name_only_unmatched = FALSE${wherejur}`,
-  )
-
-  const totalNullRows = await dbAll<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM agentes_publicos WHERE dni IS NULL${wherejur}`,
-  )
-  const totalNull = Number(totalNullRows[0]?.n ?? 0)
-  // marcadas = totalNull - yaMarcadas (las que estaban FALSE y pasaron a TRUE)
-  const marcadas = Math.max(0, totalNull - yaMarcadas)
-  return { marcadas, yaMarcadas, totalNull }
+  return flagTablaNameOnly({
+    tabla: 'agentes_publicos',
+    identityCol: 'dni',
+    filterCol: 'jurisdiccion',
+    filterValue: opts.jurisdiccion,
+  })
 }
 
 /**
@@ -70,29 +101,12 @@ export async function flagAgentesNameOnly(opts: FlagOpts = {}): Promise<FlagResu
  * solo existe `proveedor_cuit_inferido` (Tier 4-5) — esos no son Tier 1.
  */
 export async function flagContratosNameOnly(opts: FlagOpts = {}): Promise<FlagResult> {
-  const wheremun = opts.municipio
-    ? ` AND municipio = '${opts.municipio.replace(/'/g, "''")}'`
-    : ''
-
-  const yaRows = await dbAll<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM contratos
-       WHERE proveedor_cuit IS NULL AND name_only_unmatched = TRUE${wheremun}`,
-  )
-  const yaMarcadas = Number(yaRows[0]?.n ?? 0)
-
-  await dbRun(
-    `UPDATE contratos
-        SET name_only_unmatched = TRUE
-      WHERE proveedor_cuit IS NULL
-        AND name_only_unmatched = FALSE${wheremun}`,
-  )
-
-  const totalNullRows = await dbAll<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM contratos WHERE proveedor_cuit IS NULL${wheremun}`,
-  )
-  const totalNull = Number(totalNullRows[0]?.n ?? 0)
-  const marcadas = Math.max(0, totalNull - yaMarcadas)
-  return { marcadas, yaMarcadas, totalNull }
+  return flagTablaNameOnly({
+    tabla: 'contratos',
+    identityCol: 'proveedor_cuit',
+    filterCol: 'municipio',
+    filterValue: opts.municipio,
+  })
 }
 
 /**
@@ -101,27 +115,11 @@ export async function flagContratosNameOnly(opts: FlagOpts = {}): Promise<FlagRe
  * cruzar con aportantes ni IGJ.
  */
 export async function flagTransferenciasNameOnly(opts: FlagOpts = {}): Promise<FlagResult> {
-  const wherejur = opts.jurisdiccion
-    ? ` AND jurisdiccion = '${opts.jurisdiccion.replace(/'/g, "''")}'`
-    : ''
-
-  const yaRows = await dbAll<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM transferencias
-       WHERE beneficiario_cuit IS NULL AND name_only_unmatched = TRUE${wherejur}`,
-  )
-  const yaMarcadas = Number(yaRows[0]?.n ?? 0)
-
-  await dbRun(
-    `UPDATE transferencias
-        SET name_only_unmatched = TRUE
-      WHERE beneficiario_cuit IS NULL
-        AND name_only_unmatched = FALSE${wherejur}`,
-  )
-
-  const totalNullRows = await dbAll<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM transferencias WHERE beneficiario_cuit IS NULL${wherejur}`,
-  )
-  const totalNull = Number(totalNullRows[0]?.n ?? 0)
-  const marcadas = Math.max(0, totalNull - yaMarcadas)
-  return { marcadas, yaMarcadas, totalNull }
+  return flagTablaNameOnly({
+    tabla: 'transferencias',
+    identityCol: 'beneficiario_cuit',
+    filterCol: 'jurisdiccion',
+    filterValue: opts.jurisdiccion,
+  })
 }
+
