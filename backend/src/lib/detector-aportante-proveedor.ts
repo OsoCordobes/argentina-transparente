@@ -22,6 +22,7 @@
 
 import { dbAll, dbRun, insertSeñalCache } from './db'
 import { crearSnapshot } from './snapshots'
+import { validarCUIT } from './identidad-validator'
 import crypto from 'crypto'
 import type { Señal } from '../types/index'
 
@@ -165,29 +166,38 @@ export async function encontrarCrucesAportanteProveedor(opts: {
      ORDER BY SUM(c.monto) DESC
   `)
 
-  return rows.map(r => ({
-    cuit: r.cuit,
-    razon_social: r.razon_social,
-    partido: r.partido,
-    alianza: r.alianza,
-    anio_electoral: Number(r.anio_electoral),
-    monto_aportado: Number(r.monto_aportado),
-    cantidad_aportes: Number(r.cantidad_aportes),
-    fecha_primer_aporte: r.fecha_primer_aporte,
-    fuente_url_aporte: r.fuente_url_aporte,
-    cantidad_contratos: Number(r.cantidad_contratos),
-    monto_contratado: Number(r.monto_contratado),
-    primer_contrato_anio: Number(r.primer_contrato_anio),
-    ultimo_contrato_anio: Number(r.ultimo_contrato_anio),
-    fuente_url_contratos: Array.isArray(r.fuente_urls_contratos)
-      ? Array.from(new Set(r.fuente_urls_contratos)).slice(0, 8)
-      : [],
-    jurisdicciones_contratos: Array.isArray(r.jurisdicciones_contratos)
-      ? Array.from(new Set(r.jurisdicciones_contratos))
-      : [],
-    tier_match_proveedor: Number(r.tier_match_proveedor),
-    score_match_proveedor: Number(r.score_match_proveedor),
-  }))
+  // Review #2 C2: defensa módulo-11 del CUIT (último filtro antes de devolver).
+  // CNE publica CUITs ocasionalmente corruptos (ejemplo: '20-' prefijos donde
+  // debe ir '30-' para PJ, dígito verificador erróneo). Los detectores Tier 1
+  // no pueden emitir señales sobre CUITs inválidos — un fiscal que recibe la
+  // denuncia no puede cruzar contra AFIP. Filtramos acá en lugar de antes del
+  // SQL para que si el caller necesita hallazgos puede inspeccionar la diff
+  // (ver script audit-tier-pollution.ts).
+  return rows
+    .filter(r => validarCUIT(r.cuit))
+    .map(r => ({
+      cuit: r.cuit,
+      razon_social: r.razon_social,
+      partido: r.partido,
+      alianza: r.alianza,
+      anio_electoral: Number(r.anio_electoral),
+      monto_aportado: Number(r.monto_aportado),
+      cantidad_aportes: Number(r.cantidad_aportes),
+      fecha_primer_aporte: r.fecha_primer_aporte,
+      fuente_url_aporte: r.fuente_url_aporte,
+      cantidad_contratos: Number(r.cantidad_contratos),
+      monto_contratado: Number(r.monto_contratado),
+      primer_contrato_anio: Number(r.primer_contrato_anio),
+      ultimo_contrato_anio: Number(r.ultimo_contrato_anio),
+      fuente_url_contratos: Array.isArray(r.fuente_urls_contratos)
+        ? Array.from(new Set(r.fuente_urls_contratos)).slice(0, 8)
+        : [],
+      jurisdicciones_contratos: Array.isArray(r.jurisdicciones_contratos)
+        ? Array.from(new Set(r.jurisdicciones_contratos))
+        : [],
+      tier_match_proveedor: Number(r.tier_match_proveedor),
+      score_match_proveedor: Number(r.score_match_proveedor),
+    }))
 }
 
 /**
