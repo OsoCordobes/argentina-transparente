@@ -59,11 +59,11 @@ export function AppShell() {
           </Link>
 
           <nav className="hidden md:flex items-center gap-1 ml-4">
-            <NavItem to="/" icon={<LayoutDashboard className="h-4 w-4" />}>
-              Dashboard
+            <NavItem to="/" icon={<Telescope className="h-4 w-4" />}>
+              Inicio
             </NavItem>
-            <NavItem to="/explorar" icon={<Telescope className="h-4 w-4" />}>
-              Explorar
+            <NavItem to="/dashboard" icon={<LayoutDashboard className="h-4 w-4" />}>
+              Dashboard
             </NavItem>
             <NavItem to="/red" icon={<Network className="h-4 w-4" />}>
               Red

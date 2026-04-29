@@ -3,10 +3,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { AppShell } from '@/components/layout/AppShell'
 
-// PLAN-UI Fase D — Landing nueva (Premium Forensic) reemplaza el Dashboard
-// legacy como home. Dashboard sigue accesible en /dashboard para compatibilidad
-// con bookmarks internos y tests.
-import Landing from './pages/Landing'
+// graph-first home: / es Explorar (sidebar Inicio/Mapa/Expedientes/...).
+// Dashboard legacy queda en /dashboard solo por compatibilidad de bookmarks.
 import Dashboard from './pages/Dashboard'
 
 // El resto de páginas se code-split: cada una baja en su propio chunk
@@ -31,8 +29,6 @@ const Persona = lazy(() => import('./pages/Persona'))
 const Empresa = lazy(() => import('./pages/Empresa'))
 // PLAN-DATOS Fase E2 — cola de verificación humana
 const ColaVerificacion = lazy(() => import('./pages/ColaVerificacion'))
-// PLAN-UI D3 — mapa neural fullscreen
-const Mapa = lazy(() => import('./pages/Mapa'))
 // PLAN-UI D4 — Dinero / ciclo presupuestario
 const Dinero = lazy(() => import('./pages/Dinero'))
 // PLAN-UI D5 — Señales feed exploratorio
@@ -61,17 +57,17 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* PLAN-UI D1: Landing fullscreen sin AppShell (usa ForensicHeader) */}
-        <Route path="/" element={<Landing />} />
-        {/* PLAN-UI D3: Mapa fullscreen */}
+        {/* graph-first home: / es Explorar (fullscreen, sidebar propia).
+            /explorar redirige a / para preservar enlaces viejos. */}
         <Route
-          path="/mapa"
+          path="/"
           element={
             <Suspense fallback={<PageLoader />}>
-              <Mapa />
+              <Explorar />
             </Suspense>
           }
         />
+        <Route path="/explorar" element={<Navigate to="/" replace />} />
         {/* PLAN-UI D4: Dinero con drill-down URL-driven */}
         <Route
           path="/dinero/:jurisdiccion?/:anio?"
@@ -277,15 +273,6 @@ export default function App() {
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
-        {/* /explorar es fullscreen — Argos v2 trae su propio sidebar y header */}
-        <Route
-          path="/explorar"
-          element={
-            <Suspense fallback={<PageLoader />}>
-              <Explorar />
-            </Suspense>
-          }
-        />
       </Routes>
     </BrowserRouter>
   )

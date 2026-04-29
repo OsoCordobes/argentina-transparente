@@ -1430,6 +1430,7 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
               <h1>
                 ¿Qué querés <em>investigar</em> hoy?
               </h1>
+              <HeroNorthStar />
               <p className="hero-meta mono">
                 {totalJur} reparticiones · {totalProv} empresas · {totalPersonas} personas · {totalSenales} señales · datos al{' '}
                 {new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
@@ -1546,5 +1547,54 @@ export function ExplorarLayout({ graph, isLoading }: ExplorarLayoutProps) {
         )}
       </div>
     </div>
+  )
+}
+
+// ─── HeroNorthStar ────────────────────────────────────────────────────────────
+// Métrica monetaria sutil arriba del meta del hero. Cableada a /api/landing.
+// Si el backend no responde, no se renderiza nada (cero alucinaciones).
+
+interface LandingHero {
+  montoAuditado: number
+  cantidadContratos: number
+  jurisdiccionPrimaria: string
+  rangoAnios: { desde: number; hasta: number }
+}
+
+function HeroNorthStar() {
+  const [hero, setHero] = useState<LandingHero | null>(null)
+
+  useEffect(() => {
+    const ctrl = new AbortController()
+    const apiBase: string =
+      (import.meta as ImportMeta).env?.VITE_API_URL ?? 'http://localhost:3001'
+    fetch(`${apiBase}/api/landing`, { signal: ctrl.signal })
+      .then(r => (r.ok ? r.json() : null))
+      .then((data: { hero?: LandingHero } | null) => {
+        if (data?.hero) setHero(data.hero)
+      })
+      .catch(() => { /* silencioso: el meta inferior ya describe el grafo */ })
+    return () => ctrl.abort()
+  }, [])
+
+  if (!hero) return null
+
+  const milM = (hero.montoAuditado / 1_000_000_000).toLocaleString('es-AR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+
+  return (
+    <p
+      className="hero-northstar mono"
+      style={{
+        fontSize: 13,
+        color: 'var(--text-2, #b6c0d4)',
+        margin: '4px 0 8px',
+        letterSpacing: 0.2,
+      }}
+    >
+      ${milM} mil M auditados · {hero.cantidadContratos.toLocaleString('es-AR')} contratos · {hero.jurisdiccionPrimaria} {hero.rangoAnios.desde}–{hero.rangoAnios.hasta}
+    </p>
   )
 }

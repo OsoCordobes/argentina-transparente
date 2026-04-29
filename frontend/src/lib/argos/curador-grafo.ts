@@ -99,6 +99,16 @@ export function curarTopN(graph: ArgosGraph, opts: CuracionOpts = {}): CuracionR
   const seeds = ranked.slice(0, seedCount)
   const seleccionados = new Set<string>(seeds.map(n => n.id))
 
+  // 2b. Reserva institucional: las reparticiones tienen priority baja en el
+  // ranking (PLAN-UI §4.1 prioriza señales+actores), así que pueden quedar
+  // todas fuera. Garantizar top-15% del cap como reparticiones para que el
+  // contexto estatal aparezca en el grafo.
+  const cuotaReparticion = Math.floor(maxNodos * 0.15)
+  if (cuotaReparticion > 0) {
+    const reparticiones = ranked.filter(n => n.type === 'reparticion').slice(0, cuotaReparticion)
+    for (const r of reparticiones) seleccionados.add(r.id)
+  }
+
   // 3. Indexar edges por nodo para expansión rápida
   const edgesPorNodo = new Map<string, Set<string>>()
   for (const e of graph.edges) {

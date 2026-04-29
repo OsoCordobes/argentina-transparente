@@ -94,7 +94,7 @@ export function buildDeeplinkUrl(opts: {
 }): string {
   const base =
     opts.basePath ??
-    (typeof window !== 'undefined' ? window.location.pathname : '/explorar')
+    (typeof window !== 'undefined' ? window.location.pathname : '/')
   const origin =
     typeof window !== 'undefined' ? window.location.origin : ''
   const params = new URLSearchParams()

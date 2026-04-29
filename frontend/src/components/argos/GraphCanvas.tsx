@@ -246,6 +246,14 @@ function GraphCanvasInner({
         weight: e.weight,
       }))
 
+    // Movimiento sutil continuo: alphaTarget > 0 mantiene la simulación
+    // viva en idle (los nodos "respiran"). Si el usuario tiene
+    // prefers-reduced-motion: reduce, dejamos los nodos quietos.
+    const reduceMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const idleAlphaTarget = reduceMotion ? 0 : 0.003
+
     const sim = forceSimulation<NodeDatum, LinkDatum>(nodes)
       .force(
         'charge',
@@ -282,7 +290,10 @@ function GraphCanvasInner({
           .strength(0.9),
       )
       .alphaDecay(0.04)
-      .alphaMin(0.005)
+      // reduceMotion: alphaMin=0.001 para que la sim se detenga al decaer.
+      // Movimiento sutil: alphaMin=0 + alphaTarget>0 mantiene la sim viva.
+      .alphaMin(reduceMotion ? 0.001 : 0)
+      .alphaTarget(idleAlphaTarget)
 
     const nodeMap = new Map<string, NodeDatum>(nodes.map((n) => [n.id, n]))
 

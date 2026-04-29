@@ -39,10 +39,10 @@ export function ForensicHeader() {
         </Link>
 
         <nav style={hdr.nav}>
+          <Item to="/">Inicio</Item>
           <Item to="/dinero">Dinero</Item>
           <Item to="/actores">Actores</Item>
           <Item to="/senales">Señales</Item>
-          <Item to="/mapa">Mapa</Item>
           <Item to="/casos">Casos</Item>
           <Item to="/comparar">Comparar</Item>
           <Item to="/metodologia">Metodología</Item>

@@ -110,7 +110,7 @@ export function MiniGraph({
         {onExpand && !expanded && (
           <button style={s.btn} onClick={onExpand}>Expandir 2°</button>
         )}
-        <Link to="/mapa" style={s.btn}>Abrir en /mapa ↗</Link>
+        <Link to="/" style={s.btn}>Abrir en el grafo ↗</Link>
       </div>
       <svg
         width="100%"
