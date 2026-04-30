@@ -1,6 +1,7 @@
-import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
+import { CommandPalette } from '@/components/argos/CommandPalette'
 
 // graph-first ARGOS — TODAS las superficies usan el shell dark coherente.
 // El AppShell light y ForensicHeader fueron eliminados (commit graph-first
@@ -17,6 +18,32 @@ const WatchlistD8 = lazy(() => import('./pages/WatchlistD8'))
 const Comparar = lazy(() => import('./pages/Comparar'))
 const Metodologia = lazy(() => import('./pages/Metodologia'))
 const Fuentes = lazy(() => import('./pages/Fuentes'))
+
+/**
+ * GlobalCommandPalette — listener ⌘K / Ctrl+K global.
+ * En el home (/), el ExplorarLayout ya focused el input del hero — no abrimos
+ * el palette ahí para no doble-bindear. En el resto de las rutas, abrimos el
+ * palette flotante.
+ */
+function GlobalCommandPalette() {
+  const [open, setOpen] = useState(false)
+  const location = useLocation()
+  const isHome = location.pathname === '/'
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        if (isHome) return // ExplorarLayout maneja Cmd+K en el home
+        e.preventDefault()
+        setOpen((s) => !s)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isHome])
+
+  return <CommandPalette open={open} onClose={() => setOpen(false)} />
+}
 
 function PageLoader() {
   return (
@@ -38,6 +65,7 @@ function PageLoader() {
 export default function App() {
   return (
     <BrowserRouter>
+      <GlobalCommandPalette />
       <Routes>
         {/* Home graph-first: el grafo de Córdoba */}
         <Route

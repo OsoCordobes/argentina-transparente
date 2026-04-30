@@ -1,0 +1,501 @@
+/* ARGOS V4 Forensic — utility classes
+ * Port de styling inline de argos-v3/project/forensic/system.jsx
+ * Cero rounded corners en chrome. Hairlines siempre. Mono uppercase para labels.
+ */
+
+/* ─── Header global 42px ──────────────────────────────────────────────── */
+.fx-header {
+  height: var(--header-h);
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--hairline-1);
+  background: var(--bg-forensic-1);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+.fx-header__section {
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  font-size: 10.5px;
+  color: var(--text-1);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.fx-header__btn {
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--hairline-1);
+  color: var(--text-2);
+  font-size: 10px;
+  padding: 0 14px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.fx-header__btn:hover {
+  color: var(--text-1);
+  background: var(--bg-forensic-2);
+}
+.fx-header__pill {
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  color: var(--text-2);
+  border-left: 1px solid var(--hairline-1);
+  letter-spacing: 0.04em;
+}
+.fx-header__pill .dot {
+  width: 5px;
+  height: 5px;
+  background: var(--ok);
+}
+
+/* ─── Severity pills ──────────────────────────────────────────────────── */
+.fx-sev-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  padding: 2px 7px;
+  border: 1px solid currentColor;
+  text-transform: uppercase;
+}
+.fx-sev-pill .dot {
+  width: 4px;
+  height: 4px;
+  background: currentColor;
+}
+.fx-sev-pill--grave    { color: var(--alarm); background: rgba(229,72,77,0.08); }
+.fx-sev-pill--moderada { color: var(--warn);  background: rgba(245,181,68,0.08); }
+.fx-sev-pill--baja     { color: var(--ok);    background: rgba(74,222,128,0.08); }
+
+/* ─── Glyphs PF / PJ / JR ─────────────────────────────────────────────── */
+.fx-glyph {
+  display: inline-block;
+  vertical-align: middle;
+}
+.fx-glyph--pf { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+.fx-glyph--pj { width: 8px; height: 8px; background: var(--select); transform: rotate(45deg); }
+.fx-glyph--jr { width: 8px; height: 8px; background: var(--text-2); }
+
+/* ─── Tier dot (con tooltip nativo via title=) ────────────────────────── */
+.fx-tier {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  vertical-align: middle;
+  margin-left: 4px;
+  cursor: help;
+  opacity: 0.7;
+}
+.fx-tier--1 { background: var(--ok); }
+.fx-tier--2 { background: var(--warn); }
+.fx-tier--3 { background: var(--alarm); }
+
+/* ─── Filter chip (col vertical: label arriba, value abajo) ───────────── */
+.fx-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 10px;
+  border: 1px solid var(--hairline-2);
+  background: transparent;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+.fx-chip:hover { background: var(--bg-forensic-2); }
+.fx-chip__label {
+  font-size: 8.5px;
+  color: var(--text-3);
+  letter-spacing: 0.16em;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+.fx-chip__value {
+  font-size: 11px;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
+.fx-chip--active {
+  border-color: var(--select);
+  background: rgba(111,184,232,0.06);
+}
+.fx-chip--active .fx-chip__label { color: var(--select); }
+.fx-chip--active .fx-chip__value { color: var(--text-1); }
+
+/* ─── FCM (filter cell horizontal: label | value | ⌄) ─────────────────── */
+.fx-fcm {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--hairline-2);
+  height: 28px;
+  background: transparent;
+  cursor: pointer;
+}
+.fx-fcm__label {
+  padding: 0 9px;
+  border-right: 1px solid var(--hairline-1);
+  font-size: 9px;
+  color: var(--text-3);
+  letter-spacing: 0.10em;
+  display: flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+.fx-fcm__value {
+  padding: 0 10px;
+  font-size: 11px;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+}
+.fx-fcm__value::after {
+  content: '⌄';
+  color: var(--text-3);
+  font-size: 9px;
+}
+.fx-fcm--active {
+  border-color: var(--select);
+  background: rgba(111,184,232,0.07);
+}
+.fx-fcm--active .fx-fcm__label { color: var(--select); border-right-color: rgba(111,184,232,0.20); }
+.fx-fcm--active .fx-fcm__value { color: var(--text-1); }
+
+/* ─── Filter field (subtler que FCM, para tablas) ─────────────────────── */
+.fx-field {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--hairline-2);
+  font-family: var(--font-mono);
+}
+.fx-field__label {
+  padding: 5px 8px;
+  border-right: 1px solid var(--hairline-1);
+  font-size: 9px;
+  color: var(--text-3);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+}
+.fx-field__value {
+  padding: 5px 10px;
+  font-size: 10.5px;
+  color: var(--text-2);
+  min-width: 90px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fx-field--wide .fx-field__value { min-width: 180px; }
+.fx-field__value::after {
+  content: '⌄';
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 9px;
+}
+
+/* ─── Kbd (atajo de teclado) ──────────────────────────────────────────── */
+.fx-kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  border: 1px solid var(--hairline-2);
+  background: rgba(255,255,255,0.04);
+  color: var(--text-2);
+  letter-spacing: 0.04em;
+}
+
+/* ─── Botón sutil (chip-style) ────────────────────────────────────────── */
+.fx-btn-subtle {
+  background: transparent;
+  border: 1px solid var(--hairline-2);
+  color: var(--text-2);
+  font-size: 10px;
+  padding: 5px 10px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.fx-btn-subtle:hover { color: var(--text-1); border-color: var(--hairline-2); background: var(--bg-forensic-2); }
+
+/* ─── Botón primary (celeste, action principal) ──────────────────────── */
+.fx-btn-primary {
+  background: var(--select);
+  border: 0;
+  color: var(--bg-forensic-0);
+  padding: 9px 16px;
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  cursor: pointer;
+  font-weight: 500;
+}
+.fx-btn-primary:hover { filter: brightness(1.10); }
+
+/* ─── Sección con divisor ─────────────────────────────────────────────── */
+.fx-section {
+  border-bottom: 1px solid var(--hairline-1);
+}
+
+/* ─── Eyebrow mono uppercase (label de sección) ──────────────────────── */
+.fx-eyebrow {
+  font-size: 9.5px;
+  color: var(--text-3);
+  letter-spacing: 0.20em;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+
+/* ─── Legend row (severidad visible) ──────────────────────────────────── */
+.fx-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+}
+.fx-legend-row .swatch {
+  width: 6px;
+  height: 6px;
+}
+
+/* ─── Empty state container (dignidad, no infantil) ──────────────────── */
+.fx-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 40px;
+  text-align: center;
+}
+.fx-empty__inner { max-width: 540px; }
+.fx-empty__title {
+  font-size: 18px;
+  color: var(--text-1);
+  font-weight: 300;
+  letter-spacing: -0.005em;
+  line-height: 1.4;
+  margin: 14px 0 14px 0;
+}
+.fx-empty__body {
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.55;
+  margin-bottom: 24px;
+}
+
+/* ─── Tabular nums helper ─────────────────────────────────────────────── */
+.fx-tabular { font-variant-numeric: tabular-nums; }
+
+/* ─── Panel forense (overrides para .panel.glass cuando lleva fx-panel) ─ */
+.panel.glass.fx-panel {
+  background: var(--bg-forensic-1);
+  border-left: 1px solid var(--hairline-1);
+  border-radius: 0;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.fx-panel .panel-head {
+  border-bottom: 1px solid var(--hairline-1);
+  padding: 12px 16px;
+}
+.fx-panel .panel-title {
+  font-size: 18px;
+  color: var(--text-1);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  margin: 8px 0 4px;
+}
+.fx-panel .panel-sub {
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.fx-panel .panel-sub.mono {
+  font-family: var(--font-mono);
+}
+.fx-panel .type-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  border-radius: 0;
+}
+.fx-panel .type-chip.t-persona,
+.fx-panel .type-chip.t-funcionario,
+.fx-panel .type-chip.t-director {
+  color: var(--warn);
+  background: rgba(245,181,68,0.08);
+}
+.fx-panel .type-chip.t-empresa,
+.fx-panel .type-chip.t-proveedor {
+  color: var(--select);
+  background: rgba(111,184,232,0.08);
+}
+.fx-panel .type-chip.t-jurisdiccion,
+.fx-panel .type-chip.t-reparticion {
+  color: var(--text-2);
+  background: rgba(155,163,180,0.08);
+}
+.fx-panel .panel-body {
+  padding: 0;
+}
+.fx-panel .section-title {
+  font-size: 9px;
+  color: var(--text-3);
+  letter-spacing: 0.18em;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  padding: 14px 16px 10px;
+  font-weight: 500;
+}
+.fx-panel .kpi-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--hairline-1);
+  border-top: 1px solid var(--hairline-1);
+  border-bottom: 1px solid var(--hairline-1);
+}
+.fx-panel .kpi {
+  background: var(--bg-forensic-1);
+  padding: 10px 12px;
+  border-radius: 0;
+  border: 0;
+}
+.fx-panel .kpi .l {
+  font-size: 8.5px;
+  color: var(--text-3);
+  letter-spacing: 0.14em;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+.fx-panel .kpi .v {
+  font-size: 18px;
+  color: var(--text-1);
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+.fx-panel .kpi .sub {
+  font-size: 9px;
+  color: var(--text-3);
+  margin-top: 3px;
+  font-family: var(--font-mono);
+}
+.fx-panel .rel-list { padding: 0 16px; }
+.fx-panel .rel {
+  padding: 9px 0;
+  border-top: 1px solid var(--hairline-soft);
+  border-radius: 0;
+}
+.fx-panel .rel:hover { background: rgba(255,255,255,0.02); }
+.fx-panel .rel .label {
+  font-size: 12.5px;
+  color: var(--text-1);
+}
+.fx-panel .rel .meta {
+  font-size: 9.5px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  margin-top: 1px;
+}
+.fx-panel .panel-foot {
+  padding: 14px 16px;
+  border-top: 1px solid var(--hairline-1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fx-panel .btn.primary {
+  background: var(--select);
+  border: 0;
+  color: var(--bg-forensic-0);
+  padding: 10px 14px;
+  font-size: 11.5px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  border-radius: 0;
+}
+.fx-panel .btn.primary:hover { filter: brightness(1.10); }
+.fx-panel .btn-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.fx-panel .btn:not(.primary) {
+  background: transparent;
+  border: 1px solid var(--hairline-2);
+  color: var(--text-2);
+  padding: 8px 10px;
+  font-size: 11px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  border-radius: 0;
+}
+.fx-panel .btn:not(.primary):hover {
+  background: var(--bg-forensic-2);
+  color: var(--text-1);
+}
+.fx-panel .x-btn {
+  background: transparent;
+  border: 0;
+  color: var(--text-3);
+  cursor: pointer;
+  font-family: var(--font-mono);
+}
+
+/* Δ warn box (lastDelta) */
+.fx-panel .fx-delta-box {
+  margin: 10px 16px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--warn);
+  background: rgba(245,181,68,0.06);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10.5px;
+  color: var(--warn);
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
+.fx-panel .fx-delta-box .delta-label { color: var(--warn); }
+.fx-panel .fx-delta-box .delta-text { color: var(--text-2); }
+
+/* Trazabilidad (Feature A — meta source/método) */
+.fx-panel .panel-head .meta-block {
+  margin-top: 10px;
+  font-size: 10.5px;
+  color: var(--text-3);
+  line-height: 1.6;
+  border-top: 1px solid var(--hairline-1);
+  padding-top: 8px;
+  font-family: var(--font-mono);
+}

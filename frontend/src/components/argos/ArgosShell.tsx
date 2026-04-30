@@ -11,9 +11,14 @@
  * Sidebar es route-based (NavLink). Diseño coherente con ExplorarLayout.
  */
 import '@/styles/argos.css'
-import { ReactNode } from 'react'
-import { Link, NavLink } from 'react-router-dom'
+import '@/styles/argos-forensic.css'
+import { ReactNode, useState } from 'react'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { Ico } from './ArgosIcons'
+import { ForensicHeader } from './forensic/Primitives'
+import { DeltaPanel } from './forensic/DeltaPanel'
+import { useDeltaSinceLastVisit } from '@/lib/argos/diff'
+import { VERSION_LABEL } from '@/lib/argos/version'
 
 interface NavSection {
   to: string
@@ -67,7 +72,7 @@ function Sidebar() {
         <ArgosMark size={30} />
         <div className="brand-text">
           <div className="name">ARGOS</div>
-          <div className="tag">Inteligencia ciudadana</div>
+          <div className="tag" style={{ fontFamily: 'var(--font-mono)' }}>{VERSION_LABEL}</div>
         </div>
       </Link>
       <nav className="nav" aria-label="Secciones">
@@ -96,7 +101,7 @@ function Sidebar() {
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--verde)', boxShadow: '0 0 6px rgba(74,222,128,0.6)' }} />
           Backend conectado
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text-3)' }}>Córdoba 2018-2025</div>
+        <div style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>Córdoba 2018-2025</div>
       </div>
     </aside>
   )
@@ -112,24 +117,29 @@ interface ArgosShellProps {
 }
 
 export function ArgosShell({ title, rightSlot, children }: ArgosShellProps) {
-  const today = new Date().toLocaleDateString('es-AR', {
-    day: '2-digit', month: 'long', year: 'numeric',
-  })
+  const navigate = useNavigate()
+  const { lastVisit, lastVisitShort } = useDeltaSinceLastVisit()
+  const [deltaOpen, setDeltaOpen] = useState(false)
+  // Sección mono uppercase derivada del title (toma la primera palabra antes de ·)
+  const sectionLabel = title.split('·')[0].trim().toUpperCase()
   return (
     <div className="app">
       <Sidebar />
       <div className="main">
-        <header className="header" style={{ position: 'sticky' as const, top: 0 }}>
-          <div className="crumb" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 14, fontWeight: 500 }}>{title}</span>
-          </div>
-          <div className="header-right" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
-            {rightSlot}
-            <span className="pill" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-2)', padding: '4px 10px', border: '1px solid var(--stroke)', borderRadius: 999 }}>
-              <span className="dot" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--verde)' }} /> Datos al {today}
-            </span>
-          </div>
-        </header>
+        <ForensicHeader
+          section={sectionLabel}
+          isGraphSurface={false}
+          hasDelta={true}
+          deltaSince={lastVisitShort}
+          onClickDelta={() => setDeltaOpen(true)}
+          onClickBackToGraph={() => navigate('/')}
+          customRight={rightSlot}
+        />
+        <DeltaPanel
+          open={deltaOpen}
+          onClose={() => setDeltaOpen(false)}
+          lastVisitIso={lastVisit}
+        />
         <div
           className="argos-shell-body"
           style={{

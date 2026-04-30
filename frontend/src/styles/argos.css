@@ -3,6 +3,7 @@
  * NO modificar manualmente — sustituir si el zip se actualiza.
  */
   :root{
+    /* Legacy (V3) — mantenidos por retrocompatibilidad mientras migramos. */
     --bg-0:#05070D;
     --bg-1:#0A0E1A;
     --bg-panel: rgba(12,17,28,0.55);
@@ -19,9 +20,39 @@
     --ambar:#F5B544;
     --rojo:#E5484D;
     --verde:#4ADE80;
-    --sidebar-w-rest: 220px;
+
+    /* V4 Forensic tokens (Palantir-leaning original).
+     * Ver argos-v3/project/forensic/system.jsx — port directo de ARGOS{}.
+     * Acento principal NEUTRO (--accent-chrome). El celeste intenso
+     * (--select) queda RESERVADO para selección/foco/botón primario activo.
+     */
+    --bg-forensic-0: #040609;       /* fondo principal */
+    --bg-forensic-1: #070A11;       /* paneles/headers */
+    --bg-forensic-2: #0B0F18;       /* hover/selected */
+    --panel-glass: rgba(7,10,17,0.85);
+
+    --hairline-1: rgba(255,255,255,0.06);   /* divisor estándar */
+    --hairline-2: rgba(255,255,255,0.10);   /* divisor más visible */
+    --hairline-soft: rgba(255,255,255,0.04); /* alterna filas tabla */
+
+    --text-1: #E8ECF2;   /* primario */
+    --text-2: #9BA3B4;   /* secundario */
+    --text-3: #5C6478;   /* terciario */
+    --text-4: #3A4254;   /* cuaternario / disabled */
+
+    --accent-chrome: #A8B5C8;  /* gris-celeste neutro — chrome */
+    --select: #6FB8E8;         /* RESERVADO: selección, hover focus, primary activo */
+    --alarm: #E5484D;          /* señales graves, deltas negativos */
+    --warn:  #F5B544;          /* moderada, deltas */
+    --ok:    #4ADE80;          /* verificado, backend status */
+
+    --font-sans: Inter, system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+
+    /* Layout */
+    --sidebar-w-rest: 240px;
     --sidebar-w-active: 360px;
-    --header-h: 64px;
+    --header-h: 42px;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;height:100%;overflow:hidden;background:var(--bg-0);color:var(--text);font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-feature-settings:"ss01","cv11";-webkit-font-smoothing:antialiased;}

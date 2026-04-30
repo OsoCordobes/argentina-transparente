@@ -17,8 +17,13 @@
 // que no rompa cuando lo monta un wrapper liviano (Profile en /persona/:dni)
 // que no lo trae.
 import '@/styles/argos.css'
+import '@/styles/argos-forensic.css'
 import { useReducer, useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { Link, NavLink } from 'react-router-dom'
+import { ForensicHeader } from './forensic/Primitives'
+import { DeltaPanel } from './forensic/DeltaPanel'
+import { useDeltaSinceLastVisit } from '@/lib/argos/diff'
+import { VERSION_LABEL } from '@/lib/argos/version'
 import { GraphCanvas } from './GraphCanvas'
 import { NodeDetailPanel } from './NodeDetailPanel'
 import { InterpretationBlock } from './InterpretationBlock'
@@ -518,7 +523,7 @@ function Sidebar({
         <ArgosMark size={30} />
         <div className="brand-text">
           <div className="name">ARGOS</div>
-          <div className="tag">Inteligencia ciudadana</div>
+          <div className="tag" style={{ fontFamily: 'var(--font-mono)' }}>{VERSION_LABEL}</div>
         </div>
       </Link>
       <nav className="nav" aria-label="Secciones">
@@ -861,7 +866,7 @@ function ArgosMark({ size = 30 }: { size?: number }) {
   )
 }
 
-// ─── Header ───────────────────────────────────────────────────────────────────
+// ─── Header (V4 forensic — usa ForensicHeader del system) ─────────────────────
 
 interface HeaderProps {
   focusedNode: ArgosNode | null
@@ -871,91 +876,78 @@ interface HeaderProps {
   onLabelsToggle: () => void
   onLabelsDepth: (d: 1 | 2 | 3) => void
   novedadesCount: number
+  /** abre el DeltaPanel del shell padre */
+  onClickDelta: () => void
+  /** "28/04" desde useDeltaSinceLastVisit */
+  deltaSince: string
 }
 
 function Header({
   focusedNode, onClearFocus, labelsMode, labelsDepth, onLabelsToggle, onLabelsDepth,
-  novedadesCount,
+  novedadesCount, onClickDelta, deltaSince,
 }: HeaderProps) {
-  const today = new Date().toLocaleDateString('es-AR', {
-    day: '2-digit', month: 'long', year: 'numeric',
-  })
-  const showLabelsToggle = true
+  const sectionLabel = focusedNode
+    ? (focusedNode.label.length > 28 ? focusedNode.label.slice(0, 26) + '…' : focusedNode.label).toUpperCase()
+    : 'GRAFO'
   return (
-    <header className="header">
-      <div className="crumb">
-        <span>Inicio</span>
-        {focusedNode && (
-          <>
-            <span className="sep">/</span>
-            <span className="now">
-              {focusedNode.label.length > 40
-                ? focusedNode.label.slice(0, 38) + '…'
-                : focusedNode.label}
-            </span>
+    <ForensicHeader
+      section={sectionLabel}
+      isGraphSurface
+      hasDelta
+      deltaSince={deltaSince}
+      onClickDelta={onClickDelta}
+      onClickLabelsToggle={onLabelsToggle}
+      labelsOn={labelsMode === 'all'}
+      customRight={
+        <>
+          {focusedNode && (
             <button
+              type="button"
+              className="fx-header__btn"
               onClick={onClearFocus}
-              className="x-btn"
-              aria-label="Quitar foco"
-              style={{ marginLeft: 4, width: 20, height: 20 }}
+              title="Quitar foco del nodo"
             >
-              <Ico.X size={11} />
+              ← QUITAR FOCO
             </button>
-          </>
-        )}
-      </div>
-      <div className="header-right">
-        {novedadesCount > 0 && (
-          <Link
-            to="/watchlist"
-            style={{
-              color: 'var(--ambar)',
-              textDecoration: 'none',
-              fontSize: 12,
-              padding: '4px 10px',
-              border: '1px solid var(--ambar)',
-              borderRadius: 999,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
-            title="Hay novedades en tus proveedores monitoreados"
-          >
-            🔔 {novedadesCount} novedad{novedadesCount === 1 ? '' : 'es'}
-          </Link>
-        )}
-        {showLabelsToggle && (
-          <div className="lbl-toggle">
-            <button
-              className={labelsMode === 'all' ? 'on' : ''}
-              onClick={onLabelsToggle}
-              aria-pressed={labelsMode === 'all'}
+          )}
+          {labelsMode === 'all' && (
+            <div className="fx-header__btn" style={{ display: 'flex', gap: 4, alignItems: 'center', padding: '0 10px' }}>
+              {[1, 2, 3].map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => onLabelsDepth(d as 1 | 2 | 3)}
+                  style={{
+                    background: labelsDepth === d ? 'var(--select)' : 'transparent',
+                    color: labelsDepth === d ? 'var(--bg-forensic-0)' : 'var(--text-3)',
+                    border: 'none',
+                    fontSize: 9.5,
+                    padding: '1px 5px',
+                    fontFamily: 'var(--font-mono)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {d}°
+                </button>
+              ))}
+            </div>
+          )}
+          {novedadesCount > 0 && (
+            <Link
+              to="/watchlist"
+              className="fx-header__btn"
+              style={{
+                color: 'var(--warn)',
+                textDecoration: 'none',
+              }}
+              title="Hay novedades en tus proveedores monitoreados"
             >
-              Mostrar nombres
-            </button>
-            {labelsMode === 'all' && (
-              <div className="seg" role="group" aria-label="Profundidad de etiquetas">
-                {[1, 2, 3].map((d) => (
-                  <button
-                    key={d}
-                    className={labelsDepth === d ? 'on' : ''}
-                    onClick={() => onLabelsDepth(d as 1 | 2 | 3)}
-                  >
-                    {d}°
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        <span className="pill">
-          <span className="dot" /> Datos al {today}
-        </span>
-        <button className="x-btn" aria-label="Tema" style={{ width: 30, height: 30 }}>
-          <Ico.Sun size={14} />
-        </button>
-      </div>
-    </header>
+              ★ {novedadesCount} NOV
+            </Link>
+          )}
+        </>
+      }
+    />
   )
 }
 
@@ -992,6 +984,9 @@ export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: Explo
   const [novedadesCount, setNovedadesCount] = useState(0)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const chipHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // V4 — Δ tracking + DeltaPanel modal
+  const { lastVisit, lastVisitShort } = useDeltaSinceLastVisit()
+  const [deltaOpen, setDeltaOpen] = useState(false)
 
   const wakeGraph = useCallback(() => setGraphAsleep(false), [])
 
@@ -1385,6 +1380,13 @@ export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: Explo
           onLabelsToggle={() => setLabelsMode((m) => (m === 'minimal' ? 'all' : 'minimal'))}
           onLabelsDepth={setLabelsDepth}
           novedadesCount={novedadesCount}
+          onClickDelta={() => setDeltaOpen(true)}
+          deltaSince={lastVisitShort}
+        />
+        <DeltaPanel
+          open={deltaOpen}
+          onClose={() => setDeltaOpen(false)}
+          lastVisitIso={lastVisit}
         />
 
         {showGraph && (

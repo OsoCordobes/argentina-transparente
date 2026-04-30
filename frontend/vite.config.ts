@@ -1,7 +1,20 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import { execSync } from "node:child_process";
 import { componentTagger } from "lovable-tagger";
+
+// Commit hash corto inyectado en build (sidebar brand line "v3.0 · <hash>").
+// Fallback 'dev' si git no está disponible o no es repo.
+function getCommitHash(): string {
+  try {
+    return execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] })
+      .toString()
+      .trim();
+  } catch {
+    return "dev";
+  }
+}
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -14,6 +27,9 @@ export default defineConfig(({ mode }) => ({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
+  define: {
+    "import.meta.env.VITE_COMMIT_HASH": JSON.stringify(getCommitHash()),
   },
   build: {
     // Vendor chunks separados para mejor cache cross-deploy.

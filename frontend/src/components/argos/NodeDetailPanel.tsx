@@ -171,6 +171,10 @@ interface NodeDetailPanelProps {
   onSelect: (id: string) => void
   /** Hover en una relación → resaltar en el grafo (null al salir). */
   onRelHover: (id: string | null) => void
+  /** V4 forensic: warn box arriba del panel con qué cambió desde la última visita */
+  lastDelta?: string | null
+  /** V4 forensic: 'sidebar' = panel ancho normal · 'drawer' = overlay 440px sobre grafo */
+  variant?: 'sidebar' | 'drawer'
 }
 
 // ─── Panel principal ──────────────────────────────────────────────────────────
@@ -182,6 +186,8 @@ export function NodeDetailPanel({
   onClose,
   onSelect,
   onRelHover,
+  lastDelta = null,
+  variant = 'sidebar',
 }: NodeDetailPanelProps) {
   const [accSrc, setAccSrc] = useState(false)
   const [expanded, setExpanded] = useState<Record<number, boolean>>({})
@@ -226,7 +232,7 @@ export function NodeDetailPanel({
 
   // Panel cerrado → render placeholder transparente (preserva ancho de layout
   // y permite la animación de transición CSS hacia `open`).
-  if (!open) return <div className="panel glass" aria-hidden />
+  if (!open) return <div className={`panel glass fx-panel ${variant === 'drawer' ? 'fx-panel--drawer' : ''}`} aria-hidden />
 
   const n = detail?.node
 
@@ -303,7 +309,7 @@ export function NodeDetailPanel({
 
   return (
     <aside
-      className="panel glass open"
+      className={`panel glass open fx-panel ${variant === 'drawer' ? 'fx-panel--drawer' : ''}`}
       role="dialog"
       aria-label="Detalle del nodo"
     >
@@ -417,6 +423,14 @@ export function NodeDetailPanel({
                 </div>
               )}
             </div>
+
+            {/* V4 — lastDelta warn box (qué cambió desde la última visita) */}
+            {lastDelta && (
+              <div className="fx-delta-box">
+                <span className="delta-label">Δ</span>
+                <span className="delta-text">{lastDelta}</span>
+              </div>
+            )}
 
             {/* ── Body ── */}
             <div className="panel-body">
