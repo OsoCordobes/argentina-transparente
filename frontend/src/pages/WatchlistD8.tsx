@@ -7,6 +7,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { ArgosShell } from '@/components/argos/ArgosShell'
+import { EmptyStateForensic } from '@/components/argos/forensic/EmptyStateForensic'
 import {
   getWatchlist, removeFromWatchlist, exportWatchlist, importWatchlist,
   markAllSeen, type WatchlistItem,
@@ -100,6 +101,20 @@ export default function WatchlistD8() {
     } else {
       alert(`No se pudo importar: ${(r as { ok: false; reason: string }).reason}`)
     }
+  }
+
+  // V4 — empty state forense cuando watchlist totalmente vacía
+  if (items.length === 0 && alertas.length === 0) {
+    return (
+      <ArgosShell title="Watchlist · monitoreo personal">
+        <EmptyStateForensic
+          eyebrow="WATCHLIST · 0 ENTIDADES"
+          title="Marcá entidades para ver sus cambios."
+          body="Cuando alguna entidad de la watchlist cambia (nuevo contrato, nueva señal, nuevo vínculo), te aparece en el header como Δ."
+          hint="Agregás desde cualquier entidad → botón ★ Watchlist en el panel."
+        />
+      </ArgosShell>
+    )
   }
 
   return (

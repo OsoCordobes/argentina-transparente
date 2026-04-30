@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { ArgosShell } from '@/components/argos/ArgosShell'
+import { EmptyStateForensic } from '@/components/argos/forensic/EmptyStateForensic'
 import {
   getCasos, newCaso, saveCaso, deleteCaso, exportCaso, importCaso,
   type CasoLS,
@@ -127,12 +128,21 @@ export default function CasosD7() {
         )}
 
         {casos.length === 0 && (
-          <div style={s.empty}>
-            <div style={{ fontSize: 13, color: '#9BA3B4', marginBottom: 12 }}>
-              No tenés casos guardados todavía.
-            </div>
-            <button onClick={() => createCaso()} style={s.primaryBtn}>Crear el primero →</button>
-          </div>
+          <EmptyStateForensic
+            eyebrow="EXPEDIENTES · 0 ABIERTOS"
+            title="Cuando una señal merece investigación, abrís un expediente."
+            body="Un expediente agrupa nodos, señales, fuentes y notas en un sumario citable. Quedan acá hasta que los archives o los exportes como PDF court-ready."
+            primaryAction={
+              <button onClick={() => createCaso()} className="fx-btn-primary">
+                + ABRIR EXPEDIENTE
+              </button>
+            }
+            secondaryAction={
+              <button onClick={() => setShowImport(!showImport)} className="fx-btn-subtle">
+                IMPORTAR JSON
+              </button>
+            }
+          />
         )}
 
       {casos.length > 0 && (
