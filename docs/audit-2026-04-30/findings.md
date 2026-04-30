@@ -123,3 +123,80 @@ ANALISIS-DATOS-ARGOS.md decía "95% de datos no expuestos" — **OBSOLETO**. Las
 - **0 leaks** de mock a producción
 - **10 endpoints sin fuente_url** = mismo finding Fase 1, raíz: `señales_cache` no tiene columna fuente_url. Migración SQL propuesta.
 - **Tono user-facing neutral** ✅
+
+---
+
+## FASE 2 · Coherencia Neo4j estática (✅ completada)
+
+**Output**: `02-neo4j-coherence.md` (subagent)
+
+### 5 arquetipos analizados
+- ✅ **A — Persona pública con cargo**: COMPLETO. Cadena `PersonaFisica + Funcionario + TRABAJA_EN + Reparticion` totalmente implementada
+- ✅ **B — Empresa con director y contrato**: COMPLETO. `PersonaFisica → DIRIGE → Empresa → GANO → Contrato ← EMITE — Reparticion` trazable
+- ✅ **C — Conflicto de interés estructural**: COMPLETO. `:CONFLICTO_CON` se computa vía 5-hop closure, todos los endpoints operan
+- 🟡 **D — Empresa con empleados**: GAP. NO hay arista `:TIENE_EMPLEADO`. Datos existen en `agentes_publicos.cuit_empleador` pero el seed no los conecta. Fix propuesto: ~50 LOC en seed nuevo.
+- 🟡 **E — Cadena presupuestaria**: PARCIAL. Estado + Programa existen como nodos pero `Programa → Contrato` falta. Por eso el Sankey de `/dinero` cae al bundle estático. Fix: ~30 LOC.
+
+### Validación drift
+Todos los seeds usan `MERGE` (idempotente), entonces el snapshot de 2026-04-26 (1.028M nodos, 161K aristas) sigue válido si los seeds se vuelven a correr. **Cero drift estructural**.
+
+### Top 3 blockers
+1. Arquetipo D (low effort): seed `:TIENE_EMPLEADO` desde `agentes_publicos`
+2. Arquetipo E (medium effort): linkear Programa → Contrato + integrar presupuesto
+3. Tier 1 ES_LA_MISMA_PERSONA (high effort): pipeline OCR Boletín para subir 8.5K aristas Tier 2 → Tier 1
+
+---
+
+## 🔴 HALLAZGO CRÍTICO · Test pollution leak a producción (resuelto)
+
+**Descubierto en smoke `/api/actores-d6` con backend up**: el endpoint devolvía 1 item con `label: "Test Caller", id: "14289301"`. Investigación reveló:
+
+### Causa raíz
+
+`backend/src/lib/personas-fisicas.test.ts` línea 75 inserta:
+```ts
+await upsertPersonaFisica({
+  dni: '14289301',
+  cuit: '20-14289301-1',
+  apellidoNombre: 'Test Caller',
+})
+```
+
+Pero el `afterAll` cleanup en línea 12-19 solo borra `TEST_DNIS = ['11111111', '12345678', '24563128']`. **DNI 14289301 quedaba huérfano** en `personas_fisicas` tras cada `npm run test`.
+
+Como vitest y backend usan **la misma DB persistente** (`backend/data/argos.duckdb`), la fila contaminaba `/api/actores-d6` (y potencialmente otros endpoints que tocan `personas_fisicas`).
+
+### Reproducción
+1. `cd backend && npx vitest run src/lib/personas-fisicas.test.ts`
+2. `npm run dev`
+3. `curl localhost:3001/api/actores-d6?q=&limit=10`
+4. Resultado pre-fix: `{"items":[{"kind":"pf","id":"14289301","label":"Test Caller",...}]}` 🔴
+5. Resultado post-fix: `{"items":[],"paginacion":{"total":0,...}}` ✅
+
+### Fix aplicado en este audit
+
+1. **Cleanup de la DB del sandbox** ejecutado vía `src/scripts/cleanup-test-caller-now.ts` — purgó la fila huérfana
+2. **Patch al test** (`backend/src/lib/personas-fisicas.test.ts` línea 12): agregado `'14289301'` al array `TEST_DNIS` para que `afterAll` cubra el caso. Comentario explicativo del audit incluido.
+3. **Verificación**: full suite `vitest run` → 643/643 tests verde + `personas_fisicas` count = 0 post-suite (cleanup hooks ahora funcionan)
+
+### Recomendación de fix permanente (futuro sprint)
+
+El fix de hoy es defensivo (cubre los 4 DNIs conocidos), pero el problema **estructural** persiste: tests y prod comparten DB. Mejor práctica:
+
+```ts
+// backend/src/lib/db.ts
+const DB_PATH = process.env.DUCKDB_PATH || path.join(DATA_DIR, 'argos.duckdb')
+
+// backend/vitest.config.ts (nuevo)
+import { defineConfig } from 'vitest/config'
+export default defineConfig({
+  test: {
+    setupFiles: ['./src/test-setup.ts'],
+    env: { DUCKDB_PATH: ':memory:' }, // o './data/argos.test.duckdb'
+  },
+})
+```
+
+Esto **garantiza** aislamiento total entre tests y producción. Cero pollution posible. 1-2 horas de implementación + verificación.
+
+---

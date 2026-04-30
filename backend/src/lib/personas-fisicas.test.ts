@@ -9,7 +9,10 @@ import {
   buscarPersonasPorApellidoNombre,
 } from './personas-fisicas'
 
-const TEST_DNIS = ['11111111', '12345678', '24563128']
+// Audit 2026-04-30: DNI 14289301 ('Test Caller', usado en línea 75) faltaba acá.
+// Quedaba huérfano en personas_fisicas tras correr el test y leakeaba a
+// /api/actores-d6 como dato real. Ahora cubierto por afterAll.
+const TEST_DNIS = ['11111111', '12345678', '14289301', '24563128']
 
 beforeAll(async () => { await initDb() })
 afterAll(async () => {
