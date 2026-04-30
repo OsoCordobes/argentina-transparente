@@ -61,3 +61,65 @@ Cada uno con script propuesto en el reporte ejecutivo final para que el próximo
 
 (secciones se agregan abajo conforme avanzo)
 
+
+---
+
+## FASE 1 · Auditoría DuckDB (✅ completada)
+
+**Output**: `01-duckdb-inventory.md` (subagent) + `01-endpoints-inventory.md` (subagent)
+
+### DuckDB schema highlights
+- **39 tablas definidas** en `backend/src/lib/db.ts`
+- **14 activas** (seed + lectura por endpoint): contratos, señales_cache, empresas, agentes_publicos, presupuesto_ejecucion, personas_juridicas, personas_fisicas, igj_entidades, igj_autoridades, rns_personas_juridicas, declaraciones_juradas, cargos_funcionarios, pagos_contrato
+- **18 orphan inputs**: seeded pero solo consumidas por engine/detectores (no por endpoints user-facing). icij_entidades, opensanctions_matches, boletin_actos, ocr_jobs, identity_matches, etc.
+- **5 zombie outputs**: schema preparado pero **0 filas**: `auditorias_tribunal_cuentas`, `obras_publicas`, `transferencias`, `aportantes_campanas`, `licitaciones_llamado`
+- **7 issues críticos**: CUIT format inconsistency, DNI named "cuit" en agentes_publicos, dates como TEXT, no FK constraints, regex bug "SPA SA" → "SPA S", DOUBLE precision loss en montos ARS, identity_matches sin invalidación
+
+### Endpoints (51 total)
+- **50 LIVE / 1 MOCK** (`/health` hardcoded version, OK para k8s)
+- **10 endpoints sin `fuente_url`** — viola CLAUDE.md §4
+- **0 cobertura de tests de rutas** (solo unit/lib)
+- 4 endpoints con fallback empty cuando Neo4j down (graceful degradation OK)
+
+### Hallazgo cruzado vs audit previo (2026-04-26)
+ANALISIS-DATOS-ARGOS.md decía "95% de datos no expuestos" — **OBSOLETO**. Las iter 2-3 del roadmap se ejecutaron: `/api/actores/*` y `/api/actores-d6` ahora consumen las 4 tablas que estaban "dormidas".
+
+---
+
+## FASE 3 · Frontend wiring (✅ completada)
+
+**Output**: `03-frontend-wiring.md` (subagent)
+
+### 12 pages — verdict
+- **9 LIVE through-and-through**
+- **2 MIXED**:
+  - `Dinero.tsx` cols 0-1 Sankey desde `lib/argos/dinero-flujo.ts` estático — necesita `/api/dinero/sankey-jerarquico`
+  - `ActoresD6.tsx` filtros split: backend solo recibe `q, tipo, conSenales`, el resto cliente
+- **1 LOCAL** (solo localStorage): delta `Δ` en ForensicHeader sin endpoint backend
+
+### Mismatches
+- 17 endpoints backend sin consumo de frontend (alertas, chat LLM, cobertura) — features de infraestructura
+
+### Compliance
+- Datos estáticos marcados con `tone: 'warn', estimated: true` o banners amarillos — ✅ OK
+
+---
+
+## FASE 4 (parcial) · Tests + tsc (✅)
+
+- Backend `tsc --noEmit`: ✅ pasa
+- Backend `vitest run`: ✅ **643 tests / 39 archivos** en 23s
+- Frontend `tsc --noEmit`: ✅ pasa
+- Playwright instalado en background
+
+**Deuda explícita**: smoke `curl` por endpoint y smoke browser quedan bloqueados sin DB y sin Chrome MCP.
+
+---
+
+## FASE 5 · Anti-falseness (✅ completada)
+
+**Output**: `05-anti-falseness.md`
+
+- **0 leaks** de mock a producción
+- **10 endpoints sin fuente_url** = mismo finding Fase 1, raíz: `señales_cache` no tiene columna fuente_url. Migración SQL propuesta.
+- **Tono user-facing neutral** ✅
