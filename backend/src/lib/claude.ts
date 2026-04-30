@@ -107,7 +107,7 @@ RESTRICCIONES ABSOLUTAS:
 - No incluyas títulos ni encabezados, solo los 3 párrafos corridos`
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 600,
     messages: [{ role: 'user', content: prompt }],
   })
@@ -144,7 +144,7 @@ RESTRICCIONES ABSOLUTAS:
         'Fiscalía de Estado de Córdoba — fiscaliaestado.cba.gov.ar',
       ],
       marcoLegal: [
-        'Ley Provincial 8614 — Contrataciones de la Provincia de Córdoba',
+        'Ley Provincial 10.155 + Decreto Reglamentario 305/14 — Régimen de Compras y Contrataciones de la Provincia de Córdoba (bienes y servicios)',
         'Ley de Contabilidad Pública — art. 7 (contrataciones directas)',
         'Código Penal art. 265/266 — peculado y exacciones ilegales',
       ],

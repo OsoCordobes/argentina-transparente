@@ -9,6 +9,22 @@ export interface Contrato {
   numeroExpediente?: string   // "EXP-2022-001234" si el dataset lo tiene
   numeroContrato?: string     // número de resolución/decreto
   fechaContrato?: string      // "2022-03-15"
+
+  // ── PLAN-DATOS Fase B2: identidad del proveedor verificada ────────────────
+  // proveedorCuit: CUIT verificado (Tier 1-3 del identity_resolver). Es el
+  // campo que detectores publicables consumen. Puede estar undefined cuando
+  // el connector no popula la columna o cuando identity_resolver no encontró
+  // match Tier 1-3 todavía.
+  proveedorCuit?: string
+  // proveedorCuitInferido: CUIT inferido por LLM (Tier 4-5) — separado
+  // intencionalmente. NUNCA usar en detectores publicables.
+  proveedorCuitInferido?: string
+
+  // ── Trazabilidad de extracción (CLAUDE.md §4) ──────────────────────────────
+  // Defaultea a alto/api_estructurada al insertarse si no se especifica.
+  nivelConfianza?: NivelConfianza        // 'alto' (API), 'medio' (OCR), 'bajo' (scraper)
+  metodoExtraccion?: ConnectorTipo       // tipo de connector que lo produjo
+  paginaPdf?: number                     // página origen si vino de OCR
 }
 
 export interface Señal {
@@ -22,6 +38,16 @@ export interface Señal {
     severidad: 'grave' | 'moderada' | 'leve'
     denunciarAnte: string[]
   }
+  // CUITs de las entidades implicadas en la señal (poblado en analyze.ts).
+  // Permite asociar señal↔entidad sin string matching frágil.
+  cuits?: string[]
+  /**
+   * Caveat textual para detectores Tier 2 (indicio, no infracción directa).
+   * Lo carga el motor desde detectors-config.json. Se muestra en la UI para
+   * dejar claro al usuario que la señal NO equivale a delito y qué hay que
+   * verificar antes de publicar. Ausente en detectores Tier 1.
+   */
+  caveat?: string
 }
 
 export interface ComoVerificar {
@@ -73,9 +99,107 @@ export interface EmpresaEnriquecida {
   fuenteUrl: string
 }
 
+// Match cacheado contra OpenSanctions / ICIJ / OFAC.
+// Se cachea en DuckDB.opensanctions_matches para evitar 1 round-trip API por
+// cada análisis. TTL típico 30 días.
+export interface OSMatch {
+  cuit: string                                    // CUIT consultado
+  nombre: string                                  // razón social ARGOS
+  matched: boolean                                // ¿hubo match?
+  riesgo: 'sancionado' | 'pep' | 'offshore' | 'crimen' | null
+  datasetPrincipal: string | null                 // 'icij_offshore_leaks', etc.
+  entidadId: string | null                        // OSEntidad.id
+  entidadCaption: string | null                   // nombre legible del match
+  entidadUrl: string | null                       // URL pública en OS
+  consultadoEn: string                            // ISO timestamp
+}
+
 export interface MunicipioConnector {
   id: string
   nombre: string
   aniosDisponibles: number[]
   getContratos(anioDesde: number, anioHasta: number): Promise<Contrato[]>
+
+  // ── Sprint 4 (Data Foundation) — metadata trazable ────────────────────────
+  // Estos campos son opcionales por backwards compat con conectores existentes
+  // pero conectores nuevos DEBERÍAN proveerlos para cumplir CLAUDE.md sección 4
+  // (toda fuente debe registrarse con origen, fecha, método, formato y nivel
+  // de confianza).
+  tipo?: ConnectorTipo
+  fuente?: FuenteMetadata
 }
+
+export type ConnectorTipo =
+  | 'api_estructurada'    // CKAN, JSON, XLSX directo desde API oficial
+  | 'scraper_html'        // Playwright sobre portal sin API
+  | 'ocr_pdf'             // Vision API sobre boletines escaneados
+  | 'dataset_internacional' // OpenSanctions, ICIJ, OFAC, etc.
+
+export type NivelConfianza = 'alto' | 'medio' | 'bajo'
+
+export interface FuenteMetadata {
+  // Identificador estable para FK desde contratos.fuente_id
+  id: string
+  jurisdiccion: string             // 'Córdoba Capital', 'Nación', etc.
+  url: string                      // URL pública del dataset/portal
+  formato: string                  // 'XLSX', 'JSON', 'PDF', 'CSV', etc.
+  oficial: boolean                 // ¿es fuente oficial (gobierno)?
+  licencia?: string                // CC-BY-4.0, etc. cuando corresponda
+  frecuenciaActualizacion?: string // 'anual', 'mensual', 'eventual'
+  nivelConfianza: NivelConfianza
+  notas?: string
+}
+
+// ─── Identidad canónica (PLAN-DATOS Fase A1) ─────────────────────────────────
+// Una persona = un DNI = una URL canónica. Esta es la entidad maestra a la que
+// apuntan todas las tablas que mencionan personas (agentes_publicos,
+// igj_autoridades, declaraciones_juradas, aportantes_campanas, directores)
+// cuando hay match Tier 1-3. Sin DNI confirmado, una persona NO es PersonaFisica
+// — queda como referencia name-only en su tabla de origen.
+export interface PersonaFisica {
+  dni: string                       // 8 dígitos canónicos (validado módulo-11 al insertar)
+  cuit: string | null               // XX-DDDDDDDD-V derivado del DNI; null si todavía no calculado
+  apellidoNombre: string            // forma humana (mejor versión conocida, p.ej. desde DDJJ)
+  apellidoNombreNorm: string        // UPPER sin tildes para búsqueda + JOIN cross-tabla
+  fuentesUrl: string[]              // URLs canónicas que mencionan esta persona (deserializado de fuentes_url_json)
+  fuenteDniUrl: string | null       // URL específica que confirmó el DNI (DDJJ, boletín, etc.)
+  primerVisto: string               // ISO timestamp; primera vez que ARGOS supo de esta persona
+  ultimoVisto: string               // ISO timestamp; última actualización
+  // Bitemporal W1
+  tEfectivo?: string | null
+  tPublicado?: string | null
+  snapshotId?: string | null
+  supersededById?: string | null
+}
+
+// ─── Persona Jurídica canónica (PLAN-DATOS Fase A2) ──────────────────────────
+// Una empresa = un CUIT = una URL canónica. Consolida empresas + igj_entidades
+// + rns_personas_juridicas en la entidad maestra. Las tablas originales siguen
+// siendo destino de seeds raw; personas_juridicas es la "view unificada" con
+// la mejor versión de cada campo. Los campos de domicilio son críticos para
+// el filtro geográfico del detector M4.1 refactorizado en Fase C1.
+export interface PersonaJuridica {
+  cuit: string                       // XX-DDDDDDDD-V con prefijo {30, 33, 34}
+  razonSocial: string                // mejor versión humana conocida
+  razonSocialNorm: string            // UPPER sin tildes/puntuación para JOIN
+  alias: string[]                    // razones sociales alternativas (deserializado de alias_json)
+  tipoSocietario: string | null      // 'SA' | 'SRL' | 'SAS' | etc.
+  fechaConstitucion: string | null   // ISO YYYY-MM-DD
+  domFiscalProvincia: string | null  // crítico para filtro geográfico
+  domFiscalLocalidad: string | null
+  domLegalProvincia: string | null
+  domLegalLocalidad: string | null
+  estado: string | null              // 'activa' | 'baja' | etc.
+  esEmpleador: boolean | null        // de AFIP padrón empleadores
+  actividadPrincipal: string | null
+  fuentesUrl: string[]               // URLs canónicas (deserializado de fuentes_url_json)
+  primerVisto: string                // ISO timestamp
+  ultimoVisto: string                // ISO timestamp
+  // Bitemporal W1
+  tEfectivo?: string | null
+  tPublicado?: string | null
+  snapshotId?: string | null
+  supersededById?: string | null
+}
+
+export type { IngestOpts, IngestReport, IngestStatus, QuarantineRow } from './ingest'

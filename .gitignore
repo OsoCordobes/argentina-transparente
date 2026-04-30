@@ -26,6 +26,11 @@ dist-ssr
 # Environment — contains API keys / backend URL, never commit
 .env
 .env.*
+# Excepciones: templates seguros (no contienen secrets, sirven al deploy)
+!.env.example
+!**/.env.example
+!frontend/.env.development
+!frontend/.env.production
 
 # n8n dev/debug scripts
 tmp_*.js
@@ -33,7 +38,15 @@ tmp_*.cjs
 
 # DuckDB data files — local persistence, not committed
 backend/data/
+*.duckdb
 # Evidence.dev
 reports/.evidence/
 reports/build/
 reports/node_modules/
+
+# Tooling state — local only
+.claude/
+**/.claude/
+
+# Windows OS metadata
+desktop.ini

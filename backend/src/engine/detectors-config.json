@@ -1,0 +1,237 @@
+{
+  "detectarProrrogas": {
+    "tier": 1,
+    "norma": "Ley Provincial 10.155 art. 3 (libre concurrencia y transparencia) + Decreto Reglamentario 305/14 + Decreto Nacional 1023/2001 art. 12 inc. g (analogía: prórroga única, plazo igual o menor)",
+    "umbral_minimo": 20,
+    "umbral_grave": 40,
+    "fuente_umbral": "umbral conservador, sin jurisprudencia accesible que fije porcentaje numérico — la doctrina (Cassagne, Comadira) y Dec. 1023/2001 art. 12 inc. g limitan la prórroga a 'una vez', no a un %",
+    "denunciar_ante": [
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)",
+      "Defensoría del Pueblo de Córdoba (defensoria.cba.gov.ar)",
+      "Fiscalía de Estado de Córdoba (fiscaliaestado.cba.gov.ar)",
+      "Ministerio Público Fiscal (fiscales.gob.ar)"
+    ]
+  },
+
+  "detectarConcentracion": {
+    "tier": 2,
+    "norma": "Ley Provincial 10.155 art. 3 (libre concurrencia) + Constitución de la Provincia de Córdoba art. 174 (eficacia, eficiencia, imparcialidad) + Ley 27.442 (Defensa de la Competencia, art. 2 si hay colusión)",
+    "caveat": "La concentración no es ilegal por sí misma. ARGOS la marca cuando supera el 35% como insumo para investigar si el mercado está naturalmente concentrado o si hay falta de competencia. Verificar contra disponibilidad de competidores en el rubro.",
+    "umbral_minimo": 35,
+    "umbral_grave": 60,
+    "fuente_umbral": "umbral conservador, sin jurisprudencia accesible — no existe norma argentina que fije un % de concentración como ilegal. La UE usa ≥40% como presunción operativa, no aplicable a Argentina",
+    "denunciar_ante": [
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)",
+      "Defensoría del Pueblo de Córdoba (defensoria.cba.gov.ar)",
+      "Fiscalía de Estado de Córdoba (fiscaliaestado.cba.gov.ar)",
+      "Ministerio Público Fiscal (fiscales.gob.ar)"
+    ]
+  },
+
+  "detectarContratacionesDirectas": {
+    "tier": 1,
+    "norma": "Ley Provincial 10.155 art. 6 a 8 (procedimientos de selección — licitación como regla) + Decreto Reglamentario 305/14 (causales taxativas de contratación directa) + doctrina argentina consolidada (Cassagne, Comadira, Marienhoff)",
+    "umbral_minimo_unidades": 5,
+    "umbral_minimo_pct": 8,
+    "umbral_grave_unidades": 20,
+    "fuente_umbral": "umbral conservador, sin jurisprudencia accesible que fije un % máximo aceptable — la norma exige que cada contratación directa esté individualmente fundada en causal taxativa",
+    "denunciar_ante": [
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)",
+      "Defensoría del Pueblo de Córdoba (defensoria.cba.gov.ar)",
+      "Fiscalía de Estado de Córdoba (fiscaliaestado.cba.gov.ar)",
+      "Ministerio Público Fiscal (fiscales.gob.ar)"
+    ]
+  },
+
+  "detectarMonopolioRubro": {
+    "tier": 2,
+    "norma": "Ley Provincial 10.155 art. 3 (libre concurrencia) + Ley 27.442 art. 1 y 2 (Defensa de la Competencia — abuso de posición dominante / colusión)",
+    "caveat": "Esta señal indica que un proveedor concentra el grueso del gasto en un área. No es ilegal por sí misma, pero amerita revisar si hay otros proveedores que podrían competir y por qué no lo hicieron.",
+    "umbral_minimo": 60,
+    "umbral_grave": 80,
+    "fuente_umbral": "umbral conservador, sin jurisprudencia accesible — no existe norma específica que diga 'monopolio en área = ilegal'. Más alto que detector 2 porque dentro de un área es esperable cierta concentración operativa",
+    "denunciar_ante": [
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)",
+      "Defensoría del Pueblo de Córdoba (defensoria.cba.gov.ar)",
+      "Fiscalía de Estado de Córdoba (fiscaliaestado.cba.gov.ar)",
+      "Ministerio Público Fiscal (fiscales.gob.ar)"
+    ]
+  },
+
+  "detectarServiciosSinHistorial": {
+    "tier": 2,
+    "norma": "Decreto Nacional 1023/2001 art. 28 (capacidad técnica para contratar con el Estado, analogía nacional) + Ley Provincial 10.620 (Registro Oficial de Proveedores y Contratistas del Estado de Córdoba) + Resolución ONC 1169/2016 (analogía nacional, antecedentes del proveedor)",
+    "caveat": "ARGOS detecta proveedores con baja antigüedad en el dataset. La novedad en sí misma NO es ilegal — toda empresa fue nueva alguna vez. Esta señal debe complementarse con verificación de capacidad técnica acreditada, fecha real de inicio de actividades en AFIP y antecedentes de los socios.",
+    "umbral_monto_pesos": 50000000,
+    "umbral_max_anios": 2,
+    "fuente_umbral": "umbral conservador, sin jurisprudencia accesible — no hay norma argentina que requiera mínimo de 'historial previo'; el $50M es heurístico arbitrario para señalar volumen significativo en proveedor nuevo",
+    "severidad_default": "moderada",
+    "severidad_actual_codigo": "grave",
+    "nota_severidad": "auditoría recomienda bajar a 'moderada' por debilidad del fundamento legal, pero detector mantiene 'grave' actual hasta confirmación de asesoría jurídica",
+    "denunciar_ante": [
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)",
+      "AFIP/ARCA — División Fiscalización"
+    ]
+  },
+
+  "detectarFraccionamientoAvanzado": {
+    "tier": 1,
+    "norma": "Ley Provincial 10.155 + Decreto Reglamentario 305/14 (prohibición de fraccionar contrataciones para eludir procedimientos de selección) + doctrina argentina consolidada (Cassagne, Comadira, Marienhoff) + jurisprudencia Tribunales de Cuentas provinciales",
+    "umbral_minimo_contratos": 3,
+    "umbral_minimo_total_pesos": 20000000,
+    "umbral_max_contrato_pct_total": 40,
+    "fuente_umbral": "umbral conservador, sin jurisprudencia accesible que fije umbral cuantitativo automático — la doctrina describe el fraccionamiento como conducta sustantiva pero requiere análisis caso por caso (similitud de objeto, proximidad temporal, planificación previa)",
+    "denunciar_ante": [
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)"
+    ]
+  },
+
+  "detectarConcentracionTemporal": {
+    "tier": 2,
+    "norma": "Ley Provincial 10.155 art. 3 (concurrencia y transparencia) + Ley de Administración Financiera de Córdoba (principio de cierre de ejercicio y devengado)",
+    "caveat": "El gasto de fin de ejercicio es una práctica observable pero no es ilegal en sí misma. ARGOS lo marca cuando supera el 30% del gasto anual vía prórroga/ampliación como insumo para investigar planificación presupuestaria del organismo.",
+    "umbral_minimo": 30,
+    "umbral_grave": 40,
+    "umbral_min_ampliaciones": 3,
+    "fuente_umbral": "umbral conservador, sin jurisprudencia accesible — no existe norma que diga 'es ilegal gastar X% del año en ampliaciones cerca del cierre'. Sustento en doctrina del derecho presupuestario argentino",
+    "denunciar_ante": [
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)"
+    ]
+  },
+
+  "detectarProveedorCronico": {
+    "tier": 2,
+    "norma": "Ley Provincial 10.155 art. 3 (concurrencia — solo aplicable si la presencia continua deriva de procedimientos no competitivos) + Constitución de la Provincia de Córdoba art. 174 (principio de eficiencia del gasto público)",
+    "caveat": "La presencia continua de un proveedor NO es por sí misma indicio de irregularidad. Puede derivar de competencia legítima ganada año tras año. Solo es problemática si se combina con prórrogas reiteradas, contratación directa o ausencia de competidores. Verificar el procedimiento de selección de cada año.",
+    "umbral_min_pct_anios": 60,
+    "umbral_min_anios": 2,
+    "umbral_minimo_total_pesos": 50000000,
+    "fuente_umbral": "umbral conservador, sin jurisprudencia accesible — no hay norma que limite 'presencia continua' de un proveedor. Es legalmente válido ganar licitaciones consecutivas si compite y ofrece mejor oferta",
+    "denunciar_ante": [
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)",
+      "Concejo Deliberante de Córdoba — Comisión de Control"
+    ]
+  },
+
+  "detectarEmpresaNueva": {
+    "tier": 2,
+    "norma": "Decreto Nacional 1023/2001 art. 28 (analogía nacional: inhabilidades para contratar, capacidad técnica acreditable) + Ley Provincial 10.155 + Decreto 305/14 (registro provincial de proveedores unificado por Ley 10.620, 2019) + Resolución ONC 1169/2016 (analogía: SIPRO nacional, antecedentes)",
+    "caveat": "Empresa nueva NO equivale a empresa fantasma. ARGOS marca esta señal para que verifiques si la capacidad técnica fue acreditada en la licitación y si los socios tienen trayectoria previa en otras empresas.",
+    "umbral_max_anios_inicio": 1,
+    "umbral_minimo_pesos": 5000000,
+    "fuente_umbral": "umbral conservador, sin jurisprudencia accesible — no hay norma específica que prohíba 'ser empresa nueva'. El cruce con AFIP (inicio actividades real) refuerza el indicio respecto al detector 5",
+    "denunciar_ante": [
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)",
+      "Defensoría del Pueblo de Córdoba (defensoria.cba.gov.ar)",
+      "Fiscalía de Estado de Córdoba (fiscaliaestado.cba.gov.ar)",
+      "Ministerio Público Fiscal (fiscales.gob.ar)"
+    ]
+  },
+
+  "detectarEmpresaSinEmpleados": {
+    "tier": 1,
+    "norma": "Ley de Contrato de Trabajo art. 29 (intermediación laboral ilícita — responsabilidad solidaria) + Ley 11.683 art. 8 (responsabilidad solidaria por deudas tributarias) + Decreto Nacional 1023/2001 art. 28 (capacidad técnica) + Ley 25.246 art. 20 (sujetos obligados UIF)",
+    "caveat": "ARGOS distingue entre monotributistas individuales (profesionales sin empleados, legítimos) y sociedades sin empleados (que ejecutan servicios intensivos en mano de obra, sospechoso). Verificar la naturaleza jurídica del proveedor.",
+    "umbral_minimo_pesos": 10000000,
+    "fuente_umbral": "umbral conservador, sin jurisprudencia accesible — lo que SÍ está respaldado en jurisprudencia argentina (Cámara Nacional del Trabajo, casos Telefónica Móviles entre otros) es la figura del fraude laboral por interposición de personas jurídicas",
+    "denunciar_ante": [
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)",
+      "Defensoría del Pueblo de Córdoba (defensoria.cba.gov.ar)",
+      "Fiscalía de Estado de Córdoba (fiscaliaestado.cba.gov.ar)",
+      "Ministerio Público Fiscal (fiscales.gob.ar)",
+      "AFIP/ARCA — División Fiscalización (afip.gob.ar)",
+      "Ministerio de Trabajo — Inspección del Trabajo"
+    ]
+  },
+
+  "detectarDirectoresCompartidos": {
+    "tier": 1,
+    "norma": "Ley 27.442 art. 1 y 2 inc. c (Defensa de la Competencia — concertar posturas en licitaciones, conducta colusiva per se) + Ley General de Sociedades 19.550 art. 33 (sociedades vinculadas y controladas) + Código Penal art. 210 (asociación ilícita) + Código Penal art. 265 (negociaciones incompatibles con función pública) + Convenio OCDE — Directrices sobre colusión en compras públicas (Argentina ratificó por Ley 25.319)",
+    "umbral_min_directores_compartidos": 1,
+    "fuente_umbral": "sustentado por doctrina, Ley 27.442 y Directrices OCDE como uno de los indicadores principales de colusión en licitaciones. La CNDC ha investigado casos similares",
+    "denunciar_ante": [
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)",
+      "Defensoría del Pueblo de Córdoba (defensoria.cba.gov.ar)",
+      "Fiscalía de Estado de Córdoba (fiscaliaestado.cba.gov.ar)",
+      "Ministerio Público Fiscal (fiscales.gob.ar)",
+      "CNDC — Comisión Nacional de Defensa de la Competencia (cndc.gob.ar)",
+      "Fiscalía Federal de Córdoba"
+    ]
+  },
+
+  "detectarRotacionCoordinada": {
+    "tier": 1,
+    "norma": "Ley 27.442 art. 2 inc. c (Defensa de la Competencia — establecer, concertar o coordinar posturas o la abstención en licitaciones, concursos o subastas) + Código Penal art. 310 (falsedad en licitaciones públicas) + Convenio OCDE — Directrices sobre colusión en compras públicas (rotación es uno de los cuatro patrones clásicos de bid rigging)",
+    "umbral_min_anios_sin_overlap": 3,
+    "umbral_minimo_pesos": 10000000,
+    "fuente_umbral": "sostenido por las Directrices OCDE como heurística de detección. No hay umbral numérico legal pero la combinación '3 años + ausencia de overlap' es metodológicamente defendible. CNDC ha investigado casos de rotación coordinada (caso harinas)",
+    "denunciar_ante": [
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)",
+      "Defensoría del Pueblo de Córdoba (defensoria.cba.gov.ar)",
+      "Fiscalía de Estado de Córdoba (fiscaliaestado.cba.gov.ar)",
+      "Ministerio Público Fiscal (fiscales.gob.ar)",
+      "CNDC — Comisión Nacional de Defensa de la Competencia (cndc.gob.ar)"
+    ]
+  },
+
+  "detectarAdendaPostAdjudicacion": {
+    "tier": 1,
+    "norma": "Decreto Nacional 1023/2001 art. 12 inc. b (límite legal del 20% de modificación contractual) + Ley Provincial 10.155 + Decreto Reglamentario 305/14 (mecánica análoga con límite 20% en Córdoba) + Ley 13.064 art. 30 y 53 (analogía obras públicas: ampliaciones hasta 20% del valor de obra) + doctrina argentina (Cassagne, Comadira: principio de equivalencia de la oferta original)",
+    "umbral_minimo_pct": 50,
+    "umbral_grave_pct": 100,
+    "umbral_minimo_base_pesos": 5000000,
+    "fuente_umbral": "SÓLIDO — el umbral legal del 20% es conocido (Dec. 1023/2001 art. 12 inc. b). Disparar a >50% es muy conservador (más del doble del límite legal) y defendible. Auditoría sugiere considerar bajar a 30% para detectar también casos cercanos al límite",
+    "denunciar_ante": [
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)",
+      "Defensoría del Pueblo de Córdoba (defensoria.cba.gov.ar)",
+      "Fiscalía de Estado de Córdoba (fiscaliaestado.cba.gov.ar)",
+      "Ministerio Público Fiscal (fiscales.gob.ar)"
+    ]
+  },
+
+  "detectarRedDeEmpresas": {
+    "tier": 1,
+    "norma": "Ley 27.442 art. 1 y 2 (Defensa de la Competencia) + Ley General de Sociedades 19.550 art. 33 (sociedades vinculadas y controladas — presunción más fuerte de control efectivo cuando comparten 2+ directores) + Código Penal art. 210 (asociación ilícita) + Convenio OCDE — Directrices sobre colusión en compras públicas",
+    "umbral_min_directores_compartidos": 2,
+    "fuente_umbral": "sostenido por la LGS art. 33 que considera 'vinculadas' a sociedades con participación >10% capital; la dirección compartida en 2+ personas es indicio fuerte de control común",
+    "denunciar_ante": [
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)",
+      "Defensoría del Pueblo de Córdoba (defensoria.cba.gov.ar)",
+      "Fiscalía de Estado de Córdoba (fiscaliaestado.cba.gov.ar)",
+      "Ministerio Público Fiscal (fiscales.gob.ar)",
+      "CNDC — Comisión Nacional de Defensa de la Competencia (cndc.gob.ar)",
+      "Fiscalía Federal de Córdoba"
+    ]
+  },
+
+  "detectarConflictoFuncionarioProveedor": {
+    "tier": 1,
+    "norma": "Ley 25.188 art. 13 inc. a (Ética en la Función Pública — incompatibilidad: dirigir, administrar, representar, patrocinar, asesorar, o prestar servicios a quien gestione, tenga concesión o sea proveedor del Estado) + Ley Provincial Córdoba 8.835 art. 4 (régimen ético del agente público) + Ley 27.401 art. 1 (responsabilidad penal de personas jurídicas) + Código Penal arts. 265-267 (negociaciones incompatibles con la función pública)",
+    "caveat": "El match por apellido_nombre puede generar falsos positivos por homonimia. ARGOS marca como Tier 1 cuando hay coincidencia exacta de DNI/CUIT entre funcionario y director. Cuando el match es solo por nombre, marcar como Tier 2 y exigir verificación manual contra biografía pública.",
+    "fuente_umbral": "SÓLIDO — la norma es taxativa: la incompatibilidad existe sin necesidad de probar perjuicio económico. Basta con la coincidencia funcionario-proveedor en el mismo período.",
+    "denunciar_ante": [
+      "Oficina Anticorrupción (oa.gob.ar)",
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)",
+      "Fiscalía de Estado de Córdoba (fiscaliaestado.cba.gov.ar)",
+      "Ministerio Público Fiscal (fiscales.gob.ar)",
+      "Defensoría del Pueblo de Córdoba (defensoria.cba.gov.ar)"
+    ]
+  },
+
+  "detectarAparicionOffshore": {
+    "tier": 1,
+    "norma": "Ley 25.246 (Encubrimiento y Lavado de Activos de origen delictivo — obligación de reportar operaciones sospechosas) + Ley 27.401 art. 1 (Responsabilidad penal de personas jurídicas — cohecho transnacional, soborno extranjero, negociaciones incompatibles, enriquecimiento ilícito, balances falsos) + Convención de la OCDE contra el Cohecho de Funcionarios Públicos Extranjeros (Argentina ratificó por Ley 25.319) + Código Penal arts. 277 y siguientes (encubrimiento)",
+    "caveat": "La aparición en bases ICIJ/sanciones NO equivale automáticamente a delito. Requiere verificar la naturaleza del vínculo offshore (filial comercial legítima vs. opacidad). Indicador relevante para reporte ante UIF (Ley 25.246) y eventual investigación bajo Ley 27.401.",
+    "umbral_riesgos_disparan": ["sancionado", "offshore", "crimen"],
+    "umbral_riesgos_no_disparan": ["pep"],
+    "fuente_umbral": "SÓLIDO — bases ICIJ son resultado de investigaciones periodísticas internacionales validadas (Panama Papers, Pandora Papers, etc.). Match positivo factualmente verificable. PEP solo no dispara: estar en lista PEP es información, no delito",
+    "denunciar_ante": [
+      "Tribunal de Cuentas de Córdoba (tribunaldecuentas.cba.gov.ar)",
+      "Defensoría del Pueblo de Córdoba (defensoria.cba.gov.ar)",
+      "Fiscalía de Estado de Córdoba (fiscaliaestado.cba.gov.ar)",
+      "Ministerio Público Fiscal (fiscales.gob.ar)",
+      "UIF — Unidad de Información Financiera (uif.gob.ar)",
+      "Procuración del Tesoro de la Nación"
+    ]
+  }
+}

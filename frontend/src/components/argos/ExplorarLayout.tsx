@@ -1,0 +1,1582 @@
+/**
+ * ExplorarLayout.tsx
+ *
+ * Shell del modo Explorar (Argos v2.0, pixel-perfect del zip).
+ * Migrado de `argos/app.jsx` del zip ARGOS v2.0.
+ *
+ * Estructura:
+ * - Sidebar (brand + nav + SidebarChat embed cuando hay mensajes + footer)
+ * - Main: Header (breadcrumb + labels toggle) + canvas-wrap (Hero + GraphCanvas + Input + Panel)
+ * - O PlaceholderSection si no estás en inicio/mapa
+ *
+ * State machine: useReducer con 14 acciones (ver `reducer` abajo).
+ * Stream coalescing: rAF buffer en `makeChunkBuffer`.
+ */
+
+// El componente se autocontiene visualmente: importa su propio CSS para
+// que no rompa cuando lo monta un wrapper liviano (Profile en /persona/:dni)
+// que no lo trae.
+import '@/styles/argos.css'
+import '@/styles/argos-forensic.css'
+import { useReducer, useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { Link, NavLink } from 'react-router-dom'
+import { ForensicHeader } from './forensic/Primitives'
+import { DeltaPanel } from './forensic/DeltaPanel'
+import { useDeltaSinceLastVisit } from '@/lib/argos/diff'
+import { VERSION_LABEL } from '@/lib/argos/version'
+import { GraphCanvas } from './GraphCanvas'
+import { NodeDetailPanel } from './NodeDetailPanel'
+import { InterpretationBlock } from './InterpretationBlock'
+import { Onboarding } from './Onboarding'
+import { Ico } from './ArgosIcons'
+import argosApi from '@/lib/argos/api'
+import { expandirNodoGrafo, useGrafoStats, useActoresSearch } from '@/lib/queries'
+import { mergeNeo4jIntoGraph } from '@/lib/argos/graphFromData'
+import {
+  saveThread,
+  loadThread,
+  clearThread,
+  parseDeeplink,
+  buildDeeplinkUrl,
+  consumeDeeplinkParams,
+} from '@/lib/argos/chat-persist'
+import { copyToClipboard } from '@/lib/argos/sumario'
+import { readLocal as readWatchlistLocal } from '@/lib/argos/watchlist'
+import type {
+  ArgosGraph,
+  ArgosNode,
+  ArgosNodeType,
+  ChatMessage,
+  ChatChunk,
+  ChatFadeLevel,
+  NodeDetail,
+} from '@/lib/argos/types'
+
+// ─── Constantes UI ────────────────────────────────────────────────────────────
+
+interface SectionDef {
+  to: string
+  label: string
+  icon: typeof Ico.Home
+  end?: boolean
+}
+
+// Sidebar coherente con ArgosShell: mismas 9 secciones, mismo orden.
+// El home (/) es el grafo. Click en cualquier otra item navega a su ruta.
+const SECTIONS: SectionDef[] = [
+  { to: '/', label: 'Inicio', icon: Ico.Home, end: true },
+  { to: '/dinero', label: 'Dinero', icon: Ico.Briefcase },
+  { to: '/senales', label: 'Señales', icon: Ico.Alert },
+  { to: '/actores', label: 'Actores', icon: Ico.User },
+  { to: '/casos', label: 'Expedientes', icon: Ico.FileText },
+  { to: '/watchlist', label: 'Watchlist', icon: Ico.Eye },
+  { to: '/comparar', label: 'Comparar', icon: Ico.Network },
+  { to: '/fuentes', label: 'Fuentes', icon: Ico.Database },
+  { to: '/metodologia', label: 'Metodología', icon: Ico.Info },
+]
+
+// Modo interno del home (los otros "tabs" ahora son rutas, no estado interno).
+type SectionId = 'inicio' | 'mapa'
+
+const SUGGESTIONS_BY_TYPE: Record<ArgosNodeType, string[]> = {
+  proveedor: [
+    '¿Tiene señales activas?',
+    '¿Quiénes son sus directores?',
+    '¿Cómo evolucionó su facturación?',
+    '¿Hay otros proveedores similares?',
+  ],
+  jurisdiccion: [
+    '¿Cuáles son las señales más graves?',
+    '¿Qué proveedores concentran el gasto?',
+    '¿Cómo evolucionó el gasto anual?',
+  ],
+  director: [
+    '¿En qué otras empresas figura?',
+    '¿Esas empresas compiten entre sí?',
+  ],
+  señal: [
+    'Explicame esta señal en detalle',
+    '¿Qué evidencia hay?',
+    '¿Dónde se denuncia?',
+  ],
+  contrato: [
+    '¿Quién es el proveedor?',
+    '¿Hay otros contratos similares?',
+  ],
+  empresa: [
+    '¿Tiene señales activas?',
+    '¿Quiénes son sus directores?',
+    '¿Qué contratos públicos ganó?',
+  ],
+  persona: [
+    '¿En qué empresas figura como director?',
+    '¿Hay conflictos con cargos públicos?',
+    '¿Tiene aportes a campañas?',
+  ],
+  funcionario: [
+    '¿Qué cargos ocupó y cuándo?',
+    '¿Hay señales de conflicto con proveedores?',
+    '¿Presentó DDJJ?',
+  ],
+  reparticion: [
+    '¿Qué proveedores contrata?',
+    '¿Quiénes son sus funcionarios?',
+    '¿Cómo evolucionó su gasto?',
+  ],
+}
+
+const SUGGESTIONS = [
+  'MOSQUERA, ALEJANDRO',
+  'BBVA BROKER ARGENTINA',
+  'SECRETARÍA DE CULTURA',
+  'PINTURAS CAVAZZON SRL',
+]
+
+const PLACEHOLDERS = [
+  'Buscá un nombre, CUIT, empresa o repartición…',
+  'Ej: MOSQUERA, ALEJANDRO',
+  'Ej: 30-71542368-1   (BBVA Broker Argentina)',
+  'Ej: SECRETARÍA DE CULTURA',
+]
+
+// ─── State machine ────────────────────────────────────────────────────────────
+
+interface AppState {
+  graph: ArgosGraph
+  focusedNodeId: string | null
+  hoveredNodeId: string | null
+  selectedNodeId: string | null
+  highlightedNodeIds: Set<string>
+  searchQuery: string
+  isSearching: boolean
+  chat: {
+    thread: ChatMessage[]
+    streaming: boolean
+    fadeLevel: ChatFadeLevel
+  }
+  panel: {
+    open: boolean
+    detail: NodeDetail | null
+    loading: boolean
+  }
+  sidebar: SectionId
+}
+
+type AppAction =
+  | { t: 'GRAPH_LOADED'; payload: ArgosGraph }
+  | { t: 'GRAPH_EXPANDED'; payload: ArgosGraph }
+  | { t: 'THREAD_RESTORED'; thread: ChatMessage[] }
+  | { t: 'SEARCH_SUBMIT'; query: string }
+  | { t: 'FOCUS_NODE'; id: string | null }
+  | { t: 'HOVER_NODE'; id: string | null }
+  | { t: 'SELECT_NODE'; id: string }
+  | { t: 'PANEL_DETAIL_LOADED'; detail: NodeDetail | null }
+  | { t: 'PANEL_CLOSE' }
+  | { t: 'CHAT_USER_MSG'; content: string }
+  | { t: 'CHAT_CHUNK'; chunk: ChatChunk }
+  | { t: 'CHAT_FADE'; level: ChatFadeLevel }
+  | { t: 'NAV'; section: SectionId }
+  | { t: 'CLEAR' }
+  | { t: 'CLEAR_CHAT' }
+  | { t: 'HIGHLIGHT_ONE'; id: string | null }
+
+const initialState: AppState = {
+  graph: { nodes: [], edges: [] },
+  focusedNodeId: null,
+  hoveredNodeId: null,
+  selectedNodeId: null,
+  highlightedNodeIds: new Set(),
+  searchQuery: '',
+  isSearching: false,
+  chat: { thread: [], streaming: false, fadeLevel: 'idle' },
+  panel: { open: false, detail: null, loading: false },
+  sidebar: 'inicio',
+}
+
+function reducer(state: AppState, a: AppAction): AppState {
+  switch (a.t) {
+    case 'GRAPH_LOADED':
+      return { ...state, graph: a.payload }
+    case 'GRAPH_EXPANDED':
+      // Merge: nodes/edges nuevos se agregan al grafo existente sin perder
+      // el estado de simulación (posiciones x/y) de los nodos ya presentes.
+      // Ver mergeNeo4jIntoGraph (frontend/src/lib/argos/graphFromData.ts).
+      return { ...state, graph: a.payload }
+    case 'SEARCH_SUBMIT':
+      return { ...state, searchQuery: a.query, isSearching: true }
+    case 'FOCUS_NODE':
+      return { ...state, focusedNodeId: a.id }
+    case 'HOVER_NODE':
+      return { ...state, hoveredNodeId: a.id }
+    case 'SELECT_NODE':
+      return {
+        ...state,
+        selectedNodeId: a.id,
+        focusedNodeId: a.id,
+        panel: { open: true, loading: true, detail: null },
+      }
+    case 'PANEL_DETAIL_LOADED':
+      return { ...state, panel: { open: true, loading: false, detail: a.detail } }
+    case 'PANEL_CLOSE':
+      return {
+        ...state,
+        panel: { open: false, loading: false, detail: null },
+        selectedNodeId: null,
+      }
+    case 'CHAT_USER_MSG':
+      return {
+        ...state,
+        chat: {
+          ...state.chat,
+          thread: [
+            ...state.chat.thread,
+            { role: 'user', content: a.content, ts: Date.now() },
+            { role: 'assistant', content: '', ts: Date.now() },
+          ],
+          streaming: true,
+          fadeLevel: 'typing',
+        },
+        isSearching: true,
+      }
+    case 'CHAT_CHUNK': {
+      const t = [...state.chat.thread]
+      const last = t[t.length - 1]
+      if (a.chunk.delta && last?.role === 'assistant') {
+        t[t.length - 1] = { ...last, content: last.content + a.chunk.delta }
+      }
+      let h = state.highlightedNodeIds
+      if (a.chunk.entidades?.length) {
+        h = new Set(a.chunk.entidades.map((e) => e.id))
+      }
+      let focused = state.focusedNodeId
+      if (a.chunk.focus?.nodeId) focused = a.chunk.focus.nodeId
+      const streaming = !a.chunk.done
+      return {
+        ...state,
+        chat: { ...state.chat, thread: t, streaming, fadeLevel: streaming ? 'typing' : 'idle' },
+        highlightedNodeIds: h,
+        focusedNodeId: focused,
+        isSearching: false,
+      }
+    }
+    case 'CHAT_FADE':
+      return { ...state, chat: { ...state.chat, fadeLevel: a.level } }
+    case 'NAV':
+      return { ...state, sidebar: a.section }
+    case 'CLEAR':
+      return {
+        ...state,
+        searchQuery: '',
+        focusedNodeId: null,
+        highlightedNodeIds: new Set(),
+      }
+    case 'THREAD_RESTORED':
+      return {
+        ...state,
+        chat: {
+          thread: a.thread,
+          streaming: false,
+          fadeLevel: 'idle',
+        },
+      }
+    case 'CLEAR_CHAT':
+      return {
+        ...state,
+        chat: { thread: [], streaming: false, fadeLevel: 'idle' },
+        highlightedNodeIds: new Set(),
+      }
+    case 'HIGHLIGHT_ONE': {
+      const h = new Set(state.highlightedNodeIds)
+      if (a.id) h.add(a.id)
+      else h.clear()
+      return { ...state, highlightedNodeIds: h }
+    }
+    default:
+      return state
+  }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function makeChunkBuffer(dispatch: (a: AppAction) => void) {
+  let pending: ChatChunk | null = null
+  let raf: number | null = null
+  return (chunk: ChatChunk) => {
+    if (!pending) pending = { delta: '' }
+    if (chunk.delta) pending.delta = (pending.delta ?? '') + chunk.delta
+    if (chunk.entidades) pending.entidades = chunk.entidades
+    if (chunk.focus) pending.focus = chunk.focus
+    if (chunk.done) pending.done = true
+    if (raf !== null) return
+    raf = requestAnimationFrame(() => {
+      const out = pending
+      pending = null
+      raf = null
+      if (out) {
+        try {
+          dispatch({ t: 'CHAT_CHUNK', chunk: out })
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('[ARGOS] dispatch error', err)
+        }
+      }
+    })
+  }
+}
+
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
+
+// ─── SidebarChat (chat embedido en el sidebar — pixel-perfect del zip) ─────
+
+interface SidebarChatProps {
+  thread: ChatMessage[]
+  streaming: boolean
+  graph: ArgosGraph
+  focusedNodeId: string | null
+  onChipHover: (id: string | null) => void
+  onChipClick: (id: string) => void
+  onClear: () => void
+}
+
+/**
+ * Renderiza un fragmento de texto reemplazando `[[node:id]]` por chips
+ * clickeables (lógica de chips inline preservada del comportamiento previo
+ * de `renderInlineBody`).
+ */
+function renderHechos(
+  text: string,
+  graph: ArgosGraph,
+  onChipHover: (id: string | null) => void,
+  onChipClick: (id: string) => void,
+  keyPrefix = '',
+): React.ReactNode[] {
+  const parts: React.ReactNode[] = []
+  const regex = /\[\[node:([^\]]+)\]\]/g
+  let last = 0
+  let m: RegExpExecArray | null
+  let key = 0
+  while ((m = regex.exec(text))) {
+    if (m.index > last) parts.push(<span key={`${keyPrefix}t${key++}`}>{text.slice(last, m.index)}</span>)
+    const id = m[1]
+    const node = graph.nodes.find((n) => n.id === id)
+    if (node) {
+      const cls = node.type === 'señal' ? 't-senal' : `t-${node.type}`
+      parts.push(
+        <span
+          key={`${keyPrefix}c${key++}`}
+          className={`entity-chip ${cls}`}
+          onMouseEnter={() => onChipHover(node.id)}
+          onMouseLeave={() => onChipHover(null)}
+          onClick={() => onChipClick(node.id)}
+          role="button"
+          tabIndex={0}
+        >
+          {node.label.length > 28 ? node.label.slice(0, 26) + '…' : node.label}
+        </span>,
+      )
+    } else {
+      parts.push(
+        <span key={`${keyPrefix}m${key++}`} style={{ color: 'var(--text-3)' }}>
+          [{id}]
+        </span>,
+      )
+    }
+    last = m.index + m[0].length
+  }
+  if (last < text.length) parts.push(<span key={`${keyPrefix}f${key++}`}>{text.slice(last)}</span>)
+  return parts
+}
+
+/**
+ * Renderiza el cuerpo inline de un mensaje del asistente. Si el LLM marca
+ * un bloque de "Interpretación:" (convención F6 — separar hechos verificables
+ * de análisis interpretativo, CLAUDE.md §5), envuelve la segunda parte en
+ * `<InterpretationBlock>` con estilo diferenciado.
+ */
+function renderInlineBody(
+  text: string,
+  graph: ArgosGraph,
+  onChipHover: (id: string | null) => void,
+  onChipClick: (id: string) => void,
+): React.ReactNode {
+  const partes = text.split(/\n(?:Interpretación|╴Interpretación╴):?\s*/i)
+  if (partes.length === 1) {
+    return renderHechos(partes[0], graph, onChipHover, onChipClick)
+  }
+  const restoInterp = partes.slice(1).join('\n')
+  return (
+    <>
+      {renderHechos(partes[0], graph, onChipHover, onChipClick, 'h-')}
+      <InterpretationBlock>
+        {renderHechos(restoInterp, graph, onChipHover, onChipClick, 'i-')}
+      </InterpretationBlock>
+    </>
+  )
+}
+
+function SidebarChat({
+  thread, streaming, graph, focusedNodeId,
+  onChipHover, onChipClick, onClear,
+}: SidebarChatProps) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [shareStatus, setShareStatus] = useState<'idle' | 'ok'>('idle')
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  }, [thread.length, streaming, thread[thread.length - 1]?.content])
+
+  // Feature E — botón "Compartir vista" copia URL deeplink
+  const handleShare = async () => {
+    const lastUser = [...thread].reverse().find((m) => m.role === 'user')
+    const url = buildDeeplinkUrl({
+      focusNodeId: focusedNodeId,
+      query: lastUser?.content,
+    })
+    const ok = await copyToClipboard(url)
+    if (ok) {
+      setShareStatus('ok')
+      setTimeout(() => setShareStatus('idle'), 1800)
+    }
+  }
+
+  if (thread.length === 0) return null
+
+  return (
+    <div ref={scrollRef} className="sidebar-chat" aria-live="polite">
+      <div
+        className="thread-head"
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          padding: '8px 14px',
+          borderBottom: '1px solid var(--stroke)',
+          fontSize: 11,
+          color: 'var(--text-3)',
+        }}
+      >
+        <span>
+          <span className={`tdot ${streaming ? 'streaming' : ''}`} />{' '}
+          ARGOS · {streaming ? 'investigando…' : `${thread.length} mensaje${thread.length === 1 ? '' : 's'}`}
+        </span>
+        <span style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={handleShare}
+            className="thead-btn"
+            style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 11 }}
+            title="Copiar link compartible al portapapeles (incluye foco actual + última pregunta)"
+          >
+            {shareStatus === 'ok' ? '✓ Link copiado' : 'Compartir'}
+          </button>
+          <button
+            onClick={onClear}
+            className="thead-btn"
+            style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 11 }}
+            title="Limpiar conversación + localStorage"
+          >
+            Limpiar
+          </button>
+        </span>
+      </div>
+      {thread.map((m, i) => (
+        <div key={i} className={`msg ${m.role}`}>
+          <div className="role">{m.role === 'user' ? 'Vos' : 'ARGOS'}</div>
+          <div className="body">
+            {m.role === 'assistant'
+              ? renderInlineBody(m.content || (streaming && i === thread.length - 1 ? '' : ''), graph, onChipHover, onChipClick)
+              : m.content}
+            {streaming && i === thread.length - 1 && m.role === 'assistant' && (
+              !m.content
+                ? <span className="typing-dots"><span/><span/><span/></span>
+                : <span className="typing-cursor" />
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+interface SidebarProps {
+  hasChat: boolean
+  hasHistory: boolean
+  thread: ChatMessage[]
+  streaming: boolean
+  fadeLevel: ChatFadeLevel
+  graph: ArgosGraph
+  focusedNodeId: string | null
+  onChipHover: (id: string | null) => void
+  onChipClick: (id: string) => void
+  onChatClear: () => void
+  totalProv: number
+  totalSenales: number
+  totalJur: number
+  totalPersonas: number
+}
+
+function Sidebar({
+  hasChat, hasHistory, thread, streaming, fadeLevel, graph, focusedNodeId,
+  onChipHover, onChipClick, onChatClear,
+  totalProv, totalSenales, totalJur, totalPersonas,
+}: SidebarProps) {
+  return (
+    <aside className={`sidebar ${hasChat ? 'has-chat' : ''} ${hasHistory ? 'has-history' : ''}`}>
+      <Link to="/" className="brand" style={{ textDecoration: 'none', color: 'inherit' }}>
+        <ArgosMark size={30} />
+        <div className="brand-text">
+          <div className="name">ARGOS</div>
+          <div className="tag" style={{ fontFamily: 'var(--font-mono)' }}>{VERSION_LABEL}</div>
+        </div>
+      </Link>
+      <nav className="nav" aria-label="Secciones">
+        {SECTIONS.map((s) => {
+          const I = s.icon
+          return (
+            <NavLink
+              key={s.to}
+              to={s.to}
+              end={s.end}
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+              title={s.label}
+            >
+              {({ isActive }) => (
+                <>
+                  <I size={16} stroke={isActive ? '#6FB8E8' : 'currentColor'} sw={1.7} />
+                  <span className="l">{s.label}</span>
+                </>
+              )}
+            </NavLink>
+          )
+        })}
+      </nav>
+      {hasChat && (
+        <SidebarChat
+          thread={thread}
+          streaming={streaming}
+          graph={graph}
+          focusedNodeId={focusedNodeId}
+          onChipHover={onChipHover}
+          onChipClick={onChipClick}
+          onClear={onChatClear}
+        />
+      )}
+      <SidebarHallazgos onSelectActor={onChipClick} />
+      <div className="sidebar-foot">
+        <div className="row" style={{ marginBottom: 6 }}>
+          <span className="dot-live" /> <span className="text">Backend conectado</span>
+        </div>
+        <div className="text" style={{ color: 'var(--text-3)' }}>
+          {totalJur} áreas · {totalProv} empresas · {totalPersonas} personas
+        </div>
+      </div>
+    </aside>
+  )
+}
+
+/**
+ * Iter 8.7 + 8.8 análisis-datos: panel inferior del sidebar que muestra
+ * hallazgos derivados del grafo Neo4j en tiempo real. Cada item es clickable
+ * y dispara SELECT_NODE en el grafo (centra el nodo + abre panel + expande
+ * vecinos vía /api/grafo/expand).
+ */
+function SidebarHallazgos({ onSelectActor }: { onSelectActor: (id: string) => void }) {
+  const { data } = useGrafoStats()
+  if (!data?.graphAvailable) return null
+
+  const conflictos = data.conflictosPotenciales ?? []
+  const topPersonas = (data.topPersonasPorEmpresas ?? []).slice(0, 3)
+  const topEmpresas = (data.topEmpresasPorOpera ?? []).slice(0, 3)
+  const señales = (data.señalesActivas ?? []).slice(0, 6)
+
+  if (topPersonas.length === 0 && topEmpresas.length === 0 && conflictos.length === 0 && señales.length === 0) return null
+
+  const itemStyle: React.CSSProperties = {
+    color: 'var(--text)',
+    lineHeight: 1.4,
+    cursor: 'pointer',
+    padding: '2px 0',
+    background: 'none',
+    border: 'none',
+    textAlign: 'left',
+    width: '100%',
+    fontSize: 10,
+    fontFamily: 'var(--font-mono, monospace)',
+    transition: 'color 100ms',
+  }
+
+  return (
+    <div style={{
+      borderTop: '1px solid var(--stroke)',
+      padding: '12px 14px',
+      maxHeight: '50vh',
+      overflowY: 'auto',
+      fontSize: 11,
+    }}>
+      <div style={{
+        fontSize: 10,
+        textTransform: 'uppercase',
+        letterSpacing: '0.12em',
+        color: 'var(--text-3)',
+        marginBottom: 8,
+      }}>
+        Mapa del poder
+      </div>
+
+      <SidebarSearchBox onSelectActor={onSelectActor} />
+
+      {señales.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ color: 'var(--text-2)', marginBottom: 4 }}>
+            Señales activas
+          </div>
+          {señales.map((s) => {
+            const color = s.severidad === 'grave'
+              ? '#E5484D'
+              : s.severidad === 'moderada' ? '#F5B544' : 'var(--text-3)'
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => onSelectActor(`señal:${s.id}`)}
+                style={{ ...itemStyle }}
+                title={`[${s.score}] ${s.titulo}`}
+              >
+                <span style={{ color }}>{s.score}×</span>{' '}
+                {s.tipologia.replace(/_/g, ' ').slice(0, 24)}
+                {s.empresasImplicadas > 0 && (
+                  <span style={{ color: 'var(--text-3)', fontSize: 9 }}>
+                    {' '}({s.empresasImplicadas})
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {topPersonas.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ color: 'var(--text-2)', marginBottom: 4 }}>
+            Personas con más empresas dirigidas
+          </div>
+          {topPersonas.map((p) => (
+            <button
+              key={p.dni}
+              type="button"
+              onClick={() => onSelectActor(`persona:${p.dni}`)}
+              style={itemStyle}
+              title={`${p.nombre} (DNI ${p.dni}) dirige ${p.empresas} empresas`}
+            >
+              <span style={{ color: 'var(--ambar, #F5B544)' }}>{p.empresas}×</span>{' '}
+              {p.nombre.slice(0, 26)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {topEmpresas.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ color: 'var(--text-2)', marginBottom: 4 }}>
+            Empresas en más áreas del Estado
+          </div>
+          {topEmpresas.map((e) => (
+            <button
+              key={e.cuit}
+              type="button"
+              onClick={() => onSelectActor(`empresa:${e.cuit}`)}
+              style={itemStyle}
+              title={`${e.nombre} opera en ${e.reparticiones} reparticiones`}
+            >
+              <span style={{ color: 'var(--celeste, #6FB8E8)' }}>{e.reparticiones} áreas</span>{' · '}
+              {e.nombre.slice(0, 22)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {conflictos.length > 0 && (
+        <div>
+          <div style={{ color: '#F5B544', marginBottom: 4 }}>
+            ⚠ {conflictos.length} cruces potenciales (Tier 2)
+          </div>
+          {conflictos.slice(0, 4).map((c, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => onSelectActor(`empresa:${cuitFromConflicto(c)}`)}
+              style={{ ...itemStyle, fontSize: 10, color: 'var(--text-2)' }}
+              title={`${c.funcionario} (${c.funcionarioReparticion ?? '?'}) ↔ ${c.empresa} en ${c.empresaOperaEn}`}
+            >
+              <span style={{ color: '#F5B544' }}>↔</span>{' '}
+              {c.funcionario.split(',')[0].slice(0, 14)}{' ↔ '}
+              {c.empresa.slice(0, 14)}
+            </button>
+          ))}
+          <div style={{ color: 'var(--text-3)', fontSize: 9, fontStyle: 'italic', marginTop: 4 }}>
+            Funcionario y director con mismo apellido — homonimia probable, requieren verificación.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Helper: extrae cuit potencial del conflicto. Si no hay forma directa,
+// devuelve placeholder; el handler igual hará search por nombre.
+function cuitFromConflicto(_c: { empresa: string }): string {
+  // Por ahora navegamos por nombre — el ID empresa:NOMBRE sin CUIT no
+  // matchea el grafo. Mejor solución: tener cuit en el conflicto. Como
+  // fallback, devolvemos string vacío y onSelectActor cae en /api/actores
+  // con el nombre.
+  return ''
+}
+
+/**
+ * Iter 8.16: search inline en el sidebar — alternativa visible a cmd+k.
+ * Llama /api/actores/search debounced. Click en hit → SELECT_NODE
+ * usando el id del grafo Neo4j cuando es CUIT/DNI, fallback al href
+ * para el resto.
+ */
+function SidebarSearchBox({ onSelectActor }: { onSelectActor: (id: string) => void }) {
+  const [q, setQ] = useState('')
+  const [debouncedQ, setDebouncedQ] = useState('')
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q), 250)
+    return () => clearTimeout(t)
+  }, [q])
+
+  const { data, isFetching } = useActoresSearch(debouncedQ, 'todos')
+  const hits = (data?.hits ?? []).slice(0, 5)
+
+  const onClick = (h: typeof hits[number]) => {
+    // Mapear el hit del search a un id del grafo Neo4j si tenemos cuit/dni.
+    if (h.tipo === 'empresa' && h.identificador && /^\d{11}$/.test(h.identificador)) {
+      onSelectActor(`empresa:${h.identificador}`)
+    } else if (h.tipo === 'director' && h.identificador) {
+      onSelectActor(`persona:${h.identificador}`)
+    } else if (h.tipo === 'funcionario') {
+      // El id de Funcionario en grafo es sha hash que no expone search.
+      // Fallback: navegar via href de actores (página /actores/persona/:n).
+      window.location.href = h.href
+    } else if (h.tipo === 'proveedor') {
+      // Sin CUIT resuelto; intentar por nombre via /api/entidad
+      window.location.href = h.href
+    }
+    setQ('')
+  }
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Buscar persona, empresa, CUIT…"
+        style={{
+          width: '100%',
+          padding: '6px 8px',
+          fontSize: 11,
+          background: 'rgba(255,255,255,0.04)',
+          border: '1px solid var(--stroke)',
+          borderRadius: 4,
+          color: 'var(--text)',
+          outline: 'none',
+        }}
+      />
+      {isFetching && q.length >= 2 && (
+        <div style={{ color: 'var(--text-3)', fontSize: 10, padding: '4px 0' }}>buscando…</div>
+      )}
+      {hits.length > 0 && (
+        <div style={{ marginTop: 4 }}>
+          {hits.map((h, i) => (
+            <button
+              key={`${h.tipo}-${h.identificador ?? h.nombre}-${i}`}
+              type="button"
+              onClick={() => onClick(h)}
+              style={{
+                color: 'var(--text)',
+                lineHeight: 1.3,
+                cursor: 'pointer',
+                padding: '3px 0',
+                background: 'none',
+                border: 'none',
+                textAlign: 'left',
+                width: '100%',
+                fontSize: 10,
+                fontFamily: 'var(--font-mono, monospace)',
+              }}
+              title={h.detalle ?? h.nombre}
+            >
+              <span style={{ color: 'var(--text-3)', fontSize: 9 }}>[{h.tipo[0]}]</span>{' '}
+              {h.nombre.slice(0, 22)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Logo ─────────────────────────────────────────────────────────────────────
+
+function ArgosMark({ size = 30 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
+      <defs>
+        <radialGradient id="iris" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#6FB8E8" stopOpacity="1" />
+          <stop offset="100%" stopColor="#6FB8E8" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <polygon
+        points="16,2 28,8 28,24 16,30 4,24 4,8"
+        fill="none"
+        stroke="#6FB8E8"
+        strokeWidth="1.4"
+        opacity="0.85"
+      />
+      <polygon
+        points="16,6 25,10 25,22 16,26 7,22 7,10"
+        fill="none"
+        stroke="#6FB8E8"
+        strokeOpacity="0.35"
+        strokeWidth="0.8"
+      />
+      <ellipse cx="16" cy="16" rx="8" ry="5" fill="none" stroke="#F5F7FA" strokeWidth="1.2" />
+      <circle cx="16" cy="16" r="3.2" fill="url(#iris)" />
+      <circle cx="16" cy="16" r="1.6" fill="#F5F7FA" />
+      {[0, 1, 2, 3, 4, 5].map((i) => {
+        const a = (i * Math.PI) / 3 + Math.PI / 6
+        const x1 = 16 + Math.cos(a) * 9
+        const y1 = 16 + Math.sin(a) * 9
+        const x2 = 16 + Math.cos(a) * 12
+        const y2 = 16 + Math.sin(a) * 12
+        return (
+          <line
+            key={i}
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
+            stroke="#6FB8E8"
+            strokeOpacity="0.4"
+            strokeWidth="0.7"
+          />
+        )
+      })}
+    </svg>
+  )
+}
+
+// ─── Header (V4 forensic — usa ForensicHeader del system) ─────────────────────
+
+interface HeaderProps {
+  focusedNode: ArgosNode | null
+  onClearFocus: () => void
+  labelsMode: 'minimal' | 'all'
+  labelsDepth: 1 | 2 | 3
+  onLabelsToggle: () => void
+  onLabelsDepth: (d: 1 | 2 | 3) => void
+  novedadesCount: number
+  /** abre el DeltaPanel del shell padre */
+  onClickDelta: () => void
+  /** "28/04" desde useDeltaSinceLastVisit */
+  deltaSince: string
+}
+
+function Header({
+  focusedNode, onClearFocus, labelsMode, labelsDepth, onLabelsToggle, onLabelsDepth,
+  novedadesCount, onClickDelta, deltaSince,
+}: HeaderProps) {
+  const sectionLabel = focusedNode
+    ? (focusedNode.label.length > 28 ? focusedNode.label.slice(0, 26) + '…' : focusedNode.label).toUpperCase()
+    : 'GRAFO'
+  return (
+    <ForensicHeader
+      section={sectionLabel}
+      isGraphSurface
+      hasDelta
+      deltaSince={deltaSince}
+      onClickDelta={onClickDelta}
+      onClickLabelsToggle={onLabelsToggle}
+      labelsOn={labelsMode === 'all'}
+      customRight={
+        <>
+          {focusedNode && (
+            <button
+              type="button"
+              className="fx-header__btn"
+              onClick={onClearFocus}
+              title="Quitar foco del nodo"
+            >
+              ← QUITAR FOCO
+            </button>
+          )}
+          {labelsMode === 'all' && (
+            <div className="fx-header__btn" style={{ display: 'flex', gap: 4, alignItems: 'center', padding: '0 10px' }}>
+              {[1, 2, 3].map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => onLabelsDepth(d as 1 | 2 | 3)}
+                  style={{
+                    background: labelsDepth === d ? 'var(--select)' : 'transparent',
+                    color: labelsDepth === d ? 'var(--bg-forensic-0)' : 'var(--text-3)',
+                    border: 'none',
+                    fontSize: 9.5,
+                    padding: '1px 5px',
+                    fontFamily: 'var(--font-mono)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {d}°
+                </button>
+              ))}
+            </div>
+          )}
+          {novedadesCount > 0 && (
+            <Link
+              to="/watchlist"
+              className="fx-header__btn"
+              style={{
+                color: 'var(--warn)',
+                textDecoration: 'none',
+              }}
+              title="Hay novedades en tus proveedores monitoreados"
+            >
+              ★ {novedadesCount} NOV
+            </Link>
+          )}
+        </>
+      }
+    />
+  )
+}
+
+// ─── Componente principal ─────────────────────────────────────────────────────
+
+interface ExplorarLayoutProps {
+  graph: ArgosGraph
+  isLoading: boolean
+  /**
+   * Nodo a poner en foco al montar (ej. cuando el usuario aterriza en
+   * /persona/:dni o /empresa/:cuit). Si está presente, ExplorarLayout
+   * dispatcha SELECT_NODE con este id una vez que el grafo carga, lo que:
+   *   - cierra el modo hero (sale del estado "investigá hoy"),
+   *   - centra el grafo en el nodo,
+   *   - abre el NodeDetailPanel con la info del actor.
+   */
+  initialFocusedNodeId?: string
+}
+
+export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: ExplorarLayoutProps) {
+  const [s, dispatch] = useReducer(reducer, initialState)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [phIdx, setPhIdx] = useState(0)
+  const [draft, setDraft] = useState('')
+  const [threadCursor, setThreadCursor] = useState<number | null>(null)
+  // graphAsleep: empieza dormido, despierta en primer focus/submit/hover sostenido, no se vuelve a dormir
+  const [graphAsleep, setGraphAsleep] = useState(true)
+  const [chipIdx, setChipIdx] = useState(0)
+  const [chipFading, setChipFading] = useState(false)
+  const [labelsMode, setLabelsMode] = useState<'minimal' | 'all'>('minimal')
+  const [labelsDepth, setLabelsDepth] = useState<1 | 2 | 3>(1)
+  const [sending, setSending] = useState(false)
+  // F8 — contador de novedades sobre la watchlist personal del user.
+  const [novedadesCount, setNovedadesCount] = useState(0)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const chipHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // V4 — Δ tracking + DeltaPanel modal
+  const { lastVisit, lastVisitShort } = useDeltaSinceLastVisit()
+  const [deltaOpen, setDeltaOpen] = useState(false)
+
+  const wakeGraph = useCallback(() => setGraphAsleep(false), [])
+
+  // Cargar grafo: SOLO desde el `graph` prop (real backend via /api/dashboard).
+  // Si está vacío + !isLoading, mostramos empty state explícito en el render.
+  // NUNCA caemos a fixtures sintéticos (CLAUDE.md §2).
+  useEffect(() => {
+    dispatch({ t: 'GRAPH_LOADED', payload: graph })
+  }, [graph])
+
+  // ─── Feature E — restore chat thread al montar (1 vez) ────────────────────
+  // Hidrata desde localStorage. NO sobrescribe si user empezó a chatear ya.
+  const hydratedRef = useRef(false)
+  useEffect(() => {
+    if (hydratedRef.current) return
+    hydratedRef.current = true
+
+    const saved = loadThread()
+    if (saved.length > 0 && s.chat.thread.length === 0) {
+      // Restore preservando timestamps originales — CHAT_USER_MSG + CHAT_CHUNK
+      // generarían new Date.now() en cada uno, perdiendo los originales.
+      dispatch({ t: 'THREAD_RESTORED', thread: saved })
+    }
+
+    // initialFocusedNodeId tiene precedencia sobre el deeplink — viene de
+    // un wrapper como /persona/:dni o /empresa/:cuit que ya sabe el nodo.
+    const focusFromProp = initialFocusedNodeId ?? null
+    // Procesar deeplink ?focus=&q= si vino en la URL
+    const dl = parseDeeplink()
+    const focusToApply = focusFromProp ?? dl.focusNodeId ?? null
+    if (focusToApply) {
+      // Esperamos al graph estar cargado para enfocar — usamos timeout corto
+      setTimeout(() => {
+        dispatch({ t: 'SELECT_NODE', id: focusToApply })
+      }, 200)
+    }
+    if (dl.query && saved.length === 0) {
+      // Auto-disparar la pregunta solo si no había chat previo (no spam)
+      setTimeout(() => submit(dl.query!), 600)
+    }
+    // Consumir los params para que F5 no re-dispare
+    if (dl.focusNodeId || dl.query) {
+      consumeDeeplinkParams()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ─── Feature E — persist thread cada vez que cambia ──────────────────────
+  useEffect(() => {
+    // No guardar mientras se está streaming (chunks parciales)
+    if (s.chat.streaming) return
+    saveThread(s.chat.thread)
+  }, [s.chat.thread, s.chat.streaming])
+
+  // ─── F8 — fetch novedades count al montar ────────────────────────────────
+  // Lee la watchlist local y pregunta al backend cuántos contratos/señales
+  // nuevas aparecieron desde la última visita por proveedor. Falla silenciosa
+  // (badge sólo aparece si hay items realmente nuevos).
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const items = readWatchlistLocal()
+      if (items.length === 0) return
+      try {
+        const apiBase =
+          (import.meta as ImportMeta).env?.VITE_API_URL ?? 'http://localhost:3001'
+        const res = await fetch(`${apiBase}/api/watchlist/novedades`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: items.map((i) => ({
+              proveedor_id: i.proveedor_id,
+              ultima_visita: i.ultima_visita,
+            })),
+          }),
+        })
+        if (!res.ok) return
+        const data = (await res.json()) as { ok: boolean; total: number }
+        if (!cancelled && data.ok) setNovedadesCount(data.total)
+      } catch {
+        // Backend offline o cualquier error: no rompemos la UI.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Hero node: jurisdiccion con más señales graves
+  const heroNodeId = useMemo(() => {
+    if (!s.graph.nodes.length) return null
+    const counts = new Map<string, number>()
+    s.graph.edges.forEach((e) => {
+      const sId = typeof e.source === 'string' ? e.source : e.source?.id
+      const tId = typeof e.target === 'string' ? e.target : e.target?.id
+      if (!sId || !tId) return
+      ;[sId, tId].forEach((id) => {
+        const node = s.graph.nodes.find((n) => n.id === id)
+        if (!node || node.type !== 'jurisdiccion') return
+        const otherId = id === sId ? tId : sId
+        const other = s.graph.nodes.find((n) => n.id === otherId)
+        if (other?.type === 'señal' && other.flags?.severidad === 'grave') {
+          counts.set(id, (counts.get(id) || 0) + 1)
+        }
+      })
+    })
+    let best: string | null = null
+    let bestN = -1
+    s.graph.nodes
+      .filter((n) => n.type === 'jurisdiccion')
+      .forEach((n) => {
+        const c = counts.get(n.id) || 0
+        if (c > bestN) {
+          bestN = c
+          best = n.id
+        }
+      })
+    if (!best || bestN === 0) {
+      const j = s.graph.nodes
+        .filter((n) => n.type === 'jurisdiccion')
+        .sort((a, b) => (b.weight || 0) - (a.weight || 0))
+      best = j[0]?.id ?? null
+    }
+    return best
+  }, [s.graph])
+
+  // Rotating placeholder
+  useEffect(() => {
+    const i = setInterval(() => setPhIdx((p) => (p + 1) % PLACEHOLDERS.length), 4500)
+    return () => clearInterval(i)
+  }, [])
+
+  // Rotating chip (5s cycle, 250ms fade)
+  useEffect(() => {
+    if (s.chat.thread.length > 0) return
+    const i = setInterval(() => {
+      setChipFading(true)
+      setTimeout(() => {
+        setChipIdx((p) => (p + 1) % SUGGESTIONS.length)
+        setChipFading(false)
+      }, 250)
+    }, 5000)
+    return () => clearInterval(i)
+  }, [s.chat.thread.length])
+
+  // Cmd/Ctrl+K -> focus input  ; Esc -> close panel then clear ; ↑/↓ thread navigation
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        inputRef.current?.focus()
+      }
+      if (e.key === 'Escape') {
+        if (s.panel.open) {
+          /* panel handles its own */
+        } else if (s.searchQuery || s.focusedNodeId) {
+          dispatch({ t: 'CLEAR' })
+        }
+      }
+      if (
+        document.activeElement === inputRef.current &&
+        (e.key === 'ArrowUp' || e.key === 'ArrowDown')
+      ) {
+        const userMsgs = s.chat.thread.filter((m) => m.role === 'user')
+        if (!userMsgs.length) return
+        e.preventDefault()
+        let i = threadCursor == null ? userMsgs.length : threadCursor
+        if (e.key === 'ArrowUp') i = Math.max(0, i - 1)
+        else i = Math.min(userMsgs.length, i + 1)
+        setThreadCursor(i)
+        setDraft(i >= userMsgs.length ? '' : userMsgs[i].content)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [s.panel.open, s.searchQuery, s.focusedNodeId, s.chat.thread, threadCursor])
+
+  // Load detail when SELECT_NODE
+  useEffect(() => {
+    if (!s.selectedNodeId) return
+    let cancel = false
+
+    const node = s.graph.nodes.find((n) => n.id === s.selectedNodeId)
+
+    // Iter 8.2 + 8.8: si el nodo viene del grafo Neo4j (id formato
+    // `<tipo>:<clave>`), pedimos sus vecinos al backend y los mergeamos
+    // al grafo. Iter 8.8: el nodo PUEDE no estar todavía en el grafo
+    // (ej. click en sidebar Mapa del poder), en ese caso el expand lo
+    // trae al grafo + sus vecinos. El siguiente render ya tendrá node y
+    // dispara getNodeDetail.
+    if (s.selectedNodeId.includes(':')) {
+      expandirNodoGrafo(s.selectedNodeId).then((resp) => {
+        if (cancel) return
+        if (!resp || resp.nodes.length === 0) return
+        const merged = mergeNeo4jIntoGraph(s.graph, resp)
+        if (merged.nodes.length > s.graph.nodes.length || merged.edges.length > s.graph.edges.length) {
+          dispatch({ t: 'GRAPH_EXPANDED', payload: merged })
+        }
+      }).catch(() => { /* fallback silencioso si Neo4j no está */ })
+    }
+
+    // getNodeDetail requiere conocer el type — solo lo invocamos si ya
+    // tenemos el nodo en el grafo. Si vino de un click externo (sidebar)
+    // y no está, esperamos al próximo render post-expand.
+    if (node) {
+      argosApi.getNodeDetail(node.type, node.id).then((d) => {
+        if (!cancel) dispatch({ t: 'PANEL_DETAIL_LOADED', detail: d })
+      })
+    }
+
+    return () => {
+      cancel = true
+    }
+  }, [s.selectedNodeId, s.graph])
+
+  const submit = useCallback(
+    (q: string) => {
+      if (!q.trim()) return
+      const isFirst = s.chat.thread.length === 0
+      wakeGraph()
+      dispatch({ t: 'CHAT_USER_MSG', content: q })
+      setDraft('')
+      setThreadCursor(null)
+      if (isFirst) {
+        setSending(true)
+        setTimeout(() => setSending(false), 900)
+      }
+      const focusNode = s.focusedNodeId
+        ? s.graph.nodes.find((n) => n.id === s.focusedNodeId)
+        : null
+      const focusContext = focusNode
+        ? { focusNodeId: focusNode.id, graph: s.graph }
+        : { focusNodeId: null, graph: s.graph }
+
+      const startStreaming = () => {
+        const buffered = makeChunkBuffer(dispatch)
+        Promise.resolve(
+          argosApi.chat(
+            [...s.chat.thread, { role: 'user' as const, content: q, ts: Date.now() }],
+            focusContext,
+            buffered,
+          ),
+        ).catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error('[ARGOS] chat error', err)
+        })
+      }
+
+      if (isFirst) setTimeout(startStreaming, 1000)
+      else startStreaming()
+    },
+    [s.chat.thread, s.focusedNodeId, s.graph, wakeGraph],
+  )
+
+  const focusedNode = s.focusedNodeId ? s.graph.nodes.find((n) => n.id === s.focusedNodeId) : null
+  const inHero = s.chat.thread.length === 0
+  const graphIdle =
+    inHero &&
+    graphAsleep &&
+    !s.focusedNodeId &&
+    !s.hoveredNodeId &&
+    s.highlightedNodeIds.size === 0
+
+  // Stable handlers para que React.memo(GraphCanvas) skipee re-renders
+  const onGraphHover = useCallback((id: string | null) => dispatch({ t: 'HOVER_NODE', id }), [])
+  const onGraphSelect = useCallback(
+    (id: string) => {
+      wakeGraph()
+      dispatch({ t: 'SELECT_NODE', id })
+    },
+    [wakeGraph],
+  )
+  const hasThread = s.chat.thread.length > 0
+  const onGraphBgEnter = useCallback(
+    () => dispatch({ t: 'CHAT_FADE', level: hasThread ? 'hover-graph' : 'idle' }),
+    [hasThread],
+  )
+  const onGraphBgLeave = useCallback(() => dispatch({ t: 'CHAT_FADE', level: 'idle' }), [])
+
+  const onChipHover = useCallback((id: string | null) => {
+    if (chipHoverTimer.current) clearTimeout(chipHoverTimer.current)
+    chipHoverTimer.current = setTimeout(() => dispatch({ t: 'HIGHLIGHT_ONE', id }), 80)
+  }, [])
+  const onChipClick = useCallback((id: string) => dispatch({ t: 'SELECT_NODE', id }), [])
+  // Feature E — al limpiar el chat también borramos localStorage
+  const onChatClear = useCallback(() => {
+    dispatch({ t: 'CLEAR_CHAT' })
+    clearThread()
+  }, [])
+  const onPanelClose = useCallback(() => dispatch({ t: 'PANEL_CLOSE' }), [])
+  const onPanelSelect = useCallback((id: string) => dispatch({ t: 'SELECT_NODE', id }), [])
+  const onPanelRelHover = useCallback(
+    (id: string | null) => dispatch({ t: 'HIGHLIGHT_ONE', id }),
+    [],
+  )
+
+  // ExplorarLayout solo se monta en /, /persona/:dni, /empresa/:cuit — el
+  // grafo siempre está visible. Las otras "secciones" del sidebar son rutas.
+  const showGraph = true
+
+  // Conteos para footer derivados del grafo cargado.
+  // Soportan tanto el grafo dashboard-only ('proveedor', 'jurisdiccion',
+  // 'señal') como el grafo Neo4j ('empresa', 'persona', 'funcionario',
+  // 'reparticion'). Cuando aplica el grafo Neo4j (Iter6 análisis-datos),
+  // el footer muestra los conteos del mapa-neural cordobés.
+  const totalProv = useMemo(
+    () => s.graph.nodes.filter((n) => n.type === 'proveedor' || n.type === 'empresa').length,
+    [s.graph.nodes],
+  )
+  const totalSenales = useMemo(
+    () => s.graph.nodes.filter((n) => n.type === 'señal').length,
+    [s.graph.nodes],
+  )
+  const totalJur = useMemo(
+    () => s.graph.nodes.filter((n) => n.type === 'jurisdiccion' || n.type === 'reparticion').length,
+    [s.graph.nodes],
+  )
+  const totalPersonas = useMemo(
+    () => s.graph.nodes.filter((n) => n.type === 'persona' || n.type === 'director' || n.type === 'funcionario').length,
+    [s.graph.nodes],
+  )
+
+  // Loading inicial — backend cargando grafo real
+  if (isLoading && s.graph.nodes.length === 0) {
+    return (
+      <div className="app">
+        <Onboarding />
+        <div className="canvas-wrap" style={{ display: 'grid', placeItems: 'center', height: '100vh' }}>
+          <div className="hero">
+            <div className="hero-chip"><span className="pulse" /> Cargando grafo de Córdoba…</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Backend desconectado o sin datos — estado vacío explícito (cero alucinaciones)
+  if (!isLoading && s.graph.nodes.length === 0) {
+    return (
+      <div className="app">
+        <Onboarding />
+        <div
+          className="canvas-wrap"
+          style={{ display: 'grid', placeItems: 'center', height: '100vh', padding: '0 24px' }}
+        >
+          <div className="hero" style={{ textAlign: 'center', maxWidth: 640 }}>
+            <div className="hero-chip" style={{ background: 'var(--bg-panel)' }}>
+              <span style={{ color: 'var(--ambar)' }}>●</span> SIN DATOS
+            </div>
+            <h1>Backend desconectado</h1>
+            <p className="hero-meta" style={{ marginTop: 16, lineHeight: 1.6 }}>
+              El frontend no recibió datos del API en{' '}
+              <code className="mono" style={{ color: 'var(--celeste)' }}>
+                {(import.meta as ImportMeta).env?.VITE_API_URL ?? 'http://localhost:3001'}
+              </code>
+              . ARGOS muestra únicamente datos verificables — no hay fixtures sintéticos.
+              Levantá el backend con <code className="mono">npm run dev</code> en{' '}
+              <code className="mono">backend/</code> y refrescá esta página.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="app">
+      <Onboarding />
+      <Sidebar
+        hasChat={s.chat.thread.length > 0}
+        hasHistory={s.chat.thread.length > 2}
+        thread={s.chat.thread}
+        streaming={s.chat.streaming}
+        fadeLevel={s.chat.fadeLevel}
+        graph={s.graph}
+        focusedNodeId={s.focusedNodeId}
+        onChipHover={onChipHover}
+        onChipClick={onChipClick}
+        onChatClear={onChatClear}
+        totalProv={totalProv}
+        totalSenales={totalSenales}
+        totalJur={totalJur}
+        totalPersonas={totalPersonas}
+      />
+      <div className="main">
+        <Header
+          focusedNode={focusedNode ?? null}
+          onClearFocus={() => dispatch({ t: 'CLEAR' })}
+          labelsMode={labelsMode}
+          labelsDepth={labelsDepth}
+          onLabelsToggle={() => setLabelsMode((m) => (m === 'minimal' ? 'all' : 'minimal'))}
+          onLabelsDepth={setLabelsDepth}
+          novedadesCount={novedadesCount}
+          onClickDelta={() => setDeltaOpen(true)}
+          deltaSince={lastVisitShort}
+        />
+        <DeltaPanel
+          open={deltaOpen}
+          onClose={() => setDeltaOpen(false)}
+          lastVisitIso={lastVisit}
+        />
+
+        {showGraph && (
+          <div className="canvas-wrap">
+            <div
+              className={`graph-wrap ${graphIdle ? 'graph-idle' : 'graph-awake'}`}
+              onMouseEnter={() => {
+                if (!graphAsleep) return
+                if (hoverTimer.current) clearTimeout(hoverTimer.current)
+                hoverTimer.current = setTimeout(() => wakeGraph(), 500)
+              }}
+              onMouseLeave={() => {
+                if (hoverTimer.current) clearTimeout(hoverTimer.current)
+              }}
+            >
+              <GraphCanvas
+                snapshot={s.graph}
+                focusedId={s.focusedNodeId}
+                hoveredId={s.hoveredNodeId}
+                highlighted={s.highlightedNodeIds}
+                idle={graphIdle}
+                heroNodeId={heroNodeId}
+                labelsMode={labelsMode}
+                labelsDepth={labelsDepth}
+                onHover={onGraphHover}
+                onSelect={onGraphSelect}
+                onBgEnter={onGraphBgEnter}
+                onBgLeave={onGraphBgLeave}
+              />
+            </div>
+
+            {/* Hero state — minimalismo de herramienta de inteligencia.
+                Sin titular acusatorio, sin counts saturando. Solo una
+                identificación discreta + la North Star sutil + el buscador. */}
+            <div className={`hero ${inHero ? '' : 'hidden'}`} aria-hidden={!inHero}>
+              <div className="hero-chip">
+                <span className="pulse" /> ARGOS · Inteligencia patrimonial pública
+              </div>
+              <HeroNorthStar />
+            </div>
+
+            {/* Input */}
+            <div className={`input-wrap ${inHero ? 'center' : 'footer'} ${sending ? 'sending' : ''}`}>
+              <form
+                className="input"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  submit(draft)
+                }}
+              >
+                <Ico.Eye />
+                <input
+                  ref={inputRef}
+                  value={draft}
+                  onChange={(e) => {
+                    setDraft(e.target.value)
+                    setThreadCursor(null)
+                  }}
+                  placeholder={
+                    focusedNode
+                      ? `Preguntale a ARGOS sobre ${
+                          focusedNode.label.length > 32
+                            ? focusedNode.label.slice(0, 30) + '…'
+                            : focusedNode.label
+                        }…`
+                      : PLACEHOLDERS[phIdx]
+                  }
+                  aria-label="Pregunta a ARGOS"
+                  onFocus={() => {
+                    wakeGraph()
+                    dispatch({ t: 'CHAT_FADE', level: 'typing' })
+                  }}
+                />
+                <span
+                  className="mono"
+                  style={{
+                    fontSize: 11,
+                    color: 'var(--text-3)',
+                    padding: '0 8px',
+                    border: '1px solid var(--stroke)',
+                    borderRadius: 6,
+                  }}
+                >
+                  ⌘K
+                </span>
+                <button
+                  className="send"
+                  type="submit"
+                  aria-label="Enviar"
+                  disabled={!draft.trim()}
+                >
+                  <Ico.Send size={14} />
+                </button>
+              </form>
+              {inHero && (
+                <div style={{ display: 'flex', justifyContent: 'center', marginTop: 14 }}>
+                  <button
+                    className={`chip-rotative ${chipFading ? 'fading' : ''}`}
+                    onClick={() => {
+                      wakeGraph()
+                      submit(SUGGESTIONS[chipIdx])
+                    }}
+                  >
+                    <span className="lbl">Buscá:</span> {SUGGESTIONS[chipIdx]}
+                  </button>
+                </div>
+              )}
+              {!inHero && focusedNode && draft.length === 0 && (
+                <div className="chips chips-context">
+                  <span className="context-label">
+                    sobre {focusedNode.label.slice(0, 28)}
+                    {focusedNode.label.length > 28 ? '…' : ''}:
+                  </span>
+                  {(SUGGESTIONS_BY_TYPE[focusedNode.type] || SUGGESTIONS)
+                    .slice(0, 3)
+                    .map((qq) => (
+                      <button
+                        key={qq}
+                        className="chip-suggest small"
+                        onClick={() => submit(qq)}
+                      >
+                        {qq}
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+
+            {/* Panel detalle */}
+            <NodeDetailPanel
+              open={s.panel.open}
+              loading={s.panel.loading}
+              detail={s.panel.detail}
+              onClose={onPanelClose}
+              onSelect={onPanelSelect}
+              onRelHover={onPanelRelHover}
+            />
+          </div>
+        )}
+
+      </div>
+    </div>
+  )
+}
+
+// ─── HeroNorthStar ────────────────────────────────────────────────────────────
+// Métrica monetaria sutil arriba del meta del hero. Cableada a /api/landing.
+// Si el backend no responde, no se renderiza nada (cero alucinaciones).
+
+interface LandingHero {
+  montoAuditado: number
+  cantidadContratos: number
+  jurisdiccionPrimaria: string
+  rangoAnios: { desde: number; hasta: number }
+}
+
+function HeroNorthStar() {
+  const [hero, setHero] = useState<LandingHero | null>(null)
+
+  useEffect(() => {
+    const ctrl = new AbortController()
+    const apiBase: string =
+      (import.meta as ImportMeta).env?.VITE_API_URL ?? 'http://localhost:3001'
+    fetch(`${apiBase}/api/landing`, { signal: ctrl.signal })
+      .then(r => (r.ok ? r.json() : null))
+      .then((data: { hero?: LandingHero } | null) => {
+        if (data?.hero) setHero(data.hero)
+      })
+      .catch(() => { /* silencioso: el meta inferior ya describe el grafo */ })
+    return () => ctrl.abort()
+  }, [])
+
+  if (!hero) return null
+
+  const milM = (hero.montoAuditado / 1_000_000_000).toLocaleString('es-AR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+
+  return (
+    <p
+      className="hero-northstar mono"
+      style={{
+        fontSize: 13,
+        color: 'var(--text-2, #b6c0d4)',
+        margin: '8px 0 0',
+        letterSpacing: 0.2,
+      }}
+    >
+      ${milM} mil M auditados · {hero.cantidadContratos.toLocaleString('es-AR')} contratos · {hero.jurisdiccionPrimaria}
+    </p>
+  )
+}

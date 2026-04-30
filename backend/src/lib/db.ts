@@ -2,7 +2,7 @@ import DuckDB from 'duckdb'
 import crypto from 'crypto'
 import path from 'path'
 import fs from 'fs'
-import type { Contrato, Señal, Expediente } from '../types/index'
+import type { Contrato, Señal, Expediente, FuenteMetadata, OSMatch } from '../types/index'
 
 const DATA_DIR = path.join(process.cwd(), 'data')
 const DB_PATH = path.join(DATA_DIR, 'argos.duckdb')
@@ -54,6 +54,48 @@ export async function initDb(): Promise<void> {
     )
   `)
 
+  // ─── Trazabilidad de extracción (post-MVP round 7) ──────────────────────────
+  // ALTER idempotente — DuckDB no soporta IF NOT EXISTS en ADD COLUMN, capturamos
+  // el error de columna duplicada al re-correr.
+  for (const alter of [
+    `ALTER TABLE contratos ADD COLUMN nivel_confianza TEXT DEFAULT 'alto'`,
+    `ALTER TABLE contratos ADD COLUMN metodo_extraccion TEXT DEFAULT 'api_estructurada'`,
+    `ALTER TABLE contratos ADD COLUMN pagina_pdf INTEGER`,
+    // M18 — numero_expediente para cruce con licitaciones_llamado.
+    // Se popula desde Contrato.numeroExpediente cuando el connector lo expone.
+    `ALTER TABLE contratos ADD COLUMN numero_expediente TEXT`,
+    // ── PLAN-DATOS Fase B2: cadena del dinero ────────────────────────────
+    // partida_presupuestaria + programa_presupuestario: ata cada contrato
+    // a una línea presupuestaria. Sin esto la cadena Crédito → Compromiso
+    // → Contrato → Devengado → Pagado está cortada.
+    `ALTER TABLE contratos ADD COLUMN partida_presupuestaria TEXT`,
+    `ALTER TABLE contratos ADD COLUMN programa_presupuestario TEXT`,
+    // proveedor_cuit: CUIT verificado por identity-resolver Tier 1-3.
+    // Lo populan los seeds futuros + el resolver (no es un raw del connector).
+    `ALTER TABLE contratos ADD COLUMN proveedor_cuit TEXT`,
+    // proveedor_cuit_inferido: CUIT inferido por LLM Tier 4-5 — separado
+    // intencionalmente. NUNCA usar en detectores publicables (W4 documentó
+    // CUITs equivocados Tier 4: NIETO→OTERO, Córdoba→La Rioja).
+    `ALTER TABLE contratos ADD COLUMN proveedor_cuit_inferido TEXT`,
+    // numero_orden_compra: ID de OC del boletín municipal cuando exista,
+    // permite JOIN entre Compromiso (presupuesto_ejecucion) y Contrato.
+    `ALTER TABLE contratos ADD COLUMN numero_orden_compra TEXT`,
+  ]) {
+    try { await dbRun(alter) } catch { /* columna ya existe */ }
+  }
+  // Índice para que el JOIN licitaciones_llamado.expediente = contratos.numero_expediente
+  // sea rápido. CREATE INDEX IF NOT EXISTS sí lo soporta DuckDB.
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_contratos_expediente ON contratos(numero_expediente) WHERE numero_expediente IS NOT NULL`)
+  } catch { /* ignore */ }
+  // Índices B2 para cadena del dinero — sin partial index (DuckDB no lo soporta).
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_contratos_proveedor_cuit ON contratos(proveedor_cuit)`) }
+  catch { /* idempotente */ }
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_contratos_partida ON contratos(partida_presupuestaria)`) }
+  catch { /* idempotente */ }
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_contratos_orden_compra ON contratos(numero_orden_compra)`) }
+  catch { /* idempotente */ }
+
   // ─── Pre-computed signals cache ────────────────────────────────────────────
   await dbRun(`
     CREATE TABLE IF NOT EXISTS señales_cache (
@@ -67,9 +109,40 @@ export async function initDb(): Promise<void> {
       evidencia_json    TEXT NOT NULL,
       legal_json        TEXT NOT NULL,
       entidades_cuit    TEXT,
-      computado_en      TEXT NOT NULL
+      computado_en      TEXT NOT NULL,
+      estado_verificacion TEXT NOT NULL DEFAULT 'sin_verificar', -- A7
+      verificado_por    TEXT,                                     -- A7
+      verificado_en     TIMESTAMP                                 -- A7
     )
   `)
+
+  // ─── A7: estado_verificacion + auditoría (PLAN-DATOS Fase A7) ────────────────
+  // Toda señal lleva uno de cuatro estados, alineados con el badge universal del
+  // PLAN-UI §8 (verificada / sin_verificar / descartada / bloqueada).
+  //
+  // DuckDB en esta versión NO soporta ALTER TABLE ADD COLUMN con constraints
+  // ("Parser Error: Adding columns with constraints not yet supported"). Por
+  // eso agregamos las columnas SIN restricciones y populamos el default con un
+  // UPDATE explícito a continuación. La columna sigue siendo TEXT NOT NULL
+  // DEFAULT 'sin_verificar' para DBs creadas-de-cero por el CREATE TABLE de
+  // arriba — esta migración es solo para DBs pre-existentes.
+  //
+  // El CHECK constraint nunca llega al DDL (mismo límite); la enforcement vive
+  // en helpers TS de verificacion-senales.ts (EstadoVerificacionSeñal type
+  // union + actualizarEstadoSeñal()).
+  for (const c of [
+    `estado_verificacion TEXT`,
+    `verificado_por TEXT`,
+    `verificado_en TIMESTAMP`,
+  ]) {
+    try { await dbRun(`ALTER TABLE señales_cache ADD COLUMN ${c}`) }
+    catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
+  }
+  // Backfill default 'sin_verificar' a filas pre-existentes que vinieron antes
+  // de A7. Idempotente: solo afecta NULLs.
+  try {
+    await dbRun(`UPDATE señales_cache SET estado_verificacion = 'sin_verificar' WHERE estado_verificacion IS NULL`)
+  } catch { /* idempotente */ }
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS empresas (
@@ -83,6 +156,17 @@ export async function initDb(): Promise<void> {
       actualizado_en    TEXT NOT NULL
     )
   `)
+
+  // ─── Trazabilidad del origen del padrón (Phase F4) ────────────────────────
+  // Permite distinguir empresas cargadas desde AFIP padrón nacional vs padrón
+  // provincial Córdoba vs derivadas de contratos. Crítico para el identity
+  // resolver tiered: Tier 1+2 confían más en CUITs de padrones oficiales.
+  // ALTER idempotente — DuckDB no soporta IF NOT EXISTS en ADD COLUMN.
+  for (const alter of [
+    `ALTER TABLE empresas ADD COLUMN fuente_padron TEXT`,
+  ]) {
+    try { await dbRun(alter) } catch { /* columna ya existe */ }
+  }
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS directores (
@@ -103,6 +187,13 @@ export async function initDb(): Promise<void> {
       activa             BOOLEAN
     )
   `)
+  // Índices IGJ entidades — search por razon_social (LIKE) y lookup por cuit
+  // o numero_correlativo. 420K filas → sin índice las queries son full-scan.
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_igj_ent_corr ON igj_entidades(numero_correlativo)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_igj_ent_cuit ON igj_entidades(cuit) WHERE cuit IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_igj_ent_razon ON igj_entidades(LOWER(razon_social)) WHERE razon_social IS NOT NULL`)
+  } catch { /* idempotente */ }
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS igj_autoridades (
@@ -112,6 +203,12 @@ export async function initDb(): Promise<void> {
       numero_documento   TEXT
     )
   `)
+  // Índices IGJ autoridades — 2.29M filas, search por DNI o nombre.
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_igj_aut_dni ON igj_autoridades(numero_documento) WHERE numero_documento IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_igj_aut_corr ON igj_autoridades(numero_correlativo)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_igj_aut_nombre ON igj_autoridades(LOWER(apellido_nombre)) WHERE apellido_nombre IS NOT NULL`)
+  } catch { /* idempotente */ }
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS reportes (
@@ -126,6 +223,1223 @@ export async function initDb(): Promise<void> {
       expediente_json TEXT    NOT NULL
     )
   `)
+
+  // ─── Fuentes de datos — Sprint 4 (Data Foundation) ────────────────────────
+  // Cumple CLAUDE.md sección 4: toda fuente registrada con origen, fecha,
+  // método, formato y nivel de confianza.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS fuentes_datos (
+      id                TEXT PRIMARY KEY,
+      jurisdiccion      TEXT NOT NULL,
+      tipo              TEXT NOT NULL,    -- ConnectorTipo
+      url               TEXT NOT NULL,
+      formato           TEXT NOT NULL,
+      oficial           BOOLEAN NOT NULL,
+      licencia          TEXT,
+      frecuencia        TEXT,
+      nivel_confianza   TEXT NOT NULL,    -- 'alto'|'medio'|'bajo'
+      notas             TEXT,
+      registrado_en     TEXT NOT NULL,
+      ultimo_crawl      TEXT
+    )
+  `)
+
+  // ─── Snapshots — versionado bitemporal de ingestas (W1) ───────────────────
+  // Cada corrida de seed crea un snapshot. Datos cargados llevan snapshot_id
+  // para trazabilidad. Cuando una nueva corrida trae los mismos datos con
+  // valores diferentes (corrección oficial), se marca superseded_by.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS snapshots (
+      id              TEXT PRIMARY KEY,
+      seed_id         TEXT NOT NULL,
+      fuente_url      TEXT NOT NULL,
+      fecha_corrida   TEXT NOT NULL,
+      hash_archivo    TEXT NOT NULL,
+      filas_leidas    INTEGER NOT NULL DEFAULT 0,
+      filas_insertadas INTEGER NOT NULL DEFAULT 0,
+      filas_quarantined INTEGER NOT NULL DEFAULT 0,
+      duracion_ms     INTEGER,
+      status          TEXT NOT NULL DEFAULT 'success',
+      superseded_by   TEXT,
+      notas           TEXT
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_snapshots_seed ON snapshots(seed_id, fecha_corrida DESC)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_snapshots_hash ON snapshots(hash_archivo)`)
+  } catch { /* idempotente */ }
+
+  // ─── Quarantine — filas que fallan validación durante seeds (W1) ──────────
+  // Política ARGOS: nunca abortar corrida nocturna por una fila sucia.
+  // Aislamos en quarantine, seguimos con el resto, alertamos al operador.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS quarantine (
+      id              TEXT PRIMARY KEY,
+      snapshot_id     TEXT NOT NULL,
+      tabla_destino   TEXT NOT NULL,
+      motivo          TEXT NOT NULL,
+      detalle         TEXT,            -- JSON serializado
+      fila_json       TEXT,            -- JSON serializado del row original
+      creado_en       TEXT NOT NULL,
+      resuelto_en     TEXT,
+      resolucion      TEXT NOT NULL DEFAULT 'pending'
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_quarantine_snap ON quarantine(snapshot_id)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_quarantine_tabla ON quarantine(tabla_destino)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_quarantine_estado ON quarantine(resolucion)`)
+  } catch { /* idempotente */ }
+
+  // ─── Identity Resolution candidates (W1) ──────────────────────────────────
+  // T1 (DNI/CUIT exact) entran al grafo Neo4j público.
+  // T2/T3 quedan acá hasta verificación humana (UI /admin/identidades).
+  // Por LAI argentina, toda arista pública debe ser T1.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS identidad_candidates (
+      id                    TEXT PRIMARY KEY,
+      tipo                  TEXT NOT NULL,
+      fuente_a              TEXT NOT NULL,
+      identificador_a       TEXT NOT NULL,
+      fuente_b              TEXT NOT NULL,
+      identificador_b       TEXT NOT NULL,
+      tier                  INTEGER NOT NULL,
+      metodo                TEXT NOT NULL,
+      score                 DOUBLE NOT NULL,
+      verificado_por_humano BOOLEAN NOT NULL DEFAULT false,
+      verificado_en         TEXT,
+      verificado_por        TEXT,
+      notas                 TEXT,
+      created_at            TEXT NOT NULL
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_identidad_tipo ON identidad_candidates(tipo, tier)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_identidad_a ON identidad_candidates(LOWER(identificador_a))`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_identidad_b ON identidad_candidates(LOWER(identificador_b))`)
+  } catch { /* idempotente */ }
+
+  // ─── Entes estatales Córdoba (W1) ─────────────────────────────────────────
+  // Lista canónica de organismos públicos cordobeses (Provincia + Capital +
+  // empresas estatales + universidades + concesionarios + cooperativas con
+  // aporte público). Diferentes de :Empresa porque NO son privadas — modelan
+  // como :Reparticion en el grafo.
+  // La lista se popula vía build-organigrama-cordoba.ts (W3) desde organigrama
+  // oficial. W1 solo crea la tabla y carga 10 entes pivote para tests.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS entes_estatales_cordoba (
+      id              TEXT PRIMARY KEY,
+      cuit            TEXT,
+      nombre          TEXT NOT NULL,
+      jurisdiccion    TEXT NOT NULL,         -- 'cordoba-provincia' | 'cordoba-capital'
+      tipo            TEXT NOT NULL,         -- 'ministerio'|'secretaria'|'estatal'|
+                                              -- 'universidad'|'concesion'|'cooperativa'|
+                                              -- 'tribunal'|'legislatura'|'caja'
+      poder           TEXT NOT NULL,         -- 'ejecutivo'|'legislativo'|'judicial'|
+                                              -- 'descentralizado'
+      depende_de_id   TEXT,                  -- FK a otro ente (jerarquía interna)
+      ley_creacion    TEXT,
+      sitio_web       TEXT,
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_entes_jur ON entes_estatales_cordoba(jurisdiccion)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_entes_tipo ON entes_estatales_cordoba(tipo)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_entes_cuit ON entes_estatales_cordoba(cuit) WHERE cuit IS NOT NULL`)
+  } catch { /* idempotente */ }
+
+  // ─── Boletines Oficiales — extractos OCR (W2 Task B) ─────────────────────
+  // Una row por PDF procesado. hash_pdf = sha256 del buffer original (estable
+  // entre re-corridas → idempotencia). Si re-procesamos un PDF y el hash
+  // cambia (versión actualizada del boletín), el viejo extract queda
+  // marcado como superseded por el nuevo (analogía con snapshot supersession).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS boletin_extractos (
+      hash_pdf              TEXT PRIMARY KEY,
+      jurisdiccion          TEXT NOT NULL,
+      fuente_url            TEXT NOT NULL,
+      fecha_publicacion     TEXT,
+      total_paginas         INTEGER NOT NULL,
+      metodo_usado          TEXT NOT NULL,
+      confidence_avg        DOUBLE NOT NULL,
+      texto_completo        TEXT,
+      paginas_problematicas TEXT,
+      duracion_ms           INTEGER,
+      snapshot_id           TEXT,
+      procesado_en          TEXT NOT NULL
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_boletin_extractos_jur ON boletin_extractos(jurisdiccion)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_boletin_extractos_fecha ON boletin_extractos(fecha_publicacion)`)
+  } catch { /* idempotente */ }
+
+  // ─── Boletines Oficiales — actos administrativos extraídos (W2 Task B) ───
+  // Una row por ActoAdministrativoExtraido. id = sha256(hash_pdf|pagina|tipo|
+  // numero|cuit|monto) — idempotente, INSERT OR IGNORE deduplica al re-procesar
+  // el mismo PDF. Columnas bitemporal (t_efectivo/t_publicado/superseded_by_id)
+  // creadas acá para evitar pasada de migrate-bitemporal.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS boletin_actos (
+      id                     TEXT PRIMARY KEY,
+      hash_pdf               TEXT NOT NULL,
+      jurisdiccion           TEXT NOT NULL,
+      pagina                 INTEGER NOT NULL,
+      tipo_acto              TEXT,
+      numero_acto            TEXT,
+      numero_expediente      TEXT,
+      fecha_acto             TEXT,
+      cuit                   TEXT,
+      dni                    TEXT,
+      proveedor_razon_social TEXT,
+      reparticion            TEXT,
+      monto                  DOUBLE,
+      texto_crudo            TEXT,
+      metodo_extraccion      TEXT NOT NULL,
+      confidence             DOUBLE NOT NULL,
+      snapshot_id            TEXT,
+      insertado_en           TEXT NOT NULL,
+      t_efectivo             TEXT,
+      t_publicado            TEXT,
+      superseded_by_id       TEXT
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_boletin_actos_hash ON boletin_actos(hash_pdf)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_boletin_actos_cuit ON boletin_actos(cuit) WHERE cuit IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_boletin_actos_dni ON boletin_actos(dni) WHERE dni IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_boletin_actos_jur ON boletin_actos(jurisdiccion)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_boletin_actos_fecha ON boletin_actos(fecha_acto)`)
+  } catch { /* idempotente */ }
+
+  // ─── LLM usage tracking (Fase 4) ──────────────────────────────────────────
+  // Cada call a Anthropic API se registra acá para enforce hard budget cap.
+  // El budget-guard.ts agrega SUM(costo_usd) WHERE timestamp > ventana
+  // para decidir si dejar pasar el próximo call.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS llm_usage (
+      id                    TEXT PRIMARY KEY,
+      timestamp             TEXT NOT NULL,
+      endpoint              TEXT NOT NULL,
+      modelo                TEXT NOT NULL,
+      input_tokens          INTEGER NOT NULL DEFAULT 0,
+      output_tokens         INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+      cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+      costo_usd             DOUBLE  NOT NULL DEFAULT 0,
+      status                TEXT NOT NULL,
+      error_message         TEXT
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_llm_endpoint ON llm_usage(endpoint)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_llm_timestamp ON llm_usage(timestamp DESC)`)
+  } catch { /* ya existe */ }
+
+  // ─── Cache OpenSanctions / ICIJ (post-MVP) ────────────────────────────────
+  // Resultado cacheado de querys a opensanctions.org keyed por CUIT. Evita
+  // 1 round-trip API por análisis. TTL típico 30 días — refrescar via
+  // npm run seed:opensanctions.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS opensanctions_matches (
+      cuit                TEXT PRIMARY KEY,
+      nombre              TEXT NOT NULL,
+      matched             BOOLEAN NOT NULL,
+      riesgo              TEXT,            -- 'sancionado'|'pep'|'offshore'|'crimen'|null
+      dataset_principal   TEXT,
+      entidad_id          TEXT,
+      entidad_caption     TEXT,
+      entidad_url         TEXT,
+      consultado_en       TEXT NOT NULL
+    )
+  `)
+
+  // ─── Bulk ICIJ Offshore Leaks Database ─────────────────────────────────────
+  // Cargado via: npm run seed:icij -- /ruta/a/csvs/
+  // Descarga: https://offshoreleaks.icij.org/pages/database
+  // Incluye: Panama Papers, Pandora Papers, Paradise Papers, Bahamas Leaks, Offshore Leaks.
+  // Permite detección offline sin rate limit, mucho más rápido que API on-demand.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS icij_entidades (
+      node_id         TEXT PRIMARY KEY,
+      nombre          TEXT NOT NULL,
+      nombre_norm     TEXT NOT NULL,
+      tipo            TEXT NOT NULL,     -- 'entity'|'officer'|'intermediary'
+      jurisdiccion    TEXT,
+      countries       TEXT,
+      country_codes   TEXT,
+      estado          TEXT,
+      fuente          TEXT NOT NULL,     -- 'Panama Papers'|'Pandora Papers'|etc.
+      incorporacion   TEXT,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+
+  await dbRun(`
+    CREATE INDEX IF NOT EXISTS idx_icij_nombre_norm
+    ON icij_entidades(nombre_norm)
+  `)
+
+  // ─── Scraper health monitoring ─────────────────────────────────────────────
+  // Registra cada ejecución de un scraper: cuándo corrió, cuántos contratos
+  // extrajo, si falló y por qué. Alimenta el endpoint /api/scrapers/health
+  // y permite detectar scrapers rotos (portal cambió estructura HTML).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS scrapers_health (
+      id               TEXT NOT NULL,
+      ejecutado_en     TEXT NOT NULL,
+      ok               BOOLEAN NOT NULL,
+      contratos_count  INTEGER,
+      duracion_ms      INTEGER,
+      error_msg        TEXT,
+      url_chequeada    TEXT,
+      PRIMARY KEY (id, ejecutado_en)
+    )
+  `)
+
+  // ─── Alertas automáticas (detector de eventos) ─────────────────────────────
+  // Sistema de monitoreo continuo: detecta scrapers rotos, fuentes desactualizadas,
+  // y datos nuevos disponibles. Generadas por scripts/check-alertas.ts (cron),
+  // expuestas via GET /api/alertas, mostradas como badge en AppShell.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS alertas (
+      id              TEXT PRIMARY KEY,
+      tipo            TEXT NOT NULL,    -- 'scraper_roto'|'fuente_desactualizada'|'datos_nuevos'
+      severidad       TEXT NOT NULL,    -- 'info'|'warning'|'critical'
+      titulo          TEXT NOT NULL,
+      detalle         TEXT,
+      fuente_id       TEXT,             -- referencia opcional a fuentes_datos.id
+      detectado_en    TEXT NOT NULL,
+      leida           BOOLEAN NOT NULL DEFAULT false,
+      leida_en        TEXT
+    )
+  `)
+
+  // ─── Índice de PDFs del Boletín Oficial Provincia Córdoba ──────────────────
+  // 40,539 PDFs indexados via WP REST API en boletinoficial.cba.gov.ar.
+  // Esta tabla es solo el ÍNDICE (no el contenido extraído). El OCR de cada PDF
+  // va a `contratos`/`auditorias_tribunal_cuentas` según corresponda.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS boe_cba_pdfs (
+      wp_id           INTEGER PRIMARY KEY,
+      url             TEXT NOT NULL,
+      filename        TEXT NOT NULL,
+      fecha_edicion   TEXT,                        -- YYYY-MM-DD parseado del filename
+      anio            INTEGER,
+      seccion         INTEGER,                      -- 1=Legislativa, 2=Administrativa, 3=Judicial, 4-5=Anexos
+      fecha_upload    TEXT NOT NULL,
+      tamano_bytes    INTEGER,
+      ocr_procesado   BOOLEAN DEFAULT false,
+      indexado_en     TEXT NOT NULL
+    )
+  `)
+
+  // ─── OCR jobs (resumability del crawler de boletines) ──────────────────────
+  // Track de qué PDFs ya fueron procesados por seed:boletin-cordoba para
+  // permitir interrumpir/retomar corridas largas (16 años de boletines puede
+  // tardar varias horas).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS ocr_jobs (
+      url             TEXT PRIMARY KEY,
+      municipio       TEXT NOT NULL,
+      procesado_en    TEXT NOT NULL,
+      contratos_count INTEGER NOT NULL,
+      paginas         INTEGER,
+      costo_usd       DOUBLE,
+      observaciones   TEXT
+    )
+  `)
+
+  // ─── Padrón oficial de proveedores / contratistas ──────────────────────────
+  // Lista de empresas habilitadas como proveedores del estado (no son
+  // movimientos de gasto, pero enriquecen los cruces: CUIT verificado por
+  // fuente oficial → cruzar con OpenSanctions/ICIJ y empresas IGJ).
+  // Fuentes típicas:
+  //   - Dataset 281 (Contratistas Obra Pública 2019-2022)
+  //   - Dataset 162 (Registro Proveedores 01/2017)
+  //   - Padrones provinciales / nacionales
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS proveedores_padron (
+      id              TEXT PRIMARY KEY,           -- hash(jurisdiccion + cuit + anio)
+      jurisdiccion    TEXT NOT NULL,              -- 'cordoba-capital', 'cordoba-provincia', etc.
+      cuit            TEXT,                        -- formato XX-XXXXXXXX-X
+      cuit_norm       TEXT,                        -- solo dígitos, para joins
+      nombre          TEXT NOT NULL,
+      nombre_norm     TEXT NOT NULL,              -- uppercase, sin acentos, sin S.A./S.R.L.
+      categoria       TEXT,                        -- 'obra_publica' | 'bienes_servicios' | etc.
+      anio_padron     INTEGER NOT NULL,           -- año del snapshot
+      estado          TEXT,                        -- 'habilitado' | 'suspendido' | 'baja'
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+
+  // Auditorías y observaciones del Tribunal de Cuentas (provincial o municipal).
+  // Fuente de validación externa CRÍTICA para una herramienta anti-corrupción:
+  // si un contrato/obra fue observado o impugnado por el TC, eso es señal grave.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS auditorias_tribunal_cuentas (
+      id              TEXT PRIMARY KEY,
+      jurisdiccion    TEXT NOT NULL,              -- 'cordoba-capital' | 'cordoba-provincia'
+      organo          TEXT NOT NULL,              -- 'Tribunal de Cuentas Municipal' | 'Provincial' | etc.
+      tipo            TEXT NOT NULL,              -- 'fallo_absolutorio' | 'fallo_condenatorio' | 'observacion' | 'informe'
+      numero          TEXT,
+      fecha           TEXT NOT NULL,              -- YYYY-MM-DD
+      anio            INTEGER NOT NULL,
+      asunto          TEXT NOT NULL,
+      involucrados    TEXT,                        -- nombres/cuits mencionados (CSV)
+      resultado       TEXT,                        -- 'absolutorio' | 'condenatorio' | 'observado' | etc.
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+
+  // Ejecución presupuestaria — partidas, montos, evolución por trimestre/año.
+  // Dimensión MACRO del gasto público (vs micro = contratos individuales).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS presupuesto_ejecucion (
+      id              TEXT PRIMARY KEY,
+      jurisdiccion    TEXT NOT NULL,
+      anio            INTEGER NOT NULL,
+      trimestre       INTEGER,                     -- 1-4 si reporta trimestralmente, NULL si anual
+      jurisdiccion_codigo TEXT,                    -- código de jurisdicción presupuestaria (gobierno, organismo)
+      jurisdiccion_nombre TEXT,
+      programa        TEXT,                        -- nombre del programa presupuestario
+      partida         TEXT,                        -- código de partida (ej: 1.1.1 personal)
+      partida_nombre  TEXT,
+      -- Ciclo presupuestario Ley 24.156 (5 etapas):
+      credito_inicial DOUBLE,                      -- (1) presupuesto sancionado por el legislativo
+      credito_vigente DOUBLE,                      -- (2) presupuesto modificado (decretos / DNUs)
+      compromiso      DOUBLE,                      -- (3) orden de compra firmada — el peso queda separado (PLAN-DATOS B1)
+      devengado       DOUBLE,                      -- (4) bien recibido / servicio prestado — la deuda nació
+      pagado          DOUBLE,                      -- (5) egreso efectivo desde tesorería
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+  // ALTER idempotente — la columna compromiso (etapa 3) faltaba en el schema
+  // original, lo cual cortaba la cadena de pago: sin compromiso no se puede
+  // cruzar Compromiso ↔ Contrato individual. Las DBs pre-existentes a B1
+  // adquieren la columna via ALTER y los seeds nuevos la populan.
+  for (const c of [`compromiso DOUBLE`]) {
+    try { await dbRun(`ALTER TABLE presupuesto_ejecucion ADD COLUMN ${c}`) }
+    catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
+  }
+
+  // Obras públicas — registro independiente de contratos individuales.
+  // Una obra puede tener múltiples contratos (proyecto + ejecución + ampliaciones).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS obras_publicas (
+      id              TEXT PRIMARY KEY,
+      jurisdiccion    TEXT NOT NULL,
+      anio            INTEGER NOT NULL,
+      nombre          TEXT NOT NULL,
+      tipo            TEXT,                        -- 'vialidad' | 'edificio' | 'sanitaria' | etc.
+      ubicacion       TEXT,                        -- localidad, barrio, dirección
+      monto_inicial   DOUBLE,
+      monto_actual    DOUBLE,                      -- con redeterminaciones de precio
+      avance_pct      INTEGER,                      -- 0-100
+      estado          TEXT,                        -- 'iniciada' | 'paralizada' | 'finalizada' | etc.
+      adjudicatario   TEXT,                        -- empresa contratista
+      adjudicatario_cuit TEXT,
+      expediente      TEXT,
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+
+  // Salarios / planta del estado — agentes públicos, funcionarios, concejales.
+  // Granularidad: una fila por persona × período (mes/año).
+  // Datasets fuente: 131, 201, 5, 3292 del portal Córdoba Capital + similares.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS agentes_publicos (
+      id              TEXT PRIMARY KEY,
+      jurisdiccion    TEXT NOT NULL,
+      anio            INTEGER NOT NULL,
+      mes             INTEGER,                      -- 1-12 si granularidad mensual
+      categoria       TEXT,                          -- 'funcionario' | 'agente' | 'concejal' | 'docente' | etc.
+      reparticion     TEXT,                          -- secretaría / ministerio / dependencia
+      cargo           TEXT,
+      apellido_nombre TEXT,                          -- nombre completo si público (algunas jurisdicciones lo omiten)
+      cuit            TEXT,                          -- raro pero algunas fuentes lo publican
+      bruto           DOUBLE,                        -- haber bruto
+      neto            DOUBLE,                        -- haber neto
+      categoria_escala TEXT,                         -- agrupador escala salarial
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+  // Índices para búsqueda interactiva por nombre/CUIT (Iter 2 análisis-datos).
+  // Sin estos, /api/agentes/search?q=Pérez tarda segundos en 178K filas.
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_agentes_apellido ON agentes_publicos(LOWER(apellido_nombre)) WHERE apellido_nombre IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_agentes_cuit ON agentes_publicos(cuit) WHERE cuit IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_agentes_jurisdiccion ON agentes_publicos(jurisdiccion)`)
+  } catch { /* idempotente */ }
+
+  // PLAN-DATOS A4: backfill DNI a agentes_publicos. Sin DNI, M4.1 colapsa al
+  // cap-60 estructural por falta de identidad verificada. Lo backfilleamos
+  // cruzando con `declaraciones_juradas.dni` (post-OCR) por nombre normalizado.
+  // `fuente_dni_url` mantiene la trazabilidad (URL del PDF DDJJ de origen).
+  // DuckDB rechaza ADD COLUMN con constraints — usamos ALTER plano, los joins
+  // filtran por `dni IS NOT NULL` cuando lo necesitan.
+  try { await dbRun(`ALTER TABLE agentes_publicos ADD COLUMN dni TEXT`) } catch { /* idempotente */ }
+  try { await dbRun(`ALTER TABLE agentes_publicos ADD COLUMN fuente_dni_url TEXT`) } catch { /* idempotente */ }
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_agentes_dni ON agentes_publicos(dni) WHERE dni IS NOT NULL`)
+  } catch { /* idempotente */ }
+
+
+  // Subsidios y transferencias — gastos a personas/entidades sin contraprestación
+  // contractual directa (planes sociales, becas, ayudas, transferencias a OSC).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS transferencias (
+      id              TEXT PRIMARY KEY,
+      jurisdiccion    TEXT NOT NULL,
+      anio            INTEGER NOT NULL,
+      tipo            TEXT NOT NULL,              -- 'subsidio' | 'beca' | 'transferencia' | 'plan_social'
+      programa        TEXT,
+      beneficiario    TEXT,                        -- persona/entidad receptora (puede ser anónima/agregada)
+      beneficiario_cuit TEXT,
+      monto           DOUBLE NOT NULL,
+      fecha           TEXT,
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL
+    )
+  `)
+
+  // Catálogo MAESTRO de fuentes públicas descubiertas — implementadas y pendientes.
+  // Permite mostrar al usuario QUÉ datos hay disponibles, cuáles ya cargamos,
+  // y cuáles faltan + razón. Crítico para una herramienta que se presenta
+  // como "control integral del gasto público".
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS fuentes_publicas_catalogo (
+      id                TEXT PRIMARY KEY,         -- slug único
+      jurisdiccion      TEXT NOT NULL,            -- 'cordoba-capital' | 'cordoba-provincia' | etc.
+      organismo         TEXT NOT NULL,            -- entidad que publica (ministerio, agencia, etc.)
+      dimension         TEXT NOT NULL,            -- 'contratos'|'presupuesto'|'salarios'|'obras'|'subsidios'|'auditoria'|'otro'
+      nombre            TEXT NOT NULL,
+      descripcion       TEXT,
+      url_oficial       TEXT,                      -- URL al portal/dataset
+      formato           TEXT,                      -- 'XLSX'|'CSV'|'JSON'|'API REST'|'PDF'|'HTML'|'mixto'
+      cobertura_desde   INTEGER,                   -- año mínimo
+      cobertura_hasta   INTEGER,                   -- año máximo (NULL si en curso)
+      volumen_estimado  TEXT,                      -- '~30k filas', '~500 PDFs', etc.
+      estado_implementacion TEXT NOT NULL,        -- 'implementado'|'pendiente'|'bloqueado'|'descartado'
+      razon_bloqueo     TEXT,                      -- si bloqueado: por qué (login, caído, sin formato, etc.)
+      conector_id       TEXT,                      -- id del connector si está implementado
+      registrado_en     TEXT NOT NULL
+    )
+  `)
+
+  // ─── Registro Nacional de Sociedades (RNS) — datos.jus.gob.ar ───────────────
+  // Snapshot consolidado nacional de sociedades comerciales, asociaciones,
+  // mutuales, etc. Cubre TODAS las provincias (no solo CABA como IGJ).
+  // Crítico para identity resolver con CUITs de proveedores cordobeses cuyos
+  // contratos se firman fuera del registro provincial.
+  // Fuente: dataset registro-nacional-de-sociedades, ZIPs anuales 2019-presente.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS rns_personas_juridicas (
+      id                    TEXT PRIMARY KEY,           -- sha256(cuit|razon_social|fecha_actualizacion)
+      cuit                  TEXT,
+      razon_social          TEXT NOT NULL,
+      tipo_societario       TEXT,
+      fecha_contrato_social TEXT,
+      numero_inscripcion    TEXT,
+      fecha_actualizacion   TEXT,
+      dom_fiscal_provincia  TEXT,
+      dom_fiscal_localidad  TEXT,
+      dom_legal_provincia   TEXT,
+      dom_legal_localidad   TEXT,
+      snapshot_anio_mes     TEXT,                         -- YYYYMM del snapshot del CSV
+      fuente_url            TEXT NOT NULL,
+      cargado_en            TEXT NOT NULL
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_rns_cuit ON rns_personas_juridicas(cuit) WHERE cuit IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_rns_dom_fiscal_prov ON rns_personas_juridicas(dom_fiscal_provincia)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_rns_dom_legal_prov ON rns_personas_juridicas(dom_legal_provincia)`)
+  } catch { /* ignore */ }
+
+  // ─── Licitaciones index para join contratos.numero_expediente ──────────────
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_lic_expediente ON licitaciones_llamado(expediente) WHERE expediente IS NOT NULL`)
+  } catch { /* idempotente */ }
+
+  // ─── Licitaciones (llamados sin adjudicación documentada) ───────────────────
+  // Distinta de `contratos`: estos son LLAMADOS A LICITACIÓN con presupuesto
+  // oficial estimado, sin proveedor adjudicatario conocido. No entran al motor
+  // de señales que mide concentración por proveedor (no hay proveedor).
+  // Cubre Córdoba Capital 2005-2018 desde dataset 2 versión 4747.
+  // Utilidad: cruce por expediente con normas de adjudicación → señal de
+  // diferencia presupuesto vs monto adjudicado.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS licitaciones_llamado (
+      id                   TEXT PRIMARY KEY,           -- hash(municipio + expediente + numero)
+      municipio            TEXT NOT NULL,
+      anio                 INTEGER NOT NULL,
+      tipo                 TEXT NOT NULL,              -- 'Licitación Pública' | 'Concurso de Precios' | etc.
+      categoria            TEXT,
+      numero               TEXT,                        -- '28/18'
+      expediente           TEXT,                        -- '008.072/18' — clave de cruce con contratos
+      titulo               TEXT NOT NULL,
+      descripcion          TEXT,
+      requiriente          TEXT NOT NULL,              -- área que pide la contratación
+      presupuesto_oficial  DOUBLE,
+      precio_pliego        DOUBLE,
+      apertura             TEXT,                        -- ISO timestamp de apertura de sobres
+      ir_externo           TEXT,                        -- ID interno del portal (para cruzar con archivo de PDFs)
+      fuente_url           TEXT NOT NULL,
+      cargado_en           TEXT NOT NULL
+    )
+  `)
+
+  // ─── Padrón provincial proveedores Córdoba (Phase F4) ────────────────────
+  // Dataset 281 del portal gobiernoabierto.cordoba.gob.ar — proveedores
+  // habilitados con CUIT verificado. Distinto de `proveedores_padron`
+  // (catálogo agregado): esta tabla es source-of-truth para el identity
+  // resolver Tier 1 sobre la jurisdicción Córdoba específicamente.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS empresas_padron_provincial (
+      cuit                TEXT PRIMARY KEY,
+      razon_social        TEXT NOT NULL,
+      rubro               TEXT,
+      inicio_inscripcion  TEXT,
+      fuente_url          TEXT NOT NULL,
+      cargado_en          TEXT NOT NULL
+    )
+  `)
+
+  // ─── Identity resolution tiered (Phase F3) ────────────────────────────────
+  // Cache de la resolución empresa↔CUIT por nombre normalizado. Cada match
+  // declara su tier (1=cuit_exact, 2=name_normalized, 3=name_fuzzy_high,
+  // 4=llm_ambiguous, 5=no_match) + score 0-100. Permite distinguir matches
+  // confiables (Tier 1, 100) de inferencias dudosas (Tier 4, 60-99) en la UI
+  // y evita re-escanear toda la tabla `empresas` en cada lookup.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS identity_matches (
+      proveedor_norm   TEXT PRIMARY KEY,
+      cuit_resuelto    TEXT,
+      tier             INTEGER NOT NULL,
+      score            INTEGER NOT NULL,
+      metodo           TEXT NOT NULL,
+      candidatos_alternos TEXT,
+      resuelto_en      TEXT NOT NULL
+    )
+  `)
+  try {
+    await dbRun(
+      `CREATE INDEX IF NOT EXISTS idx_identity_cuit
+       ON identity_matches(cuit_resuelto)
+       WHERE cuit_resuelto IS NOT NULL`
+    )
+  } catch { /* idempotente */ }
+
+  // ─── Declaraciones Juradas funcionarios Córdoba (M1.5) ───────────────────────
+  // Categorías 85 (gestión 2016-2019) + 105 (gestión 2020-2023) del portal
+  // gobiernoabierto.cordoba.gob.ar. Cada funcionario tiene 1 dato + N versiones
+  // (1 versión = 1 año declarado). Solo PDFs son descargables (XLS/CSV listados
+  // pero rotos). Esta tabla es ÍNDICE — no descarga ni procesa los PDFs (eso
+  // es OCR Tier A, fuera de alcance M1).
+  //
+  // Bitemporal columns (W1 standard) creadas inline aquí; migrate-bitemporal.ts
+  // también las lista en TABLAS_CORE para consistencia futura.
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS declaraciones_juradas (
+      id              TEXT PRIMARY KEY,        -- sha256(jurisdiccion + dato_id + version_id)
+      jurisdiccion    TEXT NOT NULL,           -- 'cordoba-capital'
+      dato_id         TEXT NOT NULL,           -- ID del funcionario en el portal
+      version_id      TEXT NOT NULL,           -- ID de la declaración (1 por año)
+      gestion         TEXT NOT NULL,           -- '2016-2019' | '2020-2023'
+      apellido_nombre TEXT NOT NULL,
+      apellido_nombre_norm TEXT,               -- normalizado: UPPERCASE sin tildes, para join cross-categoría (populated por seed; NULL en pre-bitemporal antes de migración)
+      anio_declarado  INTEGER,                 -- año al que refiere la declaración
+      pdf_url         TEXT,                    -- único formato funcional
+      xls_url         TEXT,                    -- linked en API pero suele 404
+      csv_url         TEXT,                    -- linked en API pero suele 404
+      ocr_procesado   BOOLEAN DEFAULT FALSE,   -- worker OCR setea true cuando extrae
+      cuit            TEXT,                    -- populated post-OCR
+      dni             TEXT,                    -- populated post-OCR
+      monto_declarado DOUBLE,                  -- populated post-OCR
+      fuente_url      TEXT NOT NULL,           -- URL canónica (portal page)
+      cargado_en      TEXT NOT NULL,
+      t_efectivo      TIMESTAMP,               -- cuándo se publicó la DDJJ en el portal (W1 bitemporal)
+      t_publicado     TIMESTAMP,               -- cuándo lo supimos en ARGOS (= cargado_en si nuevo)
+      snapshot_id     TEXT,                    -- FK a snapshots (corrida del seed)
+      superseded_by_id TEXT                    -- FK a fila que la reemplaza (correcciones)
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_ddjj_apellido ON declaraciones_juradas(apellido_nombre)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_ddjj_apellido_norm ON declaraciones_juradas(apellido_nombre_norm)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_ddjj_anio ON declaraciones_juradas(anio_declarado)`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_ddjj_dni ON declaraciones_juradas(dni) WHERE dni IS NOT NULL`)
+  } catch { /* idempotente */ }
+  // ALTER idempotente para tablas pre-existentes (W1 pattern: capturar duplicate)
+  for (const c of [
+    `t_efectivo TIMESTAMP`, `t_publicado TIMESTAMP`,
+    `snapshot_id TEXT`, `superseded_by_id TEXT`,
+    // Iteración: apellido_nombre_norm (default vacío para no romper rows preexistentes,
+    // se popula via UPDATE migration o re-run del seed con dedup).
+    `apellido_nombre_norm TEXT DEFAULT ''`,
+  ]) {
+    try { await dbRun(`ALTER TABLE declaraciones_juradas ADD COLUMN ${c}`) }
+    catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
+  }
+
+  // ─── Aportantes a campañas electorales — CNE (M1.6) ──────────────────────────
+  // Datos abiertos CNE (datos.gob.ar / electoral.gob.ar) con aportantes por
+  // distrito + año electoral + partido/alianza. Filtrado a Córdoba.
+  // Bitemporal columns standard (W1).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS aportantes_campanas (
+      id              TEXT PRIMARY KEY,        -- sha256(distrito + anio + cuit_o_dni + partido + monto)
+      distrito        TEXT NOT NULL,           -- 'CORDOBA'
+      anio_electoral  INTEGER NOT NULL,        -- 2019 | 2021 | 2023 | 2025
+      cuit            TEXT,                    -- aportante PJ
+      dni             TEXT,                    -- aportante PF
+      apellido_nombre TEXT,
+      razon_social    TEXT,
+      partido         TEXT,
+      alianza         TEXT,
+      categoria       TEXT,                    -- 'Diputado Nacional' | 'Senador' | etc.
+      tipo_aporte     TEXT,                    -- 'monetario' | 'no_monetario' | 'especie'
+      monto           DOUBLE,
+      fecha_aporte    TEXT,                    -- ISO YYYY-MM-DD si está
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL,
+      t_efectivo      TIMESTAMP,               -- fecha del aporte (W1 bitemporal)
+      t_publicado     TIMESTAMP,               -- cuándo lo supimos en ARGOS
+      snapshot_id     TEXT,                    -- FK a snapshots
+      superseded_by_id TEXT                    -- FK a fila que la reemplaza
+    )
+  `)
+  try {
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_aport_cuit ON aportantes_campanas(cuit) WHERE cuit IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_aport_dni ON aportantes_campanas(dni) WHERE dni IS NOT NULL`)
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_aport_anio ON aportantes_campanas(anio_electoral)`)
+  } catch { /* idempotente */ }
+  for (const c of [
+    `t_efectivo TIMESTAMP`, `t_publicado TIMESTAMP`,
+    `snapshot_id TEXT`, `superseded_by_id TEXT`,
+  ]) {
+    try { await dbRun(`ALTER TABLE aportantes_campanas ADD COLUMN ${c}`) }
+    catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
+  }
+
+  // ─── Personas Físicas — tabla maestra canónica (PLAN-DATOS Fase A1) ──────────
+  // Una persona = un DNI = una URL canónica. Esta tabla es la fuente de verdad
+  // de "quién es alguien" en ARGOS. Las otras tablas que mencionan personas
+  // (agentes_publicos, igj_autoridades, declaraciones_juradas, aportantes_campanas,
+  // directores) eventualmente apuntan acá vía DNI cuando hay match Tier 1-3.
+  //
+  // Sin DNI confirmado, una persona NO entra acá — queda en sus tablas de origen
+  // con flag `name_only_unmatched=TRUE` (definido por seeds en Fase A5).
+  //
+  // CUIT es derivado del DNI con prefijo {20,23,24,27} + dígito verificador
+  // módulo-11 (calculado por validador de Fase A3). Se almacena para queries
+  // directas y para JOIN con tablas que solo tienen CUIT (no DNI).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS personas_fisicas (
+      dni                  TEXT PRIMARY KEY,        -- 8 dígitos canónicos
+      cuit                 TEXT,                    -- XX-DDDDDDDD-V derivado del DNI
+      apellido_nombre      TEXT NOT NULL,           -- forma humana (mejor versión conocida)
+      apellido_nombre_norm TEXT NOT NULL,           -- UPPER sin tildes para búsqueda + JOIN
+      fuentes_url_json     TEXT NOT NULL DEFAULT '[]', -- JSON array de URLs canónicas que mencionan esta persona
+      fuente_dni_url       TEXT,                    -- URL específica que confirmó el DNI (DDJJ / boletín / etc.)
+      primer_visto         TIMESTAMP NOT NULL,      -- primera vez que ARGOS supo de esta persona
+      ultimo_visto         TIMESTAMP NOT NULL,      -- última actualización
+      t_efectivo           TIMESTAMP,               -- bitemporal W1: cuándo el evento upstream ocurrió
+      t_publicado          TIMESTAMP,               -- bitemporal W1: cuándo lo supo ARGOS
+      snapshot_id          TEXT,                    -- FK a snapshots (corrida del seed)
+      superseded_by_id     TEXT                     -- FK a fila que la reemplaza (correcciones)
+    )
+  `)
+  // NOTA: DuckDB no soporta partial indexes en esta versión, por lo que NO
+  // usamos `WHERE cuit IS NOT NULL`. Cada CREATE INDEX en su propio try para
+  // que el fallo de uno no impida el otro (bug histórico en otras tablas del
+  // proyecto: si la primera falla con "duplicate", la segunda nunca se crea).
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_pf_cuit ON personas_fisicas(cuit)`) }
+  catch { /* idempotente */ }
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_pf_apellido_norm ON personas_fisicas(apellido_nombre_norm)`) }
+  catch { /* idempotente */ }
+  // ALTER idempotente para tablas pre-existentes (W1 pattern). Cubre el caso
+  // de una DB creada en una versión anterior del schema A1 — los CREATE TABLE
+  // marcan columnas como NOT NULL pero ALTER no las agrega con NOT NULL por
+  // limitación de DuckDB. Si la DB es vieja, las columnas ausentes se agregan
+  // como nullable; los INSERTs nuevos siempre proveen los valores via helper.
+  // Review #1: agregadas apellido_nombre_norm/primer_visto/ultimo_visto que
+  // estaban faltando en el ALTER list — cerraba un hueco real para DBs
+  // pre-A1 que ahora intentaran INSERT sin pasar por upsertPersonaFisica.
+  for (const c of [
+    `cuit TEXT`,
+    `fuente_dni_url TEXT`,
+    `apellido_nombre_norm TEXT DEFAULT ''`,
+    `primer_visto TIMESTAMP`,
+    `ultimo_visto TIMESTAMP`,
+    `fuentes_url_json TEXT DEFAULT '[]'`,
+    `t_efectivo TIMESTAMP`, `t_publicado TIMESTAMP`,
+    `snapshot_id TEXT`, `superseded_by_id TEXT`,
+  ]) {
+    try { await dbRun(`ALTER TABLE personas_fisicas ADD COLUMN ${c}`) }
+    catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
+  }
+
+  // ─── Pagos contrato — atomización de la cadena de pago (PLAN-DATOS Fase B3) ─
+  // Cada fila es UN egreso real desde tesorería contra un contrato. Permite
+  // responder "cuánto se pagó realmente" sumando los pagos parciales (vs. el
+  // contratos.monto que es solo el monto adjudicado).
+  //
+  // Sin esta atomización la cadena cierra incompleta: contratos.monto es lo
+  // que dice el papel, pero los pagos pueden ser N transferencias en distintas
+  // fechas, alguna con descuento por penalidad, alguna devolviéndose, etc.
+  //
+  // contrato_hash es FK conceptual a contratos.hash. NO se enforza con
+  // FOREIGN KEY DDL para mantener idempotencia entre seeds (DuckDB no soporta
+  // bien defer constraints + tablas crecen en orden no determinístico).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS pagos_contrato (
+      id              TEXT PRIMARY KEY,    -- sha256(contrato_hash + fecha_pago + monto)
+      contrato_hash   TEXT NOT NULL,       -- FK conceptual a contratos.hash
+      fecha_pago      TEXT NOT NULL,       -- ISO YYYY-MM-DD
+      monto           DOUBLE NOT NULL,
+      moneda          TEXT NOT NULL DEFAULT 'ARS', -- por si futuro hay USD u otro
+      concepto        TEXT,                -- 'pago parcial' | 'pago total' | 'amortización' | etc.
+      fuente_url      TEXT NOT NULL,
+      cargado_en      TEXT NOT NULL,
+      t_efectivo      TIMESTAMP,           -- bitemporal W1: cuándo ocurrió el pago real
+      t_publicado     TIMESTAMP,           -- bitemporal W1: cuándo lo supo ARGOS
+      snapshot_id     TEXT,
+      superseded_by_id TEXT
+    )
+  `)
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_pagos_contrato ON pagos_contrato(contrato_hash)`) }
+  catch { /* idempotente */ }
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_pagos_fecha ON pagos_contrato(fecha_pago)`) }
+  catch { /* idempotente */ }
+  for (const c of [
+    `moneda TEXT DEFAULT 'ARS'`,
+    `concepto TEXT`,
+    `t_efectivo TIMESTAMP`, `t_publicado TIMESTAMP`,
+    `snapshot_id TEXT`, `superseded_by_id TEXT`,
+  ]) {
+    try { await dbRun(`ALTER TABLE pagos_contrato ADD COLUMN ${c}`) }
+    catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
+  }
+
+  // ─── Cargos funcionarios — trayectoria con vigencia (PLAN-DATOS Fase A6) ─────
+  // Derivada de agentes_publicos (que tiene N filas/persona/año) en filas
+  // canónicas de "carrera": un funcionario en un mismo cargo y repartición
+  // colapsa a UNA fila con vigente_desde y vigente_hasta. Habilita:
+  //
+  //   - Profile §3.1 sección "Cargos públicos" con tabla limpia de vigencia
+  //   - Detector C1 refactor: bonus por cargo con poder de adjudicación
+  //     (Director, Secretario, Jefe — usando `facultades_json`)
+  //   - Filtro temporal en señales (¿el funcionario estaba vigente cuando el
+  //     contrato se firmó?)
+  //
+  // El campo `dni` queda nullable hasta que Fase A4-A5 backfileen DNIs desde
+  // DDJJ + boletín. El JOIN cross-tabla mientras tanto va por
+  // (apellido_nombre_norm, jurisdiccion).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS cargos_funcionarios (
+      id                    TEXT PRIMARY KEY,    -- sha256(jurisdiccion + apellido_norm + cargo + reparticion)
+      dni                   TEXT,                -- FK personas_fisicas.dni; NULL hasta backfill A4-A5
+      apellido_nombre       TEXT NOT NULL,       -- mejor versión humana
+      apellido_nombre_norm  TEXT NOT NULL,       -- UPPER sin tildes/puntuación
+      jurisdiccion          TEXT NOT NULL,       -- 'cordoba-capital' | 'cordoba-provincia' | 'nacion'
+      reparticion           TEXT,                -- ministerio / secretaría / dependencia
+      cargo                 TEXT NOT NULL,       -- 'Director de Compras' | 'Concejal' | etc.
+      vigente_desde         TEXT,                -- ISO YYYY-MM-DD o solo año si es lo único conocido
+      vigente_hasta         TEXT,                -- null si vigente
+      facultades_json       TEXT NOT NULL DEFAULT '[]', -- JSON array curado (poder adjudicación, etc.)
+      fuente_url            TEXT NOT NULL,
+      cargado_en            TEXT NOT NULL,
+      t_efectivo            TIMESTAMP,           -- bitemporal W1
+      t_publicado           TIMESTAMP,
+      snapshot_id           TEXT,
+      superseded_by_id      TEXT
+    )
+  `)
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_cf_dni ON cargos_funcionarios(dni)`) }
+  catch { /* idempotente */ }
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_cf_apellido_norm ON cargos_funcionarios(apellido_nombre_norm)`) }
+  catch { /* idempotente */ }
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_cf_jurisdiccion ON cargos_funcionarios(jurisdiccion)`) }
+  catch { /* idempotente */ }
+  for (const c of [
+    `dni TEXT`,
+    `facultades_json TEXT DEFAULT '[]'`,
+    `t_efectivo TIMESTAMP`, `t_publicado TIMESTAMP`,
+    `snapshot_id TEXT`, `superseded_by_id TEXT`,
+  ]) {
+    try { await dbRun(`ALTER TABLE cargos_funcionarios ADD COLUMN ${c}`) }
+    catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
+  }
+
+  // ─── Personas Jurídicas — tabla maestra canónica (PLAN-DATOS Fase A2) ────────
+  // Una empresa = un CUIT = una URL canónica. Consolida empresas + igj_entidades
+  // + rns_personas_juridicas en una entidad única. Las tablas originales
+  // siguen siendo destino de seeds raw; personas_juridicas es la "view
+  // unificada" persistida con la mejor versión de cada campo.
+  //
+  // CUIT con prefijo {30, 33, 34} (PJ). Validación módulo-11 al insertar
+  // (ver Fase A3 — validador). Campos de domicilio (provincia + localidad)
+  // críticos para el filtro geográfico del detector M4.1 refactorizado en
+  // Fase C1 — sin domicilio fiscal, no se puede descartar el falso positivo
+  // tipo MOSQUERA↔Renault Argentina (multinacional CABA con director en
+  // jurisdicción no-Córdoba).
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS personas_juridicas (
+      cuit                  TEXT PRIMARY KEY,    -- XX-DDDDDDDD-V con prefijo {30,33,34}
+      razon_social          TEXT NOT NULL,       -- mejor versión humana conocida
+      razon_social_norm     TEXT NOT NULL,       -- UPPER sin tildes/puntuación para JOIN
+      alias_json            TEXT NOT NULL DEFAULT '[]', -- JSON array de razones sociales alternativas
+      tipo_societario       TEXT,                -- 'SA' | 'SRL' | 'SAS' | 'Coop' | 'OSC' | etc.
+      fecha_constitucion    TEXT,                -- ISO YYYY-MM-DD si conocida
+      dom_fiscal_provincia  TEXT,                -- 'CORDOBA' | 'CABA' | etc. — clave para filtro geográfico
+      dom_fiscal_localidad  TEXT,
+      dom_legal_provincia   TEXT,                -- a veces difiere de fiscal
+      dom_legal_localidad   TEXT,
+      estado                TEXT,                -- 'activa' | 'baja' | 'cancelada' | etc.
+      es_empleador          BOOLEAN,             -- de AFIP padrón empleadores
+      actividad_principal   TEXT,                -- de AFIP padrón
+      fuentes_url_json      TEXT NOT NULL DEFAULT '[]', -- JSON array de URLs (IGJ, RNS, AFIP, contratos)
+      primer_visto          TIMESTAMP NOT NULL,
+      ultimo_visto          TIMESTAMP NOT NULL,
+      t_efectivo            TIMESTAMP,           -- bitemporal W1
+      t_publicado           TIMESTAMP,
+      snapshot_id           TEXT,
+      superseded_by_id      TEXT
+    )
+  `)
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_pj_razon_norm ON personas_juridicas(razon_social_norm)`) }
+  catch { /* idempotente */ }
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_pj_dom_fiscal_prov ON personas_juridicas(dom_fiscal_provincia)`) }
+  catch { /* idempotente */ }
+  try { await dbRun(`CREATE INDEX IF NOT EXISTS idx_pj_dom_legal_prov ON personas_juridicas(dom_legal_provincia)`) }
+  catch { /* idempotente */ }
+  // ALTER idempotente para tablas pre-existentes (W1 pattern). Review #1:
+  // agregadas razon_social_norm, fuentes_url_json, primer_visto, ultimo_visto
+  // al ALTER list — mismo bug detectado en A1: el CREATE las marca NOT NULL
+  // pero el ALTER no las agregaba para DBs pre-A2.
+  for (const c of [
+    `razon_social_norm TEXT DEFAULT ''`,
+    `alias_json TEXT DEFAULT '[]'`,
+    `fuentes_url_json TEXT DEFAULT '[]'`,
+    `primer_visto TIMESTAMP`,
+    `ultimo_visto TIMESTAMP`,
+    `tipo_societario TEXT`,
+    `fecha_constitucion TEXT`,
+    `dom_fiscal_provincia TEXT`, `dom_fiscal_localidad TEXT`,
+    `dom_legal_provincia TEXT`, `dom_legal_localidad TEXT`,
+    `estado TEXT`, `es_empleador BOOLEAN`, `actividad_principal TEXT`,
+    `t_efectivo TIMESTAMP`, `t_publicado TIMESTAMP`,
+    `snapshot_id TEXT`, `superseded_by_id TEXT`,
+  ]) {
+    try { await dbRun(`ALTER TABLE personas_juridicas ADD COLUMN ${c}`) }
+    catch (e) { if (!String(e).toLowerCase().match(/duplicate|already exists/)) throw e }
+  }
+
+  // ─── Vista cadena_de_pago — flujo completo del peso (PLAN-DATOS Fase B4) ────
+  // Une presupuesto_ejecucion → contratos → pagos_contrato en una sola
+  // vista. Permite responder de una sola query:
+  //   "Para la partida X / programa Y, ¿cuánto se sancionó (crédito_inicial),
+  //    cuánto se modificó (crédito_vigente), cuánto se firmó en órdenes
+  //    (compromiso), cuánto se devengó (devengado), cuánto se pagó
+  //    (pagado), y A QUIÉN se le pagó (proveedor + cuit)?"
+  //
+  // El JOIN contrato↔partida es por (partida_presupuestaria, anio). Datos
+  // sparse hoy (la columna partida_presupuestaria es nueva en B2 y los seeds
+  // todavía no la populan), pero la vista existe y se llena automáticamente
+  // cuando los seeds se actualicen.
+  //
+  // El JOIN pagos↔contrato es por contrato_hash. Pagos agregados por SUM/COUNT.
+  //
+  // Wrappeado en try/catch por idempotencia: si alguna columna upstream todavía
+  // no existe en una migración temprana, el CREATE VIEW falla pero la DB queda
+  // funcional. El próximo initDb() lo reintenta.
+  try {
+    await dbRun(`
+      CREATE OR REPLACE VIEW cadena_de_pago AS
+      SELECT
+        -- Partida presupuestaria (top del ciclo)
+        pe.id                    AS partida_id,
+        pe.jurisdiccion          AS partida_jurisdiccion,
+        pe.anio                  AS partida_anio,
+        pe.trimestre             AS partida_trimestre,
+        pe.programa,
+        pe.partida,
+        pe.partida_nombre,
+        -- Las 5 etapas del ciclo presupuestario (Ley 24.156)
+        pe.credito_inicial,
+        pe.credito_vigente,
+        pe.compromiso,
+        pe.devengado,
+        pe.pagado                AS pagado_partida,
+        pe.fuente_url            AS partida_fuente_url,
+        -- Contrato adjudicado bajo esa partida (LEFT JOIN: partidas sin contrato siguen apareciendo)
+        c.hash                   AS contrato_hash,
+        c.tipo                   AS contrato_tipo,
+        c.proveedor,
+        c.proveedor_norm,
+        c.proveedor_cuit,        -- Tier 1-3 — el confiable
+        c.proveedor_cuit_inferido, -- Tier 4-5 — separado, no para detectores publicables
+        c.numero_orden_compra,
+        c.area                   AS contrato_area,
+        c.monto                  AS contrato_monto_adjudicado,
+        c.fuente_url             AS contrato_fuente_url,
+        -- Pagos efectivos atomizados (LEFT JOIN: contratos sin pagos cargados quedan en 0)
+        COALESCE(pagos_agg.total_pagado, 0)  AS contrato_total_pagado,
+        COALESCE(pagos_agg.cantidad_pagos, 0) AS contrato_cantidad_pagos,
+        pagos_agg.primer_pago    AS contrato_primer_pago,
+        pagos_agg.ultimo_pago    AS contrato_ultimo_pago
+      FROM presupuesto_ejecucion pe
+      LEFT JOIN contratos c
+        ON c.partida_presupuestaria = pe.partida
+        AND c.anio = pe.anio
+      LEFT JOIN (
+        SELECT
+          contrato_hash,
+          SUM(monto) AS total_pagado,
+          COUNT(*)   AS cantidad_pagos,
+          MIN(fecha_pago) AS primer_pago,
+          MAX(fecha_pago) AS ultimo_pago
+        FROM pagos_contrato
+        GROUP BY contrato_hash
+      ) pagos_agg ON pagos_agg.contrato_hash = c.hash
+    `)
+  } catch (err) {
+    console.warn('[db] cadena_de_pago no creada:', (err as Error).message)
+  }
+
+  // ─── Vistas universo cordobés N2 (Phase F5) ─────────────────────────────────
+  // El dataset IGJ trae 2.7M filas nationales y la mayoría son ruido para un
+  // beta acotado a Córdoba Capital. Estas views materializan el "universo
+  // relevante" (N2 = proveedores cordobeses + sus directores + co-empresas que
+  // comparten directores) para que las queries downstream filtren cheap.
+  //
+  // Wrappeado en try/catch para idempotencia: si en una primera migración
+  // todavía no existe alguna columna esperada (p.ej. identity_matches recién
+  // se crea acá arriba), el CREATE VIEW falla pero la DB queda funcional.
+  // El próximo initDb() reintenta y ya habrá columnas.
+  try {
+    await dbRun(`
+      CREATE OR REPLACE VIEW v_universo_cordobes_empresas AS
+      WITH proveedores_cordoba AS (
+        SELECT DISTINCT proveedor_norm AS nombre_norm
+        FROM contratos
+        WHERE municipio = 'cordoba-capital'
+      ),
+      con_cuit AS (
+        SELECT p.nombre_norm,
+               COALESCE(im.cuit_resuelto, e.cuit) AS cuit
+        FROM proveedores_cordoba p
+        LEFT JOIN identity_matches im ON im.proveedor_norm = p.nombre_norm
+        LEFT JOIN empresas e ON UPPER(e.nombre) = p.nombre_norm
+      ),
+      directores AS (
+        SELECT DISTINCT a.numero_documento AS dni, ie.cuit AS cuit_empresa
+        FROM con_cuit cc
+        JOIN igj_entidades ie ON ie.cuit = cc.cuit
+        JOIN igj_autoridades a ON a.numero_correlativo = ie.numero_correlativo
+      ),
+      co_empresas AS (
+        SELECT DISTINCT ie.cuit, ie.razon_social
+        FROM directores d
+        JOIN igj_autoridades a2 ON a2.numero_documento = d.dni
+        JOIN igj_entidades ie ON ie.numero_correlativo = a2.numero_correlativo
+      )
+      -- N2 = N0 (proveedores Córdoba con CUIT resuelto) ∪ co-empresas vía
+      -- directores compartidos. Ambos lados emiten (cuit, nombre).
+      SELECT cuit, nombre_norm AS nombre FROM con_cuit WHERE cuit IS NOT NULL
+      UNION
+      SELECT cuit, razon_social AS nombre FROM co_empresas
+    `)
+  } catch (err) {
+    console.warn('[db] v_universo_cordobes_empresas no creada:', (err as Error).message)
+  }
+
+  // Personas relevantes: funcionarios cordobeses + directores de las empresas
+  // del universo N2. Útil para detectar conflicto-de-interés (un funcionario
+  // que también es director de un proveedor).
+  //
+  // NOTA schema real: `agentes_publicos` no tiene columna `numero_documento`
+  // — solo `apellido_nombre` y `cuit` (que viene casi 100% NULL en los
+  // datasets cordobeses publicados). Para funcionarios usamos `cuit` como
+  // el campo `dni` de la view (mayormente NULL hoy, mejorará si una fuente
+  // futura publica DNIs). Para directores sí hay DNI real desde
+  // igj_autoridades.numero_documento. Las dos fuentes se UNIFICAN por
+  // (nombre, dni) y la lógica de matching downstream debe normalizar nombres.
+  try {
+    await dbRun(`
+      CREATE OR REPLACE VIEW v_universo_cordobes_personas AS
+      WITH funcionarios AS (
+        SELECT DISTINCT apellido_nombre AS nombre, cuit AS dni
+        FROM agentes_publicos
+        WHERE jurisdiccion = 'cordoba-capital'
+          AND apellido_nombre IS NOT NULL
+      ),
+      directores_proveedores AS (
+        SELECT DISTINCT a.apellido_nombre AS nombre, a.numero_documento AS dni
+        FROM v_universo_cordobes_empresas e
+        JOIN igj_entidades ie ON ie.cuit = e.cuit
+        JOIN igj_autoridades a ON a.numero_correlativo = ie.numero_correlativo
+        WHERE a.apellido_nombre IS NOT NULL
+      )
+      SELECT nombre, dni FROM funcionarios
+      UNION
+      SELECT nombre, dni FROM directores_proveedores
+    `)
+  } catch (err) {
+    console.warn('[db] v_universo_cordobes_personas no creada:', (err as Error).message)
+  }
+
+  // PLAN-DATOS A5: flag `name_only_unmatched` en tablas con referencias por
+  // nombre que no tienen FK a personas_fisicas/juridicas tras un intento de
+  // resolución. Distingue:
+  //   - dni/cuit IS NULL ∧ name_only_unmatched=FALSE → todavía no se intentó
+  //   - dni/cuit IS NULL ∧ name_only_unmatched=TRUE  → intentado, no matchea Tier 1-3
+  // Los detectores Tier 1 (C1/C2/C3) deben filtrar `WHERE name_only_unmatched=FALSE`
+  // para no confundir "todavía no resuelto" con "irresoluble".
+  // Va al final de initDb porque depende de que TODAS las tablas existan.
+  for (const alter of [
+    `ALTER TABLE agentes_publicos ADD COLUMN name_only_unmatched BOOLEAN DEFAULT FALSE`,
+    `ALTER TABLE contratos ADD COLUMN name_only_unmatched BOOLEAN DEFAULT FALSE`,
+    `ALTER TABLE transferencias ADD COLUMN name_only_unmatched BOOLEAN DEFAULT FALSE`,
+  ]) {
+    try { await dbRun(alter) } catch { /* idempotente */ }
+  }
+
+  // PLAN-DATOS Fase F (R5) — Vistas de conectividad lógica.
+  //
+  // Estas vistas materializan en SQL las preguntas más frecuentes del
+  // PLAN-UI: "¿qué empresas dirige esta persona?" "¿qué señales hay sobre
+  // este actor?" "¿cuál es el universo total de actores con métricas?".
+  // Sin esto, cada query de la UI tiene que reconstruir el path de joins
+  // PF.dni → igj_autoridades.numero_documento → igj_entidades.numero_correlativo
+  // → personas_juridicas.cuit a mano, lo cual es frágil y duplicativo.
+
+  // Audit fix F8.5: agregar columna `es_ente_estatal` a personas_juridicas
+  // para distinguir empresas privadas de entes estatales (ministerios,
+  // municipalidades, organismos autárquicos, sociedades del Estado).
+  // El detector C1 NO debe emitir señal de "conflicto" cuando un funcionario
+  // "dirige" un ministerio (es nombramiento legítimo). Pero SÍ cuando una
+  // PF privada dirige una sociedad del Estado (puerta giratoria).
+  try { await dbRun(`ALTER TABLE personas_juridicas ADD COLUMN es_ente_estatal BOOLEAN DEFAULT FALSE`) } catch { /* idempotente */ }
+
+  // Marcar entes estatales por patrón estricto de razón social.
+  // Solo "MINISTERIO DE", "SECRETARIA DE", etc — NO sólo "AGENCIA" (palabra
+  // común en empresas privadas) ni "CAJA" (cooperativas).
+  try {
+    await dbRun(`
+      UPDATE personas_juridicas
+         SET es_ente_estatal = TRUE
+       WHERE UPPER(razon_social) LIKE 'MINISTERIO DE %'
+          OR UPPER(razon_social) LIKE 'SECRETARIA DE %'
+          OR UPPER(razon_social) LIKE 'SUBSECRETARIA DE %'
+          OR UPPER(razon_social) LIKE 'MUNICIPALIDAD DE %'
+          OR UPPER(razon_social) LIKE 'GOBIERNO DE %'
+          OR UPPER(razon_social) LIKE 'PROVINCIA DE %'
+          OR UPPER(razon_social) LIKE 'INSTITUTO NACIONAL %'
+          OR UPPER(razon_social) LIKE 'INSTITUTO PROVINCIAL %'
+          OR UPPER(razon_social) LIKE 'PODER JUDICIAL %'
+          OR UPPER(razon_social) LIKE 'PODER LEGISLATIVO %'
+          OR UPPER(razon_social) LIKE 'PODER EJECUTIVO %'
+          OR UPPER(razon_social) LIKE '%CONCEJO DELIBERANTE%'
+          OR UPPER(razon_social) LIKE 'UNIVERSIDAD NACIONAL %'
+          OR UPPER(razon_social) LIKE 'UNIVERSIDAD PROVINCIAL %'
+          OR UPPER(razon_social) LIKE 'BANCO PROVINCIA %'
+          OR UPPER(razon_social) LIKE 'BANCO DE LA NACION%'
+          OR UPPER(razon_social) LIKE '%TRIBUNAL DE CUENTAS%'
+          OR UPPER(razon_social) LIKE 'CONGRESO DE LA NACION%'
+          OR UPPER(razon_social) LIKE 'HONORABLE %DIPUTADOS%'
+          OR UPPER(razon_social) LIKE 'HONORABLE %SENADO%'
+    `)
+  } catch (err) {
+    console.warn('[db] update es_ente_estatal patrón:', (err as Error).message)
+  }
+
+  // v_persona_dirige_empresa: PF (dni) → PJ (cuit) vía IGJ.
+  // Audit fix F8.5: tipo_cargo ahora viene como label legible en lugar de
+  // código IGJ de UNA letra. También expone `es_ente_estatal` para que el
+  // detector C1 pueda filtrar nombramientos políticos.
+  try {
+    await dbRun(`
+      CREATE OR REPLACE VIEW v_persona_dirige_empresa AS
+      SELECT
+        pf.dni                            AS dni,
+        pf.apellido_nombre                AS persona_nombre,
+        pj.cuit                           AS cuit,
+        pj.razon_social                   AS empresa_nombre,
+        ia.tipo_administrador             AS tipo_cargo_codigo,
+        CASE UPPER(TRIM(ia.tipo_administrador))
+          WHEN 'A' THEN 'Administrador titular'
+          WHEN 'S' THEN 'Síndico'
+          WHEN 'R' THEN 'Representante'
+          ELSE COALESCE('Cargo (' || ia.tipo_administrador || ')', 'Cargo no especificado')
+        END                               AS tipo_cargo,
+        pj.dom_fiscal_provincia           AS empresa_provincia,
+        pj.estado                         AS empresa_estado,
+        COALESCE(pj.es_ente_estatal, FALSE) AS empresa_es_ente_estatal
+      FROM personas_fisicas pf
+      JOIN igj_autoridades ia ON ia.numero_documento = pf.dni
+      JOIN igj_entidades ie  ON ie.numero_correlativo = ia.numero_correlativo
+      JOIN personas_juridicas pj ON pj.cuit = (
+        SUBSTRING(REGEXP_REPLACE(ie.cuit, '\\D', '', 'g'), 1, 2) || '-' ||
+        SUBSTRING(REGEXP_REPLACE(ie.cuit, '\\D', '', 'g'), 3, 8) || '-' ||
+        SUBSTRING(REGEXP_REPLACE(ie.cuit, '\\D', '', 'g'), 11, 1)
+      )
+      WHERE LENGTH(REGEXP_REPLACE(ie.cuit, '\\D', '', 'g')) = 11
+    `)
+  } catch (err) {
+    console.warn('[db] v_persona_dirige_empresa no creada:', (err as Error).message)
+  }
+
+  // v_actor_universo: union de PF + PJ con métricas precomputadas para
+  // alimentar /actores y /comparar sin re-calcular subqueries en cada
+  // request. Cada fila tiene kind ('pf'|'pj'), id (dni|cuit), label,
+  // monto contratado total, count señales activas, flag verificada.
+  try {
+    await dbRun(`
+      CREATE OR REPLACE VIEW v_actor_universo AS
+      SELECT
+        'pf' AS kind,
+        pf.dni AS id,
+        pf.apellido_nombre AS label,
+        NULL::TEXT AS jurisdiccion,
+        0::DOUBLE AS monto_total,
+        (
+          SELECT COUNT(*) FROM señales_cache s
+           WHERE s.estado_verificacion != 'descartada'
+             AND (
+               s.entidades_cuit LIKE '%' || COALESCE(pf.cuit, '___none___') || '%'
+               OR s.titulo LIKE '%' || pf.apellido_nombre || '%'
+             )
+        ) AS senales_activas,
+        (pf.fuente_dni_url IS NOT NULL) AS verificada
+      FROM personas_fisicas pf
+      UNION ALL
+      SELECT
+        'pj' AS kind,
+        pj.cuit AS id,
+        pj.razon_social AS label,
+        pj.dom_fiscal_provincia AS jurisdiccion,
+        COALESCE((SELECT SUM(monto) FROM contratos c WHERE c.proveedor_cuit = pj.cuit), 0) AS monto_total,
+        (
+          SELECT COUNT(*) FROM señales_cache s
+           WHERE s.estado_verificacion != 'descartada'
+             AND s.entidades_cuit LIKE '%' || pj.cuit || '%'
+        ) AS senales_activas,
+        TRUE AS verificada
+      FROM personas_juridicas pj
+    `)
+  } catch (err) {
+    console.warn('[db] v_actor_universo no creada:', (err as Error).message)
+  }
 }
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
@@ -161,8 +1475,13 @@ export async function upsertEmpresa(data: {
   actividadPrincipal: string | null
   fuenteUrl: string
 }): Promise<void> {
+  // Named columns (no positional) para que la operación sobreviva a ALTERs
+  // futuros (Phase F4 agregó `fuente_padron`).
   await dbRun(
-    `INSERT OR REPLACE INTO empresas VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO empresas
+     (cuit, nombre, es_empleador, inicio_actividades, estado,
+      actividad_principal, fuente_url, actualizado_en)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [data.cuit, data.nombre, data.esEmpleador, data.inicioActividades,
      data.estado, data.actividadPrincipal, data.fuenteUrl, new Date().toISOString()]
   )
@@ -225,7 +1544,7 @@ export async function loadIGJFromCSV(entidadesPath: string, autoridadesPath: str
 
   const [{ cnt: cntEnt }] = await dbAll<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM igj_entidades`)
   const [{ cnt: cntAut }] = await dbAll<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM igj_autoridades`)
-  return { entidades: cntEnt, autoridades: cntAut }
+  return { entidades: Number(cntEnt), autoridades: Number(cntAut) }
 }
 
 export interface IGJDirectorRow {
@@ -252,7 +1571,7 @@ export function hashContrato(municipio: string, c: Contrato): string {
   return crypto.createHash('sha256').update(key).digest('hex').slice(0, 16)
 }
 
-function normProveedor(nombre: string): string {
+export function normProveedor(nombre: string): string {
   return nombre.trim().toUpperCase()
     .replace(/\s+/g, ' ')
     .replace(/\.$/, '')
@@ -266,7 +1585,7 @@ export async function getContratosCount(municipio?: string): Promise<number> {
     ? `SELECT COUNT(*) as cnt FROM contratos WHERE municipio = ?`
     : `SELECT COUNT(*) as cnt FROM contratos`
   const rows = await dbAll<{ cnt: number }>(sql, municipio ? [municipio] : [])
-  return rows[0]?.cnt ?? 0
+  return Number(rows[0]?.cnt ?? 0)
 }
 
 export async function clearContratos(municipio?: string): Promise<void> {
@@ -284,9 +1603,19 @@ export async function insertContratoBatch(municipio: string, contratos: Contrato
     const hash = hashContrato(municipio, c)
     try {
       await dbRun(
-        `INSERT OR IGNORE INTO contratos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [hash, municipio, c.anio, c.tipo, c.proveedor, normProveedor(c.proveedor),
-         c.area, c.descripcion ?? '', c.monto, c.fuenteUrl, now]
+        `INSERT OR IGNORE INTO contratos
+         (hash, municipio, anio, tipo, proveedor, proveedor_norm, area, descripcion,
+          monto, fuente_url, cargado_en, nivel_confianza, metodo_extraccion,
+          pagina_pdf, numero_expediente)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          hash, municipio, c.anio, c.tipo, c.proveedor, normProveedor(c.proveedor),
+          c.area, c.descripcion ?? '', c.monto, c.fuenteUrl, now,
+          c.nivelConfianza ?? 'alto',
+          c.metodoExtraccion ?? 'api_estructurada',
+          c.paginaPdf ?? null,
+          c.numeroExpediente ?? null,
+        ]
       )
       inserted++
     } catch {
@@ -324,7 +1653,7 @@ export interface DashboardMunicipio {
 }
 
 export async function getDashboardMunicipios(): Promise<DashboardMunicipio[]> {
-  return dbAll<DashboardMunicipio>(`
+  const rows = await dbAll<DashboardMunicipio>(`
     SELECT
       c.municipio,
       COUNT(*) as total_contratos,
@@ -339,6 +1668,15 @@ export async function getDashboardMunicipios(): Promise<DashboardMunicipio[]> {
     GROUP BY c.municipio, s.cnt
     ORDER BY monto_total DESC
   `)
+  // DuckDB devuelve COUNT/SUM/MIN/MAX como BigInt — castear a Number para JSON-safe.
+  return rows.map(r => ({
+    ...r,
+    total_contratos: Number(r.total_contratos),
+    monto_total: Number(r.monto_total),
+    anio_min: Number(r.anio_min),
+    anio_max: Number(r.anio_max),
+    total_señales: Number(r.total_señales),
+  }))
 }
 
 export interface TopEntidad {
@@ -352,7 +1690,7 @@ export interface TopEntidad {
 }
 
 export async function getTopEntidades(limit = 20): Promise<TopEntidad[]> {
-  return dbAll<TopEntidad>(`
+  const rows = await dbAll<TopEntidad>(`
     SELECT
       proveedor_norm as proveedor,
       municipio,
@@ -366,11 +1704,19 @@ export async function getTopEntidades(limit = 20): Promise<TopEntidad[]> {
     ORDER BY monto_total DESC
     LIMIT ?
   `, [limit])
+  return rows.map(r => ({
+    ...r,
+    total_contratos: Number(r.total_contratos),
+    monto_total: Number(r.monto_total),
+    señales: Number(r.señales),
+    anio_min: Number(r.anio_min),
+    anio_max: Number(r.anio_max),
+  }))
 }
 
 export async function searchEntidades(query: string, limit = 20): Promise<TopEntidad[]> {
   const pattern = `%${query.toUpperCase()}%`
-  return dbAll<TopEntidad>(`
+  const rows = await dbAll<TopEntidad>(`
     SELECT
       proveedor_norm as proveedor,
       municipio,
@@ -385,25 +1731,53 @@ export async function searchEntidades(query: string, limit = 20): Promise<TopEnt
     ORDER BY monto_total DESC
     LIMIT ?
   `, [pattern, limit])
+  return rows.map(r => ({
+    ...r,
+    total_contratos: Number(r.total_contratos),
+    monto_total: Number(r.monto_total),
+    señales: Number(r.señales),
+    anio_min: Number(r.anio_min),
+    anio_max: Number(r.anio_max),
+  }))
 }
 
 export interface EntidadContrato {
+  hash: string
   anio: number
   tipo: string
   area: string
   descripcion: string
   monto: number
+  proveedor: string
   municipio: string
   fuente_url: string
+  metodo_extraccion?: string
+  nivel_confianza?: string
+  cargado_en?: string
 }
 
 export async function getContratosPorProveedor(proveedor: string): Promise<EntidadContrato[]> {
+  // Normaliza el query igual que en insertContratoBatch — sino "PINTURAS
+  // CAVAZZON S.R.L." (lo que recibe la API) no matchea "PINTURAS CAVAZZON"
+  // (lo que está en proveedor_norm post-normProveedor).
+  const norm = normProveedor(proveedor)
   return dbAll<EntidadContrato>(`
-    SELECT anio, tipo, area, descripcion, monto, municipio, fuente_url
+    SELECT hash, anio, tipo, area, descripcion, monto, proveedor, municipio,
+           fuente_url, metodo_extraccion, nivel_confianza, cargado_en
     FROM contratos
     WHERE proveedor_norm = ?
     ORDER BY anio DESC, monto DESC
-  `, [proveedor.toUpperCase()])
+  `, [norm])
+}
+
+export async function getContratoPorHash(hash: string): Promise<EntidadContrato | null> {
+  const rows = await dbAll<EntidadContrato>(`
+    SELECT hash, anio, tipo, area, descripcion, monto, proveedor, municipio, fuente_url
+    FROM contratos
+    WHERE hash = ?
+    LIMIT 1
+  `, [hash])
+  return rows[0] ?? null
 }
 
 // ─── Señales cache ────────────────────────────────────────────────────────────
@@ -412,15 +1786,26 @@ export async function clearSeñalesCache(): Promise<void> {
   await dbRun(`DELETE FROM señales_cache`)
 }
 
-export async function insertSeñalCache(municipio: string, señal: Señal): Promise<void> {
+export async function insertSeñalCache(
+  municipio: string,
+  señal: Señal,
+  cuits: string[] = []
+): Promise<void> {
   const id = crypto.randomUUID()
+  // INSERT con columnas nombradas. Incluimos estado_verificacion='sin_verificar'
+  // explícitamente porque las DBs pre-existentes a A7 obtuvieron la columna via
+  // ALTER sin DEFAULT (DuckDB no soporta ADD COLUMN con constraints), por lo
+  // que sin este valor literal la fila quedaría con NULL en vez del default
+  // declarado en el CREATE TABLE. Belt & suspenders cross-DB.
   await dbRun(
-    `INSERT INTO señales_cache VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO señales_cache (id, municipio, tipologia, titulo, resumen, score, severidad, evidencia_json, legal_json, entidades_cuit, computado_en, estado_verificacion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id, municipio, señal.tipologia, señal.titulo, señal.resumen,
       señal.score, señal.legal.severidad,
       JSON.stringify(señal.evidencia), JSON.stringify(señal.legal),
-      null, new Date().toISOString()
+      cuits.length > 0 ? JSON.stringify(cuits) : null,
+      new Date().toISOString(),
+      'sin_verificar',
     ]
   )
 }
@@ -435,7 +1820,11 @@ export interface SeñalCacheRow {
   severidad: string
   evidencia_json: string
   legal_json: string
+  entidades_cuit: string | null
   computado_en: string
+  estado_verificacion: 'verificada' | 'sin_verificar' | 'descartada' | 'bloqueada'
+  verificado_por: string | null
+  verificado_en: string | null
 }
 
 export async function getSeñalesCache(municipio?: string): Promise<SeñalCacheRow[]> {
@@ -447,9 +1836,21 @@ export async function getSeñalesCache(municipio?: string): Promise<SeñalCacheR
   return dbAll<SeñalCacheRow>(`SELECT * FROM señales_cache ORDER BY score DESC`)
 }
 
+// Señales asociadas a un CUIT específico (entidades_cuit es JSON array de strings).
+export async function getSeñalesPorCuit(cuit: string): Promise<SeñalCacheRow[]> {
+  // DuckDB list_contains sobre el JSON parseado. Fallback: LIKE pattern matching.
+  return dbAll<SeñalCacheRow>(
+    `SELECT * FROM señales_cache
+     WHERE entidades_cuit IS NOT NULL
+       AND entidades_cuit LIKE ?
+     ORDER BY score DESC`,
+    [`%"${cuit}"%`]
+  )
+}
+
 export async function getSeñalesCacheCount(): Promise<number> {
   const rows = await dbAll<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM señales_cache`)
-  return rows[0]?.cnt ?? 0
+  return Number(rows[0]?.cnt ?? 0)
 }
 
 // ─── Reportes ─────────────────────────────────────────────────────────────────
@@ -487,6 +1888,500 @@ export async function getHistorial(limit = 20): Promise<HistorialEntry[]> {
      LIMIT ?`,
     [limit]
   )
+}
+
+// ─── Fuentes de datos (Sprint 4) ──────────────────────────────────────────────
+
+export interface FuenteDatosRow {
+  id: string
+  jurisdiccion: string
+  tipo: string
+  url: string
+  formato: string
+  oficial: boolean
+  licencia: string | null
+  frecuencia: string | null
+  nivel_confianza: string
+  notas: string | null
+  registrado_en: string
+  ultimo_crawl: string | null
+}
+
+export async function registrarFuente(f: FuenteMetadata): Promise<void> {
+  await dbRun(
+    `INSERT OR REPLACE INTO fuentes_datos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      f.id,
+      f.jurisdiccion,
+      'api_estructurada', // por ahora; el conector debería pasar tipo
+      f.url,
+      f.formato,
+      f.oficial,
+      f.licencia ?? null,
+      f.frecuenciaActualizacion ?? null,
+      f.nivelConfianza,
+      f.notas ?? null,
+      new Date().toISOString(),
+      null,
+    ]
+  )
+}
+
+export async function listarFuentes(): Promise<FuenteDatosRow[]> {
+  return dbAll<FuenteDatosRow>(`
+    SELECT * FROM fuentes_datos ORDER BY jurisdiccion, registrado_en
+  `)
+}
+
+export async function marcarUltimoCrawl(fuenteId: string): Promise<void> {
+  await dbRun(`UPDATE fuentes_datos SET ultimo_crawl = ? WHERE id = ?`, [
+    new Date().toISOString(),
+    fuenteId,
+  ])
+}
+
+// ─── Cache OpenSanctions ──────────────────────────────────────────────────────
+
+export async function upsertOSMatch(m: OSMatch): Promise<void> {
+  await dbRun(
+    `INSERT OR REPLACE INTO opensanctions_matches VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      m.cuit,
+      m.nombre,
+      m.matched,
+      m.riesgo,
+      m.datasetPrincipal,
+      m.entidadId,
+      m.entidadCaption,
+      m.entidadUrl,
+      m.consultadoEn,
+    ]
+  )
+}
+
+interface OSMatchRow {
+  cuit: string
+  nombre: string
+  matched: boolean
+  riesgo: string | null
+  dataset_principal: string | null
+  entidad_id: string | null
+  entidad_caption: string | null
+  entidad_url: string | null
+  consultado_en: string
+}
+
+function rowToOSMatch(r: OSMatchRow): OSMatch {
+  return {
+    cuit: r.cuit,
+    nombre: r.nombre,
+    matched: r.matched,
+    riesgo: r.riesgo as OSMatch['riesgo'],
+    datasetPrincipal: r.dataset_principal,
+    entidadId: r.entidad_id,
+    entidadCaption: r.entidad_caption,
+    entidadUrl: r.entidad_url,
+    consultadoEn: r.consultado_en,
+  }
+}
+
+export async function getOSMatch(cuit: string): Promise<OSMatch | null> {
+  const rows = await dbAll<OSMatchRow>(
+    `SELECT * FROM opensanctions_matches WHERE cuit = ? LIMIT 1`,
+    [cuit]
+  )
+  return rows[0] ? rowToOSMatch(rows[0]) : null
+}
+
+// Devuelve un Map<cuit, OSMatch> para todos los CUITs consultados (incluye
+// matches negativos — saber que ya buscamos y no encontramos también es útil).
+export async function getOSMatchesAll(): Promise<Map<string, OSMatch>> {
+  const rows = await dbAll<OSMatchRow>(`SELECT * FROM opensanctions_matches`)
+  const map = new Map<string, OSMatch>()
+  for (const r of rows) {
+    map.set(r.cuit, rowToOSMatch(r))
+  }
+  return map
+}
+
+export async function getOSMatchesCount(): Promise<{ total: number; matched: number }> {
+  const total = await dbAll<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM opensanctions_matches`
+  )
+  const matched = await dbAll<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM opensanctions_matches WHERE matched = true`
+  )
+  return { total: total[0]?.cnt ?? 0, matched: matched[0]?.cnt ?? 0 }
+}
+
+// ─── Catálogo de fuentes públicas (implementadas y pendientes) ───────────────
+
+export interface FuenteCatalogoEntry {
+  id: string
+  jurisdiccion: string
+  organismo: string
+  dimension: 'contratos' | 'presupuesto' | 'salarios' | 'obras' | 'subsidios' | 'auditoria' | 'normas' | 'proveedores' | 'otro'
+  nombre: string
+  descripcion: string | null
+  urlOficial: string | null
+  formato: string | null
+  coberturaDesde: number | null
+  coberturaHasta: number | null
+  volumenEstimado: string | null
+  estadoImplementacion: 'implementado' | 'pendiente' | 'bloqueado' | 'descartado'
+  razonBloqueo: string | null
+  conectorId: string | null
+}
+
+export async function registrarFuenteCatalogo(f: FuenteCatalogoEntry): Promise<void> {
+  await dbRun(
+    `INSERT OR REPLACE INTO fuentes_publicas_catalogo VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      f.id, f.jurisdiccion, f.organismo, f.dimension, f.nombre, f.descripcion,
+      f.urlOficial, f.formato, f.coberturaDesde, f.coberturaHasta,
+      f.volumenEstimado, f.estadoImplementacion, f.razonBloqueo,
+      f.conectorId, new Date().toISOString(),
+    ]
+  )
+}
+
+export async function listarFuentesCatalogo(): Promise<FuenteCatalogoEntry[]> {
+  const rows = await dbAll<{
+    id: string; jurisdiccion: string; organismo: string; dimension: string
+    nombre: string; descripcion: string | null; url_oficial: string | null
+    formato: string | null; cobertura_desde: number | null; cobertura_hasta: number | null
+    volumen_estimado: string | null; estado_implementacion: string; razon_bloqueo: string | null
+    conector_id: string | null
+  }>(`SELECT * FROM fuentes_publicas_catalogo ORDER BY jurisdiccion, organismo, nombre`)
+  return rows.map(r => ({
+    id: r.id, jurisdiccion: r.jurisdiccion, organismo: r.organismo,
+    dimension: r.dimension as FuenteCatalogoEntry['dimension'],
+    nombre: r.nombre, descripcion: r.descripcion, urlOficial: r.url_oficial,
+    formato: r.formato, coberturaDesde: r.cobertura_desde, coberturaHasta: r.cobertura_hasta,
+    volumenEstimado: r.volumen_estimado,
+    estadoImplementacion: r.estado_implementacion as FuenteCatalogoEntry['estadoImplementacion'],
+    razonBloqueo: r.razon_bloqueo, conectorId: r.conector_id,
+  }))
+}
+
+// ─── Padrón de proveedores ────────────────────────────────────────────────────
+
+export interface ProveedorPadron {
+  jurisdiccion: string
+  cuit: string | null
+  nombre: string
+  categoria: string | null
+  anioPadron: number
+  estado: string | null
+  fuenteUrl: string
+}
+
+function normalizarCuit(c: string | null): string | null {
+  if (!c) return null
+  return c.replace(/\D/g, '')
+}
+
+function normalizarNombreEmpresa(n: string): string {
+  return n.toUpperCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ').trim()
+    .replace(/\s+(S\.?A\.?S?\.?|S\.?R\.?L\.?|SOCIEDAD\s+ANONIMA|COOPERATIVA)\s*$/, '')
+    .trim()
+}
+
+export async function insertProveedorPadron(p: ProveedorPadron): Promise<boolean> {
+  const cuitNorm = normalizarCuit(p.cuit)
+  const id = crypto.createHash('sha256')
+    .update(`${p.jurisdiccion}|${cuitNorm ?? p.nombre}|${p.anioPadron}`)
+    .digest('hex').slice(0, 16)
+  try {
+    await dbRun(
+      `INSERT OR IGNORE INTO proveedores_padron VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id, p.jurisdiccion, p.cuit, cuitNorm, p.nombre, normalizarNombreEmpresa(p.nombre),
+        p.categoria, p.anioPadron, p.estado, p.fuenteUrl,
+      ]
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function getProveedoresPadronCount(jurisdiccion?: string): Promise<number> {
+  const sql = jurisdiccion
+    ? `SELECT COUNT(*) as cnt FROM proveedores_padron WHERE jurisdiccion = ?`
+    : `SELECT COUNT(*) as cnt FROM proveedores_padron`
+  const rows = await dbAll<{ cnt: number }>(sql, jurisdiccion ? [jurisdiccion] : [])
+  return Number(rows[0]?.cnt ?? 0)
+}
+
+// ─── OCR jobs (resumability del crawler) ──────────────────────────────────────
+
+export interface OCRJob {
+  url: string
+  municipio: string
+  procesadoEn: string
+  contratosCount: number
+  paginas: number | null
+  costoUSD: number | null
+  observaciones: string | null
+}
+
+export async function registrarOCRJob(job: OCRJob): Promise<void> {
+  await dbRun(
+    `INSERT OR REPLACE INTO ocr_jobs VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [job.url, job.municipio, job.procesadoEn, job.contratosCount,
+     job.paginas, job.costoUSD, job.observaciones]
+  )
+}
+
+export async function ocrJobYaProcesado(url: string): Promise<boolean> {
+  const rows = await dbAll<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM ocr_jobs WHERE url = ?`, [url]
+  )
+  return (rows[0]?.cnt ?? 0) > 0
+}
+
+export async function getOCRJobsResumen(municipio: string): Promise<{
+  totalJobs: number; totalContratos: number; totalCostoUSD: number; totalPaginas: number
+}> {
+  const rows = await dbAll<{
+    total: number; contratos: number; costo: number; paginas: number
+  }>(
+    `SELECT
+        COUNT(*) as total,
+        COALESCE(SUM(contratos_count), 0) as contratos,
+        COALESCE(SUM(costo_usd), 0) as costo,
+        COALESCE(SUM(paginas), 0) as paginas
+     FROM ocr_jobs WHERE municipio = ?`,
+    [municipio]
+  )
+  return {
+    totalJobs: Number(rows[0]?.total ?? 0),
+    totalContratos: Number(rows[0]?.contratos ?? 0),
+    totalCostoUSD: Number(rows[0]?.costo ?? 0),
+    totalPaginas: Number(rows[0]?.paginas ?? 0),
+  }
+}
+
+// ─── Alertas helpers ──────────────────────────────────────────────────────────
+
+export type AlertaTipo = 'scraper_roto' | 'fuente_desactualizada' | 'datos_nuevos'
+export type AlertaSeveridad = 'info' | 'warning' | 'critical'
+
+export interface Alerta {
+  id: string
+  tipo: AlertaTipo
+  severidad: AlertaSeveridad
+  titulo: string
+  detalle: string | null
+  fuenteId: string | null
+  detectadoEn: string
+  leida: boolean
+  leidaEn: string | null
+}
+
+export async function upsertAlerta(a: Omit<Alerta, 'leida' | 'leidaEn'>): Promise<void> {
+  await dbRun(
+    `INSERT OR REPLACE INTO alertas
+     (id, tipo, severidad, titulo, detalle, fuente_id, detectado_en, leida, leida_en)
+     VALUES (?, ?, ?, ?, ?, ?, ?, false, NULL)`,
+    [a.id, a.tipo, a.severidad, a.titulo, a.detalle, a.fuenteId, a.detectadoEn]
+  )
+}
+
+export async function getAlertas(opts: { soloNoLeidas?: boolean; limit?: number } = {}): Promise<Alerta[]> {
+  const where = opts.soloNoLeidas ? 'WHERE leida = false' : ''
+  const limit = opts.limit ?? 100
+  const rows = await dbAll<{
+    id: string; tipo: string; severidad: string; titulo: string
+    detalle: string | null; fuente_id: string | null
+    detectado_en: string; leida: boolean; leida_en: string | null
+  }>(
+    `SELECT * FROM alertas ${where} ORDER BY detectado_en DESC LIMIT ?`,
+    [limit]
+  )
+  return rows.map(r => ({
+    id: r.id,
+    tipo: r.tipo as AlertaTipo,
+    severidad: r.severidad as AlertaSeveridad,
+    titulo: r.titulo,
+    detalle: r.detalle,
+    fuenteId: r.fuente_id,
+    detectadoEn: r.detectado_en,
+    leida: r.leida,
+    leidaEn: r.leida_en,
+  }))
+}
+
+export async function marcarAlertaLeida(id: string): Promise<void> {
+  await dbRun(
+    `UPDATE alertas SET leida = true, leida_en = ? WHERE id = ?`,
+    [new Date().toISOString(), id]
+  )
+}
+
+export async function marcarTodasLeidas(): Promise<number> {
+  const noLeidas = await dbAll<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM alertas WHERE leida = false`
+  )
+  await dbRun(
+    `UPDATE alertas SET leida = true, leida_en = ? WHERE leida = false`,
+    [new Date().toISOString()]
+  )
+  return noLeidas[0]?.cnt ?? 0
+}
+
+export async function countAlertasNoLeidas(): Promise<{ total: number; critical: number }> {
+  const total = await dbAll<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM alertas WHERE leida = false`
+  )
+  const critical = await dbAll<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt FROM alertas WHERE leida = false AND severidad = 'critical'`
+  )
+  return { total: total[0]?.cnt ?? 0, critical: critical[0]?.cnt ?? 0 }
+}
+
+// ─── Scraper health helpers ───────────────────────────────────────────────────
+
+export interface ScraperRun {
+  id: string
+  ejecutadoEn: string
+  ok: boolean
+  contratosCount: number | null
+  duracionMs: number | null
+  errorMsg: string | null
+  urlChequeada: string | null
+}
+
+export async function registrarScraperRun(run: ScraperRun): Promise<void> {
+  await dbRun(
+    `INSERT OR REPLACE INTO scrapers_health VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [run.id, run.ejecutadoEn, run.ok, run.contratosCount, run.duracionMs, run.errorMsg, run.urlChequeada]
+  )
+}
+
+export async function getScrapersHealth(): Promise<ScraperRun[]> {
+  const rows = await dbAll<{
+    id: string; ejecutado_en: string; ok: boolean
+    contratos_count: number | null; duracion_ms: number | null
+    error_msg: string | null; url_chequeada: string | null
+  }>(`
+    SELECT s.*
+    FROM scrapers_health s
+    INNER JOIN (
+      SELECT id, MAX(ejecutado_en) as last
+      FROM scrapers_health GROUP BY id
+    ) m ON s.id = m.id AND s.ejecutado_en = m.last
+    ORDER BY s.id
+  `)
+  return rows.map(r => ({
+    id: r.id,
+    ejecutadoEn: r.ejecutado_en,
+    ok: r.ok,
+    contratosCount: r.contratos_count,
+    duracionMs: r.duracion_ms,
+    errorMsg: r.error_msg,
+    urlChequeada: r.url_chequeada,
+  }))
+}
+
+// ─── ICIJ Offline Leaks helpers ───────────────────────────────────────────────
+
+export interface ICIJEntidad {
+  nodeId: string
+  nombre: string
+  tipo: 'entity' | 'officer' | 'intermediary'
+  jurisdiccion: string | null
+  countries: string | null
+  countryCodes: string | null
+  estado: string | null
+  fuente: string
+  incorporacion: string | null
+}
+
+export async function insertICIJBatch(entidades: ICIJEntidad[]): Promise<number> {
+  const now = new Date().toISOString()
+  let inserted = 0
+  for (const e of entidades) {
+    try {
+      await dbRun(
+        `INSERT OR IGNORE INTO icij_entidades VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          e.nodeId,
+          e.nombre,
+          normalizeICIJ(e.nombre),
+          e.tipo,
+          e.jurisdiccion,
+          e.countries,
+          e.countryCodes,
+          e.estado,
+          e.fuente,
+          e.incorporacion,
+          now,
+        ]
+      )
+      inserted++
+    } catch {
+      // duplicate node_id — skip silently
+    }
+  }
+  return inserted
+}
+
+// Búsqueda por nombre normalizado — usada por seed:icij para cruzar contra empresas
+// y por /api/cruce/icij para búsqueda directa.
+export async function buscarICIJPorNombre(
+  nombre: string,
+  limit = 20
+): Promise<ICIJEntidad[]> {
+  const norm = normalizeICIJ(nombre)
+  if (norm.length < 3) return []
+
+  const rows = await dbAll<{
+    node_id: string; nombre: string; tipo: string; jurisdiccion: string | null
+    countries: string | null; country_codes: string | null; estado: string | null
+    fuente: string; incorporacion: string | null
+  }>(
+    `SELECT node_id, nombre, tipo, jurisdiccion, countries, country_codes,
+            estado, fuente, incorporacion
+     FROM icij_entidades
+     WHERE nombre_norm LIKE ?
+     LIMIT ?`,
+    [`%${norm}%`, limit]
+  )
+  return rows.map(r => ({
+    nodeId: r.node_id,
+    nombre: r.nombre,
+    tipo: r.tipo as ICIJEntidad['tipo'],
+    jurisdiccion: r.jurisdiccion,
+    countries: r.countries,
+    countryCodes: r.country_codes,
+    estado: r.estado,
+    fuente: r.fuente,
+    incorporacion: r.incorporacion,
+  }))
+}
+
+export async function getICIJCount(): Promise<{ total: number; fuentes: Record<string, number> }> {
+  const total = await dbAll<{ cnt: number }>(`SELECT COUNT(*) as cnt FROM icij_entidades`)
+  const porFuente = await dbAll<{ fuente: string; cnt: number }>(
+    `SELECT fuente, COUNT(*) as cnt FROM icij_entidades GROUP BY fuente ORDER BY cnt DESC`
+  )
+  const fuentes: Record<string, number> = {}
+  for (const r of porFuente) fuentes[r.fuente] = r.cnt
+  return { total: total[0]?.cnt ?? 0, fuentes }
+}
+
+function normalizeICIJ(s: string): string {
+  return s
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')  // strip diacritics
+    .replace(/[^A-Z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 export async function getReporte(id: string): Promise<ReporteCompleto | null> {

@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express'
 import {
-  searchEntidades, getContratosPorProveedor, dbAll,
+  searchEntidades, getContratosPorProveedor, getSeñalesPorCuit,
+  dbAll, type EntidadContrato, type SeñalCacheRow,
 } from '../lib/db'
+import { resolverEmpresa } from '../lib/identity-resolver'
 
 const router = Router()
 
@@ -20,6 +22,43 @@ router.get('/search', async (req: Request, res: Response) => {
     res.status(500).json({ ok: false, error: String(err) })
   }
 })
+
+function mapContrato(c: EntidadContrato & {
+  metodo_extraccion?: string
+  nivel_confianza?: string
+  cargado_en?: string
+}) {
+  return {
+    hash: c.hash,
+    tipo: c.tipo,
+    proveedor: c.proveedor,
+    area: c.area,
+    descripcion: c.descripcion,
+    monto: c.monto,
+    anio: c.anio,
+    municipio: c.municipio,
+    fuenteUrl: c.fuente_url,
+    metodoExtraccion: c.metodo_extraccion ?? 'desconocido',
+    nivelConfianza: c.nivel_confianza ?? 'medio',
+    cargadoEn: c.cargado_en,
+  }
+}
+
+function mapSeñal(s: SeñalCacheRow) {
+  return {
+    id: s.id,
+    municipio: s.municipio,
+    tipologia: s.tipologia,
+    titulo: s.titulo,
+    resumen: s.resumen,
+    score: s.score,
+    severidad: s.severidad,
+    evidencia: JSON.parse(s.evidencia_json),
+    legal: JSON.parse(s.legal_json),
+    cuits: s.entidades_cuit ? (JSON.parse(s.entidades_cuit) as string[]) : [],
+    computadoEn: s.computado_en,
+  }
+}
 
 // GET /api/entidad/:nombre — full profile for a provider
 router.get('/:nombre', async (req: Request, res: Response) => {
@@ -46,6 +85,28 @@ router.get('/:nombre', async (req: Request, res: Response) => {
       .map(([anio, data]) => ({ anio, ...data }))
       .sort((a, b) => a.anio - b.anio)
 
+    // Top área (por monto) — para KPI "Área principal" del panel
+    const porArea = new Map<string, number>()
+    for (const c of contratos) {
+      porArea.set(c.area, (porArea.get(c.area) ?? 0) + c.monto)
+    }
+    const topAreaEntry = [...porArea.entries()].sort((a, b) => b[1] - a[1])[0]
+    const topArea = topAreaEntry
+      ? { area: topAreaEntry[0], monto: topAreaEntry[1], pct: (topAreaEntry[1] / montoTotal) * 100 }
+      : null
+
+    // Trazabilidad: fecha del dato más reciente y método de extracción dominante
+    const fechaActualizacion = contratos
+      .map(c => c.cargado_en).filter((s): s is string => !!s)
+      .sort().pop() ?? null
+    const metodosCount = new Map<string, number>()
+    for (const c of contratos) {
+      const k = c.metodo_extraccion ?? 'desconocido'
+      metodosCount.set(k, (metodosCount.get(k) ?? 0) + 1)
+    }
+    const metodoDominante = [...metodosCount.entries()]
+      .sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'desconocido'
+
     // Distribution by tipo
     const porTipo = new Map<string, { cantidad: number; monto: number }>()
     for (const c of contratos) {
@@ -56,10 +117,15 @@ router.get('/:nombre', async (req: Request, res: Response) => {
       .map(([tipo, data]) => ({ tipo, ...data }))
       .sort((a, b) => b.monto - a.monto)
 
-    // Check if we have AFIP data
-    const empresaRows = await dbAll<any>(
-      `SELECT * FROM empresas WHERE UPPER(nombre) = ? LIMIT 1`, [nombre]
-    )
+    // AFIP enrichment
+    const empresaRows = await dbAll<{
+      cuit: string
+      nombre: string
+      es_empleador: boolean
+      inicio_actividades: string | null
+      estado: string | null
+      actividad_principal: string | null
+    }>(`SELECT * FROM empresas WHERE UPPER(nombre) = ? LIMIT 1`, [nombre])
     const afip = empresaRows[0] ? {
       cuit: empresaRows[0].cuit,
       esEmpleador: empresaRows[0].es_empleador,
@@ -67,6 +133,30 @@ router.get('/:nombre', async (req: Request, res: Response) => {
       estado: empresaRows[0].estado,
       actividadPrincipal: empresaRows[0].actividad_principal,
     } : null
+
+    // Señales asociadas vía entidades_cuit (Sprint 2)
+    const señales = afip?.cuit
+      ? (await getSeñalesPorCuit(afip.cuit)).map(mapSeñal)
+      : []
+
+    // Phase F7 — Identidad con tier explícito.
+    // Si AFIP ya devolvió CUIT (match directo en empresas), Tier 1 implícito.
+    // Si no, llamamos al resolver tiered (puede usar Haiku en Tier 4 — protegido
+    // por budget guard semanal). Si el resolver falla por cualquier razón
+    // (budget agotado, sin API key, etc.) caemos a `null` y NO rompemos el
+    // request principal — el badge simplemente no se renderiza.
+    let identidad: { tier: 1 | 2 | 3 | 4 | 5; score: number } | null = null
+    if (afip?.cuit) {
+      identidad = { tier: 1, score: 100 }
+    } else {
+      try {
+        const match = await resolverEmpresa(nombre)
+        identidad = { tier: match.tier, score: match.score }
+      } catch (err) {
+        console.warn('[entidad] resolverEmpresa falló para', nombre, '—', String(err).slice(0, 200))
+        identidad = null
+      }
+    }
 
     res.json({
       ok: true,
@@ -80,7 +170,18 @@ router.get('/:nombre', async (req: Request, res: Response) => {
         afip,
         timeline,
         tipos,
-        contratos: contratos.slice(0, 100), // limit for response size
+        topArea,
+        fechaActualizacion,
+        metodoDominante,
+        identidad,
+        // Top 500 contratos por monto (suficiente para cualquier proveedor
+        // real y permite filtros año/área client-side sin perder datos).
+        contratos: contratos
+          .slice()
+          .sort((a, b) => b.monto - a.monto)
+          .slice(0, 500)
+          .map(mapContrato),
+        señales,
       },
     })
   } catch (err) {

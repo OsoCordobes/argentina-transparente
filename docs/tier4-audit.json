@@ -1,0 +1,441 @@
+{
+  "generado_en": "2026-04-28T10:42:13.134Z",
+  "total_auditados": 43,
+  "distribucion": {
+    "ok": 0,
+    "sospechoso": 43,
+    "erroneo": 0
+  },
+  "resultados": [
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777334453378_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777334477075_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777334495014_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777334622238_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777334927304_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777335011289_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777335214568_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777335368678_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777335538919_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777337881735_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777338036207_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777338150342_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777338662713_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777339181910_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777339251298_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777339558831_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777339851392_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777340138783_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777340525811_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777341710220_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777344243142_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777344257899_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777344300656_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777344749890_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777344913873_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777344974468_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777345157279_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777345172412_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777345222516_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777345239883_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777345256908_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777345276070_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777345324100_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777345341692_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777345421993_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777345664058_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777346297167_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777346562305_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777346649267_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777346672406_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777346716575_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777347088153_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    },
+    {
+      "proveedor_norm": "KAPPA YNDU SRL__TEST_F3_1777369690052_T4A",
+      "cuit_resuelto": "99100000004",
+      "tier": 4,
+      "razon_social_target": null,
+      "veredicto": "sospechoso",
+      "motivos": [
+        "CUIT no resuelve a ninguna razón social conocida en empresas/IGJ/RNS"
+      ]
+    }
+  ]
+}

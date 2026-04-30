@@ -3,6 +3,7 @@ import {
   calcularSeñales,
   detectarProrrogas,
   detectarConcentracion,
+  detectarConcentracionPorCuit,
   detectarContratacionesDirectas,
   detectarMonopolioRubro,
   detectarServiciosSinHistorial,
@@ -15,8 +16,12 @@ import {
   detectarRotacionCoordinada,
   detectarAdendaPostAdjudicacion,
   detectarRedDeEmpresas,
+  detectarAparicionOffshore,
+  detectarConflictoFuncionarioProveedor,
+  type AgentePublicoLite,
+  normalizarProveedor,
 } from './signals'
-import type { Contrato, EmpresaEnriquecida } from '../types'
+import type { Contrato, EmpresaEnriquecida, OSMatch } from '../types'
 
 // ─── Fixture helpers ────────────────────────────────────────────────────────
 
@@ -207,6 +212,144 @@ describe('detectarConcentracion', () => {
   })
 })
 
+// ─── detectarConcentracionPorCuit (PLAN-DATOS C5) ────────────────────────────
+
+describe('detectarConcentracionPorCuit', () => {
+  it('returns null when ningún contrato tiene proveedorCuit', () => {
+    const contratos = [
+      c({ proveedor: 'EMPRESA A', monto: 70_000_000 }),
+      c({ proveedor: 'OTRO', monto: 30_000_000 }),
+    ]
+    expect(detectarConcentracionPorCuit(contratos)).toBeNull()
+  })
+
+  it('returns null cuando top CUIT < umbral', () => {
+    const contratos = [
+      c({ proveedor: 'A', monto: 25_000_000, proveedorCuit: '30-12345678-1' }),
+      c({ proveedor: 'B', monto: 25_000_000, proveedorCuit: '30-22222222-9' }),
+      c({ proveedor: 'C', monto: 25_000_000, proveedorCuit: '30-33333334-8' }),
+      c({ proveedor: 'D', monto: 25_000_000, proveedorCuit: '30-44444444-0' }),
+    ]
+    expect(detectarConcentracionPorCuit(contratos)).toBeNull()
+  })
+
+  it('emite tipologia concentracion_cuit cuando top CUIT >= umbral', () => {
+    const contratos = [
+      c({ proveedor: 'GIGANTE SA', monto: 40_000_000, proveedorCuit: '30-12345678-1' }),
+      c({ proveedor: 'EMPRESA B', monto: 30_000_000, proveedorCuit: '30-22222222-9' }),
+      c({ proveedor: 'EMPRESA C', monto: 30_000_000, proveedorCuit: '30-33333334-8' }),
+    ]
+    const señal = detectarConcentracionPorCuit(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.tipologia).toBe('concentracion_cuit')
+    expect(señal!.titulo).toContain('GIGANTE SA')
+    expect(señal!.titulo).toContain('30-12345678-1')
+    expect(señal!.cuits).toEqual(['30-12345678-1'])
+  })
+
+  it('agrupa correctamente cuando dos contratos con MISMO CUIT pero distinto nombre (alias)', () => {
+    // Mismo CUIT, razón social escrita distinto en cada contrato.
+    // Por nombre se separarían; por CUIT se unen.
+    const contratos = [
+      c({ proveedor: 'ACME S.A.', monto: 35_000_000, proveedorCuit: '30-12345678-1' }),
+      c({ proveedor: 'Acme SA', monto: 35_000_000, proveedorCuit: '30-12345678-1' }),
+      c({ proveedor: 'OTRO', monto: 30_000_000, proveedorCuit: '30-99999999-5' }),
+    ]
+    const señal = detectarConcentracionPorCuit(contratos)
+    expect(señal).not.toBeNull()
+    // 70M de 100M = 70% → grave
+    expect(señal!.legal.severidad).toBe('grave')
+  })
+
+  it('NO se confunde con dos empresas distintas que comparten razón social (homonimia)', () => {
+    // Dos empresas con MISMA razón social pero CUITs distintos.
+    // El detector legacy (por nombre) las uniría incorrectamente.
+    // El de CUIT las separa.
+    const contratos = [
+      c({ proveedor: 'CONSTRUCTORA SA', monto: 35_000_000, proveedorCuit: '30-11111111-8' }),
+      c({ proveedor: 'CONSTRUCTORA SA', monto: 35_000_000, proveedorCuit: '30-22222222-9' }),
+      c({ proveedor: 'OTRO', monto: 30_000_000, proveedorCuit: '30-33333334-8' }),
+    ]
+    const señal = detectarConcentracionPorCuit(contratos)
+    // Cada CUIT tiene 35% — empata por debajo del umbral 35% por la división del total
+    // 35/100 = exactamente 35%, igual al umbral. Pasa.
+    expect(señal).not.toBeNull()
+    // Pero NO debería ser grave (cada CUIT individualmente 35%, no 70%)
+    expect(señal!.legal.severidad).not.toBe('grave')
+  })
+
+  it('marca grave cuando top CUIT >= 60%', () => {
+    const contratos = [
+      c({ proveedor: 'MONOPOLIO SRL', monto: 70_000_000, proveedorCuit: '30-12345678-1' }),
+      c({ proveedor: 'OTRO', monto: 30_000_000, proveedorCuit: '30-22222222-9' }),
+    ]
+    const señal = detectarConcentracionPorCuit(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.legal.severidad).toBe('grave')
+  })
+
+  it('considera contratos sin proveedorCuit en el TOTAL pero NO los agrupa', () => {
+    // Si la mitad del gasto NO tiene CUIT verificado, una empresa con CUIT que
+    // domine en el resto debería tener un % calculado contra el total completo
+    // (no contra el subset). Eso refleja la realidad del gasto.
+    const contratos = [
+      c({ proveedor: 'GIGANTE', monto: 40_000_000, proveedorCuit: '30-12345678-1' }),
+      c({ proveedor: 'SIN_CUIT_A', monto: 30_000_000 }),
+      c({ proveedor: 'SIN_CUIT_B', monto: 30_000_000 }),
+    ]
+    const señal = detectarConcentracionPorCuit(contratos)
+    // GIGANTE: 40M de 100M total = 40%, supera umbral 35%
+    expect(señal).not.toBeNull()
+    expect(señal!.titulo).toContain('GIGANTE')
+  })
+
+  it('descarta proveedorCuit malformado (review #1 — defensa módulo-11)', () => {
+    // CUIT con DV erróneo — el seed nunca debería poblarlo así, pero defendemos
+    const contratos = [
+      c({ proveedor: 'CORRUPTO', monto: 70_000_000, proveedorCuit: '20-12345678-9' }), // DV correcto sería 6
+      c({ proveedor: 'BUENO', monto: 30_000_000, proveedorCuit: '30-12345678-1' }),
+    ]
+    // El CORRUPTO se descarta → solo BUENO entra al bucket → 30% del total → no supera umbral 35%
+    const señal = detectarConcentracionPorCuit(contratos)
+    expect(señal).toBeNull()
+  })
+
+  it('descarta proveedorCuit con prefijo desconocido', () => {
+    const contratos = [
+      c({ proveedor: 'PREFIX_RARO', monto: 70_000_000, proveedorCuit: '99-12345678-0' }),
+      c({ proveedor: 'BUENO', monto: 30_000_000, proveedorCuit: '30-12345678-1' }),
+    ]
+    const señal = detectarConcentracionPorCuit(contratos)
+    expect(señal).toBeNull()
+  })
+
+  it('IGNORA proveedorCuitInferido (Tier 4-5)', () => {
+    const contratos = [
+      c({ proveedor: 'INFERIDO SA', monto: 70_000_000, proveedorCuitInferido: '30-99999999-9' }),
+      c({ proveedor: 'OTRO', monto: 30_000_000, proveedorCuit: '30-12345678-1' }),
+    ]
+    // INFERIDO no tiene proveedorCuit (solo proveedorCuitInferido) → no entra al bucket
+    // Solo OTRO está en el bucket pero su 30% no supera el umbral 35%
+    const señal = detectarConcentracionPorCuit(contratos)
+    expect(señal).toBeNull()
+  })
+
+  it('evidencia incluye top + 3 siguientes con CUIT cada uno', () => {
+    const contratos = [
+      c({ proveedor: 'A', monto: 40_000_000, proveedorCuit: '30-12345678-1' }),
+      c({ proveedor: 'B', monto: 25_000_000, proveedorCuit: '30-22222222-9' }),
+      c({ proveedor: 'C', monto: 20_000_000, proveedorCuit: '30-33333334-8' }),
+      c({ proveedor: 'D', monto: 15_000_000, proveedorCuit: '30-44444444-0' }),
+    ]
+    const señal = detectarConcentracionPorCuit(contratos)
+    expect(señal).not.toBeNull()
+    const ev = señal!.evidencia.map(e => e.descripcion).join(' ')
+    expect(ev).toContain('30-12345678-1')
+    expect(ev).toContain('30-22222222-9')
+    expect(ev).toContain('30-33333334-8')
+  })
+})
+
 // ─── detectarContratacionesDirectas ─────────────────────────────────────────
 
 describe('detectarContratacionesDirectas', () => {
@@ -356,6 +499,43 @@ describe('detectarServiciosSinHistorial', () => {
     ]
     expect(detectarServiciosSinHistorial(contratos)!.legal.severidad).toBe('grave')
   })
+
+  // B7 fix: detección robusta a typos comunes y variantes ortográficas
+  it('B7 — captura typos en descripcion: LIMPEZA (sin I), SECURIDAD', () => {
+    const contratos = [
+      c({ proveedor: 'PROVEEDOR X', descripcion: 'Servicio LIMPEZA en escuelas', monto: 60_000_000 }),
+      c({ proveedor: 'PROVEEDOR Y', descripcion: 'Personal de SECURIDAD', monto: 70_000_000 }),
+    ]
+    expect(detectarServiciosSinHistorial(contratos)).not.toBeNull()
+  })
+
+  it('B7 — captura raíces extras: CATERING, IMPRENTA, INFORMATICA', () => {
+    const cases = [
+      'Provisión CATERING evento aniversario',
+      'IMPRENTA volantes campaña',
+      'Servicios INFORMATICA y soporte sistemas',
+    ]
+    for (const desc of cases) {
+      const contratos = [c({ proveedor: 'X SA', descripcion: desc, monto: 60_000_000 })]
+      expect(
+        detectarServiciosSinHistorial(contratos),
+        `Falló para descripcion="${desc}"`,
+      ).not.toBeNull()
+    }
+  })
+
+  it('B7 — busca también en tipo y area, no solo descripcion', () => {
+    const contratos = [
+      c({
+        proveedor: 'INDETERMINADO SA',
+        descripcion: 'expediente N° 1234 — adjudicación',  // ← descripcion sin keywords
+        tipo: 'CONTRATACION OBRA PUBLICA',                  // ← OBRA en tipo
+        area: 'Secretaría Limpieza Urbana',                 // ← LIMP en area
+        monto: 60_000_000,
+      }),
+    ]
+    expect(detectarServiciosSinHistorial(contratos)).not.toBeNull()
+  })
 })
 
 // ─── detectarFraccionamientoAvanzado ────────────────────────────────────────
@@ -413,12 +593,47 @@ describe('detectarConcentracionTemporal', () => {
     expect(detectarConcentracionTemporal([])).toBeNull()
   })
 
-  it('returns null when data spans multiple years', () => {
+  it('returns null when no year exceeds 30% nor has ≥3 ampliaciones (multi-year)', () => {
     const contratos = [
+      // Año 2022: 0% prórrogas, 0 ampliaciones → no dispara
       c({ anio: 2022, proveedor: 'A', monto: 40_000_000 }),
-      c({ tipo: 'PRÓRROGA', anio: 2023, proveedor: 'B', monto: 40_000_000 }),
+      c({ anio: 2022, proveedor: 'B', monto: 40_000_000 }),
+      // Año 2023: 0% prórrogas, 0 ampliaciones → no dispara
+      c({ anio: 2023, proveedor: 'C', monto: 40_000_000 }),
+      c({ anio: 2023, proveedor: 'D', monto: 40_000_000 }),
     ]
     expect(detectarConcentracionTemporal(contratos)).toBeNull()
+  })
+
+  it('fires for multi-year dataset on the worst year', () => {
+    const contratos = [
+      // Año 2022: 0% prórrogas → no dispara solo
+      c({ anio: 2022, proveedor: 'A', monto: 100_000_000 }),
+      // Año 2023: 50% prórrogas → dispara y debe ser elegido
+      c({ anio: 2023, proveedor: 'B', monto: 50_000_000 }),
+      c({ tipo: 'PRÓRROGA', anio: 2023, proveedor: 'C', monto: 50_000_000 }),
+    ]
+    const señal = detectarConcentracionTemporal(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.tipologia).toBe('gasto_fin_ejercicio')
+    // Debe mencionar el año peor en evidencia/título
+    expect(señal!.titulo).toContain('2023')
+    expect(señal!.evidencia[0].descripcion).toContain('2023')
+  })
+
+  it('picks worst year when multiple exceed threshold', () => {
+    const contratos = [
+      // 2022: 35% prórrogas
+      c({ anio: 2022, proveedor: 'A', monto: 65_000_000 }),
+      c({ tipo: 'PRÓRROGA', anio: 2022, proveedor: 'B', monto: 35_000_000 }),
+      // 2023: 60% prórrogas (peor)
+      c({ anio: 2023, proveedor: 'C', monto: 40_000_000 }),
+      c({ tipo: 'PRÓRROGA', anio: 2023, proveedor: 'D', monto: 60_000_000 }),
+    ]
+    const señal = detectarConcentracionTemporal(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.titulo).toContain('2023')
+    expect(señal!.legal.severidad).toBe('grave') // ≥40%
   })
 
   it('returns null for single year with < 30% prórrogas and < 3 ampliaciones', () => {
@@ -831,5 +1046,396 @@ describe('detectarRedDeEmpresas', () => {
   it('has score of 88', () => {
     const pares = [{ empresa1: 'A', empresa2: 'B', cuit1: '1', cuit2: '2', directoresCompartidos: ['X', 'Y'] }]
     expect(detectarRedDeEmpresas(pares)!.score).toBe(88)
+  })
+})
+
+// ─── detectarAparicionOffshore ───────────────────────────────────────────────
+
+function osMatch(overrides: Partial<OSMatch> & Pick<OSMatch, 'cuit'>): OSMatch {
+  return {
+    cuit: overrides.cuit,
+    nombre: overrides.nombre ?? 'TEST EMPRESA',
+    matched: overrides.matched ?? true,
+    riesgo: overrides.riesgo ?? 'offshore',
+    datasetPrincipal: overrides.datasetPrincipal ?? 'icij_offshore_leaks',
+    entidadId: overrides.entidadId ?? 'test-id',
+    entidadCaption: overrides.entidadCaption ?? 'TEST EMPRESA OFFSHORE',
+    entidadUrl: overrides.entidadUrl ?? 'https://www.opensanctions.org/entities/test-id/',
+    consultadoEn: overrides.consultadoEn ?? '2026-04-25T12:00:00Z',
+  }
+}
+
+describe('detectarAparicionOffshore', () => {
+  it('returns null when osMatches is empty', () => {
+    const emp = new Map([['EMPRESA SA', empresa()]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 50_000_000 })]
+    expect(detectarAparicionOffshore(contratos, emp, new Map())).toBeNull()
+  })
+
+  it('returns null when empresas is empty', () => {
+    const matches = new Map([['30123456789', osMatch({ cuit: '30123456789' })]])
+    expect(detectarAparicionOffshore([c({ proveedor: 'X', monto: 1 })], new Map(), matches)).toBeNull()
+  })
+
+  it('returns null when contratos is empty', () => {
+    expect(detectarAparicionOffshore([], new Map(), new Map())).toBeNull()
+  })
+
+  it('returns null when match.matched is false', () => {
+    const emp = new Map([['EMPRESA SA', empresa({ cuit: '30123456789' })]])
+    const matches = new Map([['30123456789', osMatch({ cuit: '30123456789', matched: false, riesgo: null })]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 50_000_000 })]
+    expect(detectarAparicionOffshore(contratos, emp, matches)).toBeNull()
+  })
+
+  it('returns null when riesgo is solo PEP (no dispara solo)', () => {
+    // PEP = información, no necesariamente delito. Solo dispara con
+    // offshore/sancionado/crimen.
+    const emp = new Map([['EMPRESA SA', empresa({ cuit: '30123456789' })]])
+    const matches = new Map([['30123456789', osMatch({ cuit: '30123456789', riesgo: 'pep' })]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 50_000_000 })]
+    expect(detectarAparicionOffshore(contratos, emp, matches)).toBeNull()
+  })
+
+  it('returns null when proveedor sin CUIT', () => {
+    const emp = new Map([['EMPRESA SA', empresa({ cuit: null })]])
+    const matches = new Map([['30123456789', osMatch({ cuit: '30123456789' })]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 50_000_000 })]
+    expect(detectarAparicionOffshore(contratos, emp, matches)).toBeNull()
+  })
+
+  it('fires when proveedor matches offshore (ICIJ Offshore Leaks)', () => {
+    const emp = new Map([['EMPRESA SA', empresa({ cuit: '30123456789' })]])
+    const matches = new Map([['30123456789', osMatch({ cuit: '30123456789', riesgo: 'offshore' })]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 50_000_000 })]
+    const señal = detectarAparicionOffshore(contratos, emp, matches)
+    expect(señal).not.toBeNull()
+    expect(señal!.tipologia).toBe('aparicion_offshore')
+    expect(señal!.legal.severidad).toBe('grave')
+  })
+
+  it('fires when proveedor matches sancionado (score más alto que offshore)', () => {
+    const emp = new Map([['SANCIONADA SA', empresa({ cuit: '30999999999' })]])
+    const matches = new Map([['30999999999', osMatch({ cuit: '30999999999', riesgo: 'sancionado' })]])
+    const contratos = [c({ proveedor: 'SANCIONADA SA', monto: 10_000_000 })]
+    const señal = detectarAparicionOffshore(contratos, emp, matches)!
+    expect(señal.score).toBe(95)
+  })
+
+  it('fires when proveedor matches crimen', () => {
+    const emp = new Map([['DELITO SA', empresa({ cuit: '30444444444' })]])
+    const matches = new Map([['30444444444', osMatch({ cuit: '30444444444', riesgo: 'crimen' })]])
+    const contratos = [c({ proveedor: 'DELITO SA', monto: 10_000_000 })]
+    const señal = detectarAparicionOffshore(contratos, emp, matches)!
+    expect(señal.score).toBe(88)
+    expect(señal.legal.severidad).toBe('grave')
+  })
+
+  it('lista todas las empresas matched (ordenadas por monto desc)', () => {
+    const emp = new Map([
+      ['CHICA SA', empresa({ cuit: '30111111111' })],
+      ['GRANDE SRL', empresa({ cuit: '30222222222' })],
+    ])
+    const matches = new Map([
+      ['30111111111', osMatch({ cuit: '30111111111', riesgo: 'offshore', entidadCaption: 'CHICA OFFSHORE' })],
+      ['30222222222', osMatch({ cuit: '30222222222', riesgo: 'offshore', entidadCaption: 'GRANDE OFFSHORE' })],
+    ])
+    const contratos = [
+      c({ proveedor: 'CHICA SA', monto: 5_000_000 }),
+      c({ proveedor: 'GRANDE SRL', monto: 100_000_000 }),
+    ]
+    const señal = detectarAparicionOffshore(contratos, emp, matches)!
+    expect(señal.titulo).toContain('2 proveedor')
+    // primero el de mayor monto
+    expect(señal.evidencia[0].descripcion).toContain('GRANDE SRL')
+    expect(señal.evidencia[0].descripcion).toContain('100')
+  })
+
+  it('incluye los CUITs implicados en la señal (cuits[])', () => {
+    const emp = new Map([['EMPRESA SA', empresa({ cuit: '30123456789' })]])
+    const matches = new Map([['30123456789', osMatch({ cuit: '30123456789', riesgo: 'offshore' })]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 50_000_000 })]
+    const señal = detectarAparicionOffshore(contratos, emp, matches)!
+    expect(señal.cuits).toEqual(['30123456789'])
+  })
+
+  it('incluye organismos federales (UIF + Procuración) en denunciarAnte', () => {
+    const emp = new Map([['EMPRESA SA', empresa({ cuit: '30123456789' })]])
+    const matches = new Map([['30123456789', osMatch({ cuit: '30123456789', riesgo: 'offshore' })]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 50_000_000 })]
+    const señal = detectarAparicionOffshore(contratos, emp, matches)!
+    const denunciar = señal.legal.denunciarAnte.join('\n')
+    expect(denunciar).toContain('UIF')
+    expect(denunciar).toContain('Procuración del Tesoro')
+  })
+
+  it('cita Ley 25.246 (lavado) y Ley 27.401 en marco legal', () => {
+    const emp = new Map([['EMPRESA SA', empresa({ cuit: '30123456789' })]])
+    const matches = new Map([['30123456789', osMatch({ cuit: '30123456789', riesgo: 'offshore' })]])
+    const contratos = [c({ proveedor: 'EMPRESA SA', monto: 50_000_000 })]
+    const señal = detectarAparicionOffshore(contratos, emp, matches)!
+    const articulos = señal.legal.articulos.join('\n')
+    expect(articulos).toContain('25.246')
+    expect(articulos).toContain('27.401')
+  })
+
+  it('ignora proveedores con match pero sin riesgo en RIESGOS_OFFSHORE', () => {
+    const emp = new Map([
+      ['SOSPECHOSA SA', empresa({ cuit: '30111111111' })],
+      ['SOLO PEP SA', empresa({ cuit: '30222222222' })],
+    ])
+    const matches = new Map([
+      ['30111111111', osMatch({ cuit: '30111111111', riesgo: 'offshore' })],
+      ['30222222222', osMatch({ cuit: '30222222222', riesgo: 'pep' })],
+    ])
+    const contratos = [
+      c({ proveedor: 'SOSPECHOSA SA', monto: 10_000_000 }),
+      c({ proveedor: 'SOLO PEP SA', monto: 100_000_000 }),
+    ]
+    const señal = detectarAparicionOffshore(contratos, emp, matches)!
+    expect(señal.titulo).toContain('1 proveedor')
+    expect(señal.cuits).toEqual(['30111111111'])
+  })
+})
+
+// ─── normalizarProveedor (B5) ────────────────────────────────────────────────
+
+describe('normalizarProveedor', () => {
+  it('strip variantes societarias triviales', () => {
+    expect(normalizarProveedor('ACME S.A.')).toBe('ACME')
+    expect(normalizarProveedor('ACME SA')).toBe('ACME')
+    expect(normalizarProveedor('ACME S.R.L.')).toBe('ACME')
+    expect(normalizarProveedor('ACME SRL')).toBe('ACME')
+    expect(normalizarProveedor('ACME UTE')).toBe('ACME')
+    expect(normalizarProveedor('ACME COOP')).toBe('ACME')
+    expect(normalizarProveedor('ACME SAIIC')).toBe('ACME')
+  })
+
+  it('"ACME SA" y "ACME SRL" colapsan a la misma key (B5)', () => {
+    expect(normalizarProveedor('ACME SA')).toBe(normalizarProveedor('ACME SRL'))
+  })
+
+  it('case-insensitive y trim de espacios', () => {
+    expect(normalizarProveedor('  acme sa  ')).toBe('ACME')
+    expect(normalizarProveedor('Acme  S.A.')).toBe('ACME')  // doble espacio
+  })
+
+  it('preserva nombres compuestos', () => {
+    expect(normalizarProveedor('CONSTRUCTORA DEL CENTRO SA')).toBe('CONSTRUCTORA DEL CENTRO')
+    expect(normalizarProveedor('OBRAS Y SERVICIOS NORTE S.A.')).toBe('OBRAS Y SERVICIOS NORTE')
+  })
+
+  it('UTEs y consorcios variantes', () => {
+    expect(normalizarProveedor('ROGGIO HIJOS UTE')).toBe('ROGGIO HIJOS')
+    expect(normalizarProveedor('ROGGIO HIJOS U.T.')).toBe('ROGGIO HIJOS')
+    expect(normalizarProveedor('ROGGIO HIJOS U.T')).toBe('ROGGIO HIJOS')
+  })
+
+  it('no elimina si la palabra societaria está en el medio del nombre', () => {
+    // "SOCIEDAD" en medio (no al final) no se debe strip
+    expect(normalizarProveedor('SOCIEDAD ANONIMA EJEMPLO')).toBe('SOCIEDAD ANONIMA EJEMPLO')
+  })
+
+  it('idempotente: aplicar 2 veces da mismo resultado', () => {
+    const once = normalizarProveedor('ACME S.A.')
+    const twice = normalizarProveedor(once)
+    expect(twice).toBe(once)
+  })
+})
+
+// ─── F2.4: caveat en detectores Tier 2 ─────────────────────────────────────
+// La auditoría legal 2026-04-26 marca 6 detectores como Tier 2 (indicio).
+// Cada uno debe poblar señal.caveat con el texto del config para que la UI
+// pueda mostrar el aviso "señal técnica, no acusación".
+
+describe('F2.4 — caveat en detectores Tier 2', () => {
+  it('detectarConcentracion (Tier 2): la señal lleva caveat', () => {
+    const contratos = [
+      c({ proveedor: 'GIGANTE SA', monto: 70_000_000 }),
+      c({ proveedor: 'OTRO', monto: 30_000_000 }),
+    ]
+    const señal = detectarConcentracion(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.caveat).toBeDefined()
+    expect(señal!.caveat!.length).toBeGreaterThan(20)
+  })
+
+  it('detectarMonopolioRubro (Tier 2): la señal lleva caveat', () => {
+    const contratos = [
+      c({ area: 'OBRAS', proveedor: 'A', monto: 80_000_000 }),
+      c({ area: 'OBRAS', proveedor: 'B', monto: 10_000_000 }),
+      c({ area: 'OBRAS', proveedor: 'C', monto: 10_000_000 }),
+    ]
+    const señal = detectarMonopolioRubro(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.caveat).toBeDefined()
+  })
+
+  it('detectarServiciosSinHistorial (Tier 2): la señal lleva caveat', () => {
+    const contratos = [
+      c({ proveedor: 'NUEVA LIMPIEZA SA', descripcion: 'Servicio LIMPIEZA general', monto: 60_000_000 }),
+    ]
+    const señal = detectarServiciosSinHistorial(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.caveat).toBeDefined()
+    expect(señal!.caveat!.toLowerCase()).toContain('novedad')
+  })
+
+  it('detectarConcentracionTemporal (Tier 2): la señal lleva caveat', () => {
+    const contratos = [
+      c({ tipo: 'PRORROGA', proveedor: 'A', monto: 60_000_000, anio: 2023 }),
+      c({ tipo: 'LICITACION', proveedor: 'B', monto: 40_000_000, anio: 2023 }),
+    ]
+    const señal = detectarConcentracionTemporal(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.caveat).toBeDefined()
+  })
+
+  it('detectarProveedorCronico (Tier 2): la señal lleva caveat', () => {
+    const contratos = [
+      c({ proveedor: 'CRONICO SA', monto: 30_000_000, anio: 2020 }),
+      c({ proveedor: 'CRONICO SA', monto: 30_000_000, anio: 2021 }),
+      c({ proveedor: 'CRONICO SA', monto: 30_000_000, anio: 2022 }),
+    ]
+    const señal = detectarProveedorCronico(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.caveat).toBeDefined()
+    expect(señal!.caveat!.toLowerCase()).toContain('no es')
+  })
+
+  it('detectarEmpresaNueva (Tier 2): la señal lleva caveat', () => {
+    const emp = new Map([
+      ['NUEVA SRL', { cuit: '30123456789', razonSocial: null, esEmpleador: true, inicioActividades: '15/06/2023', estado: 'ACTIVO', actividadPrincipal: null, directores: [], encontrado: true, fuenteUrl: 'https://x' }],
+    ])
+    const contratos = [c({ proveedor: 'NUEVA SRL', anio: 2023, monto: 15_000_000 })]
+    const señal = detectarEmpresaNueva(contratos, emp)
+    expect(señal).not.toBeNull()
+    expect(señal!.caveat).toBeDefined()
+  })
+
+  // Verificación negativa: detectores Tier 1 NO llevan caveat (es opcional
+  // y solo lo poblan los Tier 2).
+  it('detectarProrrogas (Tier 1): la señal NO tiene caveat', () => {
+    const contratos = [
+      c({ tipo: 'PRORROGA', proveedor: 'A', monto: 50_000_000 }),
+      c({ tipo: 'LICITACION', proveedor: 'B', monto: 50_000_000 }),
+    ]
+    const señal = detectarProrrogas(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.caveat).toBeUndefined()
+  })
+
+  it('detectarFraccionamientoAvanzado (Tier 1): la señal NO tiene caveat', () => {
+    const contratos = [
+      c({ tipo: 'CONTRATACION DIRECTA', proveedor: 'X SA', monto: 7_000_000 }),
+      c({ tipo: 'CONTRATACION DIRECTA', proveedor: 'X SA', monto: 8_000_000 }),
+      c({ tipo: 'CONTRATACION DIRECTA', proveedor: 'X SA', monto: 8_000_000 }),
+    ]
+    const señal = detectarFraccionamientoAvanzado(contratos)
+    expect(señal).not.toBeNull()
+    expect(señal!.caveat).toBeUndefined()
+  })
+})
+
+// ─── detectarConflictoFuncionarioProveedor (Iter4 análisis-datos) ───────────
+
+describe('detectarConflictoFuncionarioProveedor', () => {
+  function a(overrides: Partial<AgentePublicoLite> & { apellido_nombre: string }): AgentePublicoLite {
+    return {
+      anio: 2023,
+      jurisdiccion: 'cordoba-capital',
+      reparticion: 'SECRETARIA DE OBRAS',
+      cargo: 'DIRECTOR',
+      cuit: null,
+      fuente_url: URL,
+      ...overrides,
+    }
+  }
+
+  it('returns null cuando no hay agentes', () => {
+    expect(detectarConflictoFuncionarioProveedor([c({ proveedor: 'X', monto: 1 })], [])).toBeNull()
+  })
+
+  it('returns null cuando no hay contratos', () => {
+    expect(detectarConflictoFuncionarioProveedor([], [a({ apellido_nombre: 'PEREZ JUAN' })])).toBeNull()
+  })
+
+  it('detecta hit Tier 2 por apellido normalizado', () => {
+    const contratos = [
+      c({ proveedor: 'PEREZ JUAN', monto: 5_000_000 }),
+      c({ proveedor: 'OTRA EMPRESA SA', monto: 1_000_000 }),
+    ]
+    const agentes = [a({ apellido_nombre: 'PEREZ JUAN' })]
+    const señal = detectarConflictoFuncionarioProveedor(contratos, agentes)
+    expect(señal).not.toBeNull()
+    expect(señal!.tipologia).toBe('conflicto_funcionario_proveedor')
+    expect(señal!.score).toBe(75) // solo Tier 2
+    expect(señal!.legal.severidad).toBe('moderada')
+    expect(señal!.evidencia[0].descripcion).toContain('Tier 2')
+  })
+
+  it('detecta hit Tier 1 por CUIT exacto y eleva severidad a grave', () => {
+    const contratos = [c({ proveedor: 'CONSULTORA X SA', monto: 10_000_000 })]
+    const agentes = [
+      a({ apellido_nombre: 'DIRECTOR DE OBRAS', cuit: '20111111119' }),
+    ]
+    const empresas = new Map<string, EmpresaEnriquecida>()
+    empresas.set('CONSULTORA X SA', {
+      cuit: '20111111119',
+      razonSocial: 'CONSULTORA X SA',
+      esEmpleador: true,
+      inicioActividades: '2010-01-01',
+      estado: 'ACTIVO',
+      actividadPrincipal: 'CONSULTORIA',
+      directores: [],
+      encontrado: true,
+      fuenteUrl: 'https://afip',
+    } as EmpresaEnriquecida)
+    const señal = detectarConflictoFuncionarioProveedor(contratos, agentes, empresas)
+    expect(señal).not.toBeNull()
+    expect(señal!.score).toBe(95)
+    expect(señal!.legal.severidad).toBe('grave')
+    expect(señal!.evidencia[0].descripcion).toContain('Tier 1')
+    expect(señal!.evidencia[0].descripcion).toContain('cuit_exact')
+  })
+
+  it('NO matchea proveedores que parecen empresas (5+ palabras)', () => {
+    const contratos = [c({ proveedor: 'PEREZ JUAN HERMANOS Y COMPAÑIA SOCIEDAD ANONIMA', monto: 1_000_000 })]
+    const agentes = [a({ apellido_nombre: 'PEREZ JUAN' })]
+    const señal = detectarConflictoFuncionarioProveedor(contratos, agentes)
+    // 5+ palabras no entran al matcheo Tier 2
+    expect(señal).toBeNull()
+  })
+
+  it('emite cuits del funcionario en hits Tier 1', () => {
+    const contratos = [c({ proveedor: 'CONSULTORA X SA', monto: 10_000_000 })]
+    const agentes = [a({ apellido_nombre: 'DIRECTOR', cuit: '20111111119' })]
+    const empresas = new Map<string, EmpresaEnriquecida>()
+    empresas.set('CONSULTORA X SA', {
+      cuit: '20111111119',
+      razonSocial: 'CONSULTORA X SA',
+      esEmpleador: true,
+      inicioActividades: '2010-01-01',
+      estado: 'ACTIVO',
+      actividadPrincipal: 'CONSULTORIA',
+      directores: [],
+      encontrado: true,
+      fuenteUrl: 'https://afip',
+    } as EmpresaEnriquecida)
+    const señal = detectarConflictoFuncionarioProveedor(contratos, agentes, empresas)
+    expect(señal!.cuits).toContain('20111111119')
+  })
+
+  it('un mismo funcionario en múltiples contratos solo aparece una vez', () => {
+    const contratos = [
+      c({ proveedor: 'PEREZ JUAN', monto: 1_000_000 }),
+      c({ proveedor: 'PEREZ JUAN', monto: 2_000_000 }),
+      c({ proveedor: 'PEREZ JUAN', monto: 3_000_000 }),
+    ]
+    const agentes = [a({ apellido_nombre: 'PEREZ JUAN' })]
+    const señal = detectarConflictoFuncionarioProveedor(contratos, agentes)
+    expect(señal).not.toBeNull()
+    expect(señal!.evidencia.length).toBe(1)
+    expect(señal!.evidencia[0].descripcion).toContain('3 contrato')
   })
 })
