@@ -18,6 +18,8 @@ import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { ArgosShell } from '@/components/argos/ArgosShell'
 import { VerificacionBadge } from '@/components/argos/VerificacionBadge'
+import { SevPill, Glyph } from '@/components/argos/forensic/Primitives'
+import { useGrafoStats } from '@/lib/queries'
 import type { EstadoVerificacionSeñal } from '@/lib/argos/types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
@@ -61,6 +63,9 @@ export default function Senales() {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [shareToast, setShareToast] = useState<string | null>(null)
+  /** V4 — toggle entre vista tabla y vista grafo de vínculos en alerta */
+  const [view, setView] = useState<'tabla' | 'grafo'>('tabla')
+  const grafoStats = useGrafoStats()
 
   const fetchPage = useCallback(() => {
     const ac = new AbortController()
@@ -189,14 +194,46 @@ export default function Senales() {
     setTimeout(() => setShareToast(null), 2000)
   }
 
+  // V4 — toggle TABLA / GRAFO en customRight
+  const viewToggle = (
+    <div style={{ display: 'flex', borderLeft: '1px solid var(--hairline-1)' }}>
+      <button
+        type="button"
+        onClick={() => setView('tabla')}
+        className="fx-header__btn"
+        style={{
+          background: view === 'tabla' ? 'var(--bg-forensic-2)' : 'transparent',
+          color: view === 'tabla' ? 'var(--text-1)' : 'var(--text-3)',
+          borderLeft: 'none',
+        }}
+      >
+        VISTA: TABLA
+      </button>
+      <button
+        type="button"
+        onClick={() => setView('grafo')}
+        className="fx-header__btn"
+        style={{
+          background: view === 'grafo' ? 'var(--bg-forensic-2)' : 'transparent',
+          color: view === 'grafo' ? 'var(--select)' : 'var(--text-3)',
+        }}
+      >
+        VISTA: GRAFO
+      </button>
+    </div>
+  )
+
   return (
-    <ArgosShell title="Señales detectadas">
+    <ArgosShell title="Señales detectadas" rightSlot={viewToggle}>
       <p style={s.subtitle}>
         Patrones marcados por el motor ARGOS sobre el universo cargado.
         La plataforma describe, no acusa: cada señal requiere verificación
         humana antes de citar como evidencia.
       </p>
 
+      {view === 'grafo' && <SignalsGraphView grafoStats={grafoStats.data} loading={grafoStats.isLoading} />}
+      {view === 'tabla' && (
+      <>
         <section style={s.filtros}>
           <Filtro
             label="Estado"
@@ -296,12 +333,7 @@ export default function Senales() {
                       />
                     </td>
                     <td style={s.td}>
-                      <span style={{
-                        ...s.sevBadge,
-                        background: sevColor(it.severidad) + '22',
-                        color: sevColor(it.severidad),
-                        borderColor: sevColor(it.severidad),
-                      }}>{it.severidad.toUpperCase()}</span>
+                      <SevPill kind={it.severidad === 'leve' ? 'baja' : it.severidad} />
                     </td>
                     <td style={{ ...s.td, fontFamily: 'ui-monospace, monospace', color: '#9BA3B4', fontSize: 11 }}>
                       {it.tipologia}
@@ -312,7 +344,14 @@ export default function Senales() {
                         {it.resumen.length > 130 ? it.resumen.slice(0, 127) + '…' : it.resumen}
                       </div>
                     </td>
-                    <td style={{ ...s.td, fontFamily: 'ui-monospace, monospace' }}>{it.score}</td>
+                    <td style={{
+                      ...s.td,
+                      fontFamily: 'var(--font-mono)',
+                      fontVariantNumeric: 'tabular-nums',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color: it.score >= 80 ? 'var(--alarm)' : it.score >= 60 ? 'var(--warn)' : 'var(--text-2)',
+                    }}>{it.score}</td>
                     <td style={s.td}>
                       <VerificacionBadge estado={it.estadoVerificacion} compact />
                     </td>
@@ -347,7 +386,128 @@ export default function Senales() {
             style={s.pagBtn}
           >siguiente ›</button>
         </div>
+        {/* Footer keybinds (V4 forensic) */}
+        <div style={{
+          marginTop: 14,
+          padding: '8px 0',
+          borderTop: '1px solid var(--hairline-1)',
+          fontSize: 10,
+          color: 'var(--text-3)',
+          fontFamily: 'var(--font-mono)',
+          letterSpacing: '0.04em',
+          display: 'flex',
+          justifyContent: 'space-between',
+        }}>
+          <div>{items.length} señales · {items.filter(i => i.severidad === 'grave').length} graves · {items.filter(i => i.severidad === 'moderada').length} moderadas · {items.filter(i => i.severidad === 'leve').length} leves</div>
+          <div>SHIFT+CLICK selección múltiple · ⌘E exportar selección · Δ ver cambios desde tu última visita</div>
+        </div>
+      </>
+      )}
     </ArgosShell>
+  )
+}
+
+// ─── Vista grafo de vínculos en alerta (V4 — toggle TABLA / GRAFO) ───────────
+
+interface SignalsGraphViewProps {
+  grafoStats: import('@/lib/queries').GrafoStatsResponse | undefined
+  loading: boolean
+}
+
+function SignalsGraphView({ grafoStats, loading }: SignalsGraphViewProps) {
+  if (loading) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 12, fontFamily: 'var(--font-mono)', letterSpacing: '0.06em' }}>
+        cargando grafo de vínculos en alerta…
+      </div>
+    )
+  }
+  if (!grafoStats?.graphAvailable) {
+    return (
+      <div style={{
+        padding: 40,
+        textAlign: 'center',
+        color: 'var(--text-3)',
+        fontSize: 13,
+        background: 'var(--bg-forensic-1)',
+        border: '1px solid var(--hairline-1)',
+        marginTop: 12,
+      }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 8, color: 'var(--text-3)' }}>
+          GRAFO NO DISPONIBLE
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
+          Neo4j no respondió. Cargá el backend con <code className="mono">npm run dev</code>.
+        </div>
+      </div>
+    )
+  }
+  const conflictos = grafoStats.conflictosPotenciales ?? []
+  const señalesActivas = grafoStats.señalesActivas ?? []
+  return (
+    <div style={{ display: 'flex', gap: 16, marginTop: 12 }}>
+      {/* Columna izq: lista de señales activas */}
+      <div style={{ flex: '0 0 360px', background: 'var(--bg-forensic-1)', border: '1px solid var(--hairline-1)', padding: 0 }}>
+        <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--hairline-1)', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.16em', color: 'var(--text-3)', textTransform: 'uppercase' }}>
+          SEÑALES ACTIVAS · {señalesActivas.length}
+        </div>
+        <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+          {señalesActivas.map((s) => (
+            <div key={s.id} style={{ padding: '8px 12px', borderBottom: '1px solid var(--hairline-soft)', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-2)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                <span style={{ color: s.severidad === 'grave' ? 'var(--alarm)' : s.severidad === 'moderada' ? 'var(--warn)' : 'var(--ok)' }}>
+                  {s.score}× · {s.tipologia.replace(/_/g, ' ')}
+                </span>
+                <span style={{ color: 'var(--text-3)' }}>{s.empresasImplicadas} emp</span>
+              </div>
+              <div style={{ color: 'var(--text-1)', fontSize: 11.5, fontFamily: 'var(--font-sans)', lineHeight: 1.4 }}>{s.titulo}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Columna der: red de conflictos */}
+      <div style={{ flex: 1, background: 'var(--bg-forensic-1)', border: '1px solid var(--hairline-1)', minHeight: '60vh', padding: 0, position: 'relative' }}>
+        <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--hairline-1)', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.16em', color: 'var(--text-3)', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between' }}>
+          <span>RED DE CONFLICTOS POTENCIALES · {conflictos.length}</span>
+          <span style={{ color: 'var(--warn)' }}>● tier 2 — verificación humana</span>
+        </div>
+        <div style={{ padding: 18 }}>
+          {conflictos.length === 0 && (
+            <div style={{ color: 'var(--text-3)', fontSize: 12, textAlign: 'center', padding: 40 }}>
+              Sin conflictos detectados en el grafo Neo4j.
+            </div>
+          )}
+          {conflictos.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {conflictos.slice(0, 12).map((c, i) => (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'center', gap: 14,
+                  padding: '10px 12px', border: '1px solid var(--hairline-1)',
+                  background: 'var(--bg-forensic-2)',
+                  fontFamily: 'var(--font-mono)', fontSize: 11,
+                }}>
+                  <Glyph kind="PF" size={9} />
+                  <div style={{ flex: 1, color: 'var(--text-1)' }}>
+                    {c.funcionario}
+                    {c.funcionarioReparticion && <span style={{ color: 'var(--text-3)', marginLeft: 6 }}>· {c.funcionarioReparticion}</span>}
+                  </div>
+                  <span style={{ color: 'var(--warn)', fontFamily: 'var(--font-mono)' }}>↔</span>
+                  <Glyph kind="PJ" size={9} />
+                  <div style={{ flex: 1, color: 'var(--text-1)' }}>{c.empresa}</div>
+                  <span style={{ color: 'var(--text-3)', fontSize: 9, letterSpacing: '0.10em' }}>opera en {c.empresaOperaEn}</span>
+                  <span style={{ color: c.tier === 1 ? 'var(--ok)' : 'var(--warn)', fontSize: 10 }}>T{c.tier ?? '?'}</span>
+                </div>
+              ))}
+              {conflictos.length > 12 && (
+                <div style={{ color: 'var(--text-3)', fontSize: 11, textAlign: 'center', padding: 8 }}>
+                  + {conflictos.length - 12} más en backend (paginar próxima iteración)
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
