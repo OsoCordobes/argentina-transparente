@@ -30,6 +30,7 @@ import {
   forceLink,
   forceCenter,
   forceCollide,
+  forceRadial,
   forceX,
   forceY,
   type Simulation,
@@ -76,6 +77,42 @@ function colorFor(n: ArgosNode): string {
   if (sev === 'grave') return '#E5484D'
   if (sev === 'moderada') return '#F5B544'
   return TYPE_COLOR[n.type] ?? '#9BA3B4'
+}
+
+// ─── Layout jerárquico (depth → anillo radial) ───────────────────────────────
+//
+// Cada nodo lleva opcionalmente `data.depth` (0..N). Cuando viene del
+// endpoint /api/grafo/jerarquia, depth ya está poblado:
+//   0 = jurisdiccion (raíz)
+//   1 = reparticion
+//   2 = empresa / funcionario
+// Si falta, lo inferimos por tipo. El ángulo es determinístico (hash del id)
+// para que entre re-renders los nodos no salten — solo "respiran" por la sim.
+
+const DEPTH_RING_FACTORS = [0, 0.32, 0.62, 0.85] as const
+
+function getNodeDepth(n: ArgosNode): number {
+  const d = (n.data as { depth?: unknown })?.depth
+  if (typeof d === 'number') return Math.max(0, Math.min(3, d))
+  // Fallback por tipo (cuando la fuente no es jerarquía)
+  if (n.type === 'jurisdiccion') return 0
+  if (n.type === 'reparticion') return 1
+  if (n.type === 'empresa' || n.type === 'proveedor' || n.type === 'funcionario') return 2
+  return 2
+}
+
+function depthRadius(depth: number, span: number): number {
+  return DEPTH_RING_FACTORS[Math.min(depth, DEPTH_RING_FACTORS.length - 1)] * span
+}
+
+/** Hash estable de string → [0, 1) — para ángulos reproducibles entre renders. */
+function stableHash01(s: string): number {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) {
+    h = (h ^ s.charCodeAt(i)) >>> 0
+    h = Math.imul(h, 16777619) >>> 0
+  }
+  return (h % 100000) / 100000
 }
 
 // ─── Tipado d3-force ──────────────────────────────────────────────────────────
@@ -225,11 +262,23 @@ function GraphCanvasInner({
     const cy = size.h / 2
     const span = Math.min(size.w, size.h) * 0.45
 
-    const nodes: NodeDatum[] = snapshot.nodes.map((n, i) => ({
-      ...n,
-      x: cx + (Math.cos(i * 2.3) * 0.5 + (Math.random() - 0.5)) * span,
-      y: cy + (Math.sin(i * 2.3) * 0.5 + (Math.random() - 0.5)) * span,
-    }))
+    // Seed posicional radial por depth: cada nodo arranca en el anillo que
+    // le corresponde según su nivel jerárquico. Ángulo determinístico por
+    // hash del id → no hay saltos visuales entre re-renders.
+    // forceRadial (más abajo) mantiene la suave atracción a su anillo.
+    const nodes: NodeDatum[] = snapshot.nodes.map((n) => {
+      const depth = getNodeDepth(n)
+      const r = depthRadius(depth, span)
+      const angle = stableHash01(n.id) * Math.PI * 2
+      // Pequeño jitter perpendicular al radio para que nodos del mismo
+      // anillo no se solapen perfectamente (la sim los separa después).
+      const jitter = depth === 0 ? 0 : (stableHash01(n.id + ':j') - 0.5) * 30
+      return {
+        ...n,
+        x: cx + Math.cos(angle) * (r + jitter),
+        y: cy + Math.sin(angle) * (r + jitter),
+      }
+    })
 
     const ids = new Set(nodes.map((n) => n.id))
     const edges: LinkDatum[] = (snapshot.edges as ArgosEdge[])
@@ -270,7 +319,10 @@ function GraphCanvasInner({
         forceLink<NodeDatum, LinkDatum>(edges)
           .id((d) => d.id)
           .distance((e) => {
-            if (e.kind === 'gano') return 50
+            // Aristas jerárquicas (data viene de /api/grafo/jerarquia):
+            // distancia más larga porque atraviesan anillos radiales.
+            if (e.kind === 'pertenece_a') return 130   // Reparticion → Estado
+            if (e.kind === 'gano') return 95          // Empresa → Reparticion
             if (e.kind === 'opera_en') return 110
             if (e.kind === 'tiene_director') return 65
             if (e.kind === 'señalado_por') return 60
@@ -280,9 +332,32 @@ function GraphCanvasInner({
             if (e.kind === 'conflicto_con') return 120
             return 80
           })
-          .strength(0.4),
+          // Fuerza más suave en aristas jerárquicas — el forceRadial ya
+          // organiza los anillos; el link solo evita que se separen demasiado.
+          .strength((e) =>
+            e.kind === 'pertenece_a' || e.kind === 'gano' ? 0.18 : 0.4
+          ),
       )
       .force('center', forceCenter(cx, cy).strength(0.05))
+      // Force radial — atrae cada nodo hacia el anillo que le corresponde
+      // según depth. Strength 0.18 es suficiente para que la jerarquía sea
+      // legible pero no tan rígida como un d3.tree (mantiene "respiración").
+      // Cuando los datos no traen depth (Neo4j/dashboard), el fallback por
+      // tipo igual produce un layout en anillos por categoría.
+      .force(
+        'radial',
+        forceRadial<NodeDatum>(
+          (d) => depthRadius(getNodeDepth(d), span),
+          cx,
+          cy,
+        ).strength((d) => {
+          // Raíz fuertemente clavada al centro; resto suave.
+          const depth = getNodeDepth(d)
+          if (depth === 0) return 0.6
+          if (depth === 1) return 0.22
+          return 0.14
+        }),
+      )
       .force(
         'collide',
         forceCollide<NodeDatum>()

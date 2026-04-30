@@ -485,6 +485,67 @@ export function useGrafoNucleo(limite = 200) {
   })
 }
 
+// ─── Grafo jerárquico (DuckDB) ──────────────────────────────────────────────
+// Estado → Reparticion → Empresa servido directo desde DuckDB. Es la fuente
+// preferida del home (graph-first) — no depende de Neo4j.
+
+export interface GrafoJerarquiaNode {
+  id: string
+  type: 'jurisdiccion' | 'reparticion' | 'empresa' | 'funcionario'
+  label: string
+  subtitle?: string
+  weight: number
+  data: {
+    depth: number
+    monto?: number
+    contratos?: number
+    cuit?: string
+    area?: string
+    jurisdiccion?: string
+    [k: string]: unknown
+  }
+}
+
+export interface GrafoJerarquiaEdge {
+  source: string
+  target: string
+  kind: 'pertenece_a' | 'gano' | 'opera_en'
+  weight: number
+}
+
+export interface GrafoJerarquiaResponse {
+  nodes: GrafoJerarquiaNode[]
+  edges: GrafoJerarquiaEdge[]
+  graphAvailable: true
+  fuente: 'duckdb-jerarquia'
+  meta: {
+    jurisdicciones: string[]
+    totalReparticiones: number
+    totalEmpresas: number
+    montoTotal: number
+  }
+}
+
+export interface UseGrafoJerarquiaOpts {
+  jurisdiccion?: 'cordoba-capital' | 'cordoba-provincia' | 'all'
+  maxReparticiones?: number
+  maxEmpresasPorReparticion?: number
+}
+
+export function useGrafoJerarquia(opts: UseGrafoJerarquiaOpts = {}) {
+  const j = opts.jurisdiccion ?? 'all'
+  const r = opts.maxReparticiones ?? 12
+  const e = opts.maxEmpresasPorReparticion ?? 4
+  return useQuery({
+    queryKey: ['grafo', 'jerarquia', j, r, e],
+    queryFn: () =>
+      fetchJSON<GrafoJerarquiaResponse>(
+        `/api/grafo/jerarquia?jurisdiccion=${j}&maxReparticiones=${r}&maxEmpresasPorReparticion=${e}`
+      ),
+    staleTime: 5 * 60_000,
+  })
+}
+
 export interface GrafoStatsResponse {
   graphAvailable: boolean
   nodos?: { empresa: number; persona: number; funcionario: number; reparticion: number; contrato: number; señal: number }

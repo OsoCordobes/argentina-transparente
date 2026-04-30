@@ -17,8 +17,12 @@
 
 import '@/styles/argos.css'
 import { useMemo } from 'react'
-import { useDashboard, useGrafoNucleo } from '@/lib/queries'
-import { graphFromDashboard, graphFromNeo4j } from '@/lib/argos/graphFromData'
+import { useDashboard, useGrafoNucleo, useGrafoJerarquia } from '@/lib/queries'
+import {
+  graphFromDashboard,
+  graphFromNeo4j,
+  graphFromJerarquia,
+} from '@/lib/argos/graphFromData'
 import { curarTopN } from '@/lib/argos/curador-grafo'
 import { ExplorarLayout } from '@/components/argos/ExplorarLayout'
 import type { ArgosGraph } from '@/lib/argos/types'
@@ -26,34 +30,54 @@ import type { ArgosGraph } from '@/lib/argos/types'
 const EMPTY_GRAPH: ArgosGraph = { nodes: [], edges: [] }
 
 export default function Explorar() {
-  // Pedimos hasta 200 nodos al backend; el curador los recorta a ~80 visibles.
-  // Pedir más al backend permite que el curador tenga "sobra" para descartar
-  // los menos relevantes y mantener el núcleo conectado.
+  // Fuente preferida: jerarquía DuckDB (Estado → Reparticion → Empresa).
+  // No depende de Neo4j y muestra estructura inmediatamente reconocible.
+  const grafoJerQuery = useGrafoJerarquia({
+    jurisdiccion: 'all',
+    maxReparticiones: 12,
+    maxEmpresasPorReparticion: 4,
+  })
+  const grafoJer = grafoJerQuery.data
+  const usarJerarquia = !!grafoJer && grafoJer.nodes.length > 0
+
+  // Fallback 1: Neo4j si está disponible (relaciones más ricas vía conflictos
+  // y directores).
   const grafoQuery = useGrafoNucleo(200)
   const grafoNeo4j = grafoQuery.data
-  const usarNeo4j = grafoNeo4j?.graphAvailable && grafoNeo4j.nodes.length > 0
+  const usarNeo4j =
+    !usarJerarquia && grafoNeo4j?.graphAvailable && grafoNeo4j.nodes.length > 0
 
+  // Fallback 2: graphFromDashboard (sin estructura, último recurso).
   const dashboard = useDashboard()
 
   const { graph, nodosOcultados, totalOriginal } = useMemo(() => {
     let raw: ArgosGraph
-    if (usarNeo4j && grafoNeo4j) {
+    if (usarJerarquia && grafoJer) {
+      raw = graphFromJerarquia(grafoJer)
+    } else if (usarNeo4j && grafoNeo4j) {
       raw = graphFromNeo4j(grafoNeo4j)
     } else if (dashboard.data) {
       raw = graphFromDashboard(dashboard.data)
     } else {
       raw = EMPTY_GRAPH
     }
-    // PLAN-UI §4.1: cap a 80 nodos por relevancia
-    const curado = curarTopN(raw, { maxNodos: 80, mantenerSeveros: true })
+    // En jerarquía nunca queremos perder los nodos depth 0/1 (estado y
+    // reparticiones). Subimos el cap y dejamos que la simulación física
+    // organice. En Neo4j/dashboard mantenemos 80.
+    const cap = usarJerarquia ? 120 : 80
+    const curado = curarTopN(raw, { maxNodos: cap, mantenerSeveros: true })
     return {
       graph: curado.graph,
       nodosOcultados: curado.nodosOcultados,
       totalOriginal: curado.totalOriginal,
     }
-  }, [usarNeo4j, grafoNeo4j, dashboard.data])
+  }, [usarJerarquia, grafoJer, usarNeo4j, grafoNeo4j, dashboard.data])
 
-  const isLoading = usarNeo4j ? grafoQuery.isLoading : dashboard.isLoading
+  const isLoading = usarJerarquia
+    ? grafoJerQuery.isLoading
+    : usarNeo4j
+    ? grafoQuery.isLoading
+    : dashboard.isLoading
 
   return (
     <>

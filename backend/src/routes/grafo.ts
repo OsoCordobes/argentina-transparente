@@ -13,6 +13,7 @@
 
 import { Router, Request, Response } from 'express'
 import { getGrafoNucleo, expandirNodo, getGrafoStats, isGraphAvailable, listarConflictos } from '../lib/graph'
+import { getJerarquiaCordoba } from '../lib/grafo-jerarquia'
 
 const grafoRouter = Router()
 export default grafoRouter
@@ -26,6 +27,35 @@ grafoRouter.get('/nucleo', async (req: Request, res: Response) => {
   try {
     const grafo = await getGrafoNucleo({ limite, municipio })
     res.json({ ...grafo, graphAvailable: true })
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message })
+  }
+})
+
+// Jerarquía Estado → Reparticion → Empresa servida desde DuckDB.
+// No requiere Neo4j. Es la fuente preferida del home (graph-first).
+grafoRouter.get('/jerarquia', async (req: Request, res: Response) => {
+  const jurisdiccion = (() => {
+    const v = String(req.query.jurisdiccion ?? 'all')
+    return v === 'cordoba-capital' || v === 'cordoba-provincia' || v === 'all'
+      ? v
+      : 'all'
+  })() as 'cordoba-capital' | 'cordoba-provincia' | 'all'
+  const maxReparticiones = Math.max(
+    1,
+    Math.min(50, parseInt(String(req.query.maxReparticiones ?? '12')) || 12)
+  )
+  const maxEmpresasPorReparticion = Math.max(
+    0,
+    Math.min(20, parseInt(String(req.query.maxEmpresasPorReparticion ?? '4')) || 4)
+  )
+  try {
+    const grafo = await getJerarquiaCordoba({
+      jurisdiccion,
+      maxReparticiones,
+      maxEmpresasPorReparticion,
+    })
+    res.json(grafo)
   } catch (err) {
     res.status(500).json({ error: (err as Error).message })
   }
