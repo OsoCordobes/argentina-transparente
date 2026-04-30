@@ -118,7 +118,7 @@ Todas las señales tienen `fuente_url` apuntando a `gobiernoabierto.cordoba.gob.
 2. **Configurar env Railway:**
    - Backend: `ANTHROPIC_API_KEY=sk-ant-...`, `ANTHROPIC_BUDGET_USD=45`, `PORT=3001`
    - Frontend: `VITE_API_URL=https://<railway-backend-url>`, `VITE_CHAT_LLM=true`
-3. **Renombrar Railway service:** `bestia-backend → argos-backend` (manual, no se puede automatizar).
+3. **Renombrar el servicio Railway del backend a `argos-backend`** desde el dashboard de Railway (manual, no se puede automatizar). La URL legacy del servicio sigue documentada en `backend/.env.production` hasta completar el rename.
 4. **Deploy**: hacer merge de este branch a `main` cuando esté aprobado, push a Railway via auto-deploy.
 5. **Setup Supabase** (opcional — para casos persistentes):
    - Crear proyecto Supabase

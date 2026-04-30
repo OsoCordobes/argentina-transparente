@@ -122,7 +122,7 @@ CI corre los 4 backends + typecheck + build frontend en cada push/PR.
 5. ✅ Smoke browser local en `/explorar` muestra datos reales
 6. 🟡 Anthropic `.env` y `ANTHROPIC_BUDGET_USD` configurados en Railway
 7. 🟡 Si Supabase: aplicar `supabase/migrations/0001_casos.sql` y env vars
-8. 🟡 Rename Railway service `bestia-backend → argos-backend` (acción manual)
+8. 🟡 Renombrar el servicio Railway del backend a `argos-backend` (acción manual desde el dashboard de Railway; URL legacy referenciada en `backend/.env.production`).
 
 ## Principios
 
