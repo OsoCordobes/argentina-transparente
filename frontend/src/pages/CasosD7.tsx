@@ -1,10 +1,16 @@
 /**
- * CasosD7.tsx — lista de casos del usuario en localStorage (PLAN-UI D7).
+ * CasosD7.tsx — "Mis casos": lista local de investigaciones del usuario.
+ *
+ * Cada caso es un workspace en localStorage que agrupa señales, personas
+ * y empresas con notas, hasta que el usuario lo exporta como denuncia PDF
+ * o JSON portable. (Histórico: la pestaña se llamó "Expedientes" hasta
+ * 2026-04-30; rebranded a "Mis casos" porque era jerga de fiscalía y
+ * confundía a usuarios civiles.)
  *
  * También maneja la query ?adjuntar=ids&kind=signals|pf|pj que viene
  * desde otros módulos para anexar material a un caso existente o uno nuevo.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { ArgosShell } from '@/components/argos/ArgosShell'
 import { EmptyStateForensic } from '@/components/argos/forensic/EmptyStateForensic'
@@ -13,12 +19,16 @@ import {
   type CasoLS,
 } from '@/lib/argos/caso-storage'
 
+type SortKey = 'modificado' | 'titulo' | 'creado'
+
 export default function CasosD7() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [casos, setCasos] = useState<CasoLS[]>([])
   const [showImport, setShowImport] = useState(false)
   const [importText, setImportText] = useState('')
   const [importError, setImportError] = useState<string | null>(null)
+  const [filtro, setFiltro] = useState('')
+  const [sortKey, setSortKey] = useState<SortKey>('modificado')
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -87,11 +97,32 @@ export default function CasosD7() {
     setTimeout(() => URL.revokeObjectURL(url), 0)
   }
 
+  // Lista filtrada + ordenada para la tabla.
+  const casosListados = useMemo(() => {
+    const q = filtro.trim().toLowerCase()
+    const base = q
+      ? casos.filter(c =>
+          c.titulo.toLowerCase().includes(q) ||
+          (c.descripcion ?? '').toLowerCase().includes(q),
+        )
+      : casos
+    const sorted = [...base]
+    if (sortKey === 'titulo') {
+      sorted.sort((a, b) => a.titulo.localeCompare(b.titulo, 'es'))
+    } else if (sortKey === 'creado') {
+      sorted.sort((a, b) => new Date(b.creadoEn).getTime() - new Date(a.creadoEn).getTime())
+    } else {
+      sorted.sort((a, b) => new Date(b.modificadoEn).getTime() - new Date(a.modificadoEn).getTime())
+    }
+    return sorted
+  }, [casos, filtro, sortKey])
+
   return (
-    <ArgosShell title="Expedientes · workspace local">
+    <ArgosShell title="Mis casos">
       <p style={s.subtitle}>
-        Workspace local para armar denuncias. Cada caso es un JSON en
-        tu navegador (no comparte cross-device).
+        Workspace local para armar tus investigaciones. Cada caso agrupa
+        señales, personas y empresas con tus notas. Vive en tu navegador
+        hasta que lo exportás como denuncia PDF o JSON portable.
       </p>
 
         {adjuntarIds && (
@@ -100,14 +131,35 @@ export default function CasosD7() {
               Adjuntar {adjuntarIds.split(',').length} elemento{adjuntarIds.split(',').length === 1 ? '' : 's'}
               {' '}({adjuntarKind}) a un caso:
             </span>
-            <button onClick={createCaso} style={s.bulkBtn}>+ Crear caso nuevo</button>
-            <button onClick={() => setSearchParams({})} style={s.bulkBtn}>Cancelar</button>
+            <button onClick={createCaso} className="fx-btn-subtle">+ Crear caso nuevo</button>
+            <button onClick={() => setSearchParams({})} className="fx-btn-subtle">Cancelar</button>
           </div>
         )}
 
         <div style={s.actions}>
-          <button onClick={() => createCaso()} style={s.primaryBtn}>+ Nuevo caso</button>
-          <button onClick={() => setShowImport(!showImport)} style={s.bulkBtn}>Importar JSON</button>
+          <button onClick={() => createCaso()} className="fx-btn-primary">+ Nuevo caso</button>
+          <button onClick={() => setShowImport(!showImport)} className="fx-btn-subtle">Importar JSON</button>
+          {casos.length > 0 && (
+            <>
+              <input
+                type="search"
+                placeholder="Buscar caso…"
+                value={filtro}
+                onChange={e => setFiltro(e.target.value)}
+                style={s.searchInput}
+              />
+              <select
+                value={sortKey}
+                onChange={e => setSortKey(e.target.value as SortKey)}
+                style={s.sortSelect}
+                aria-label="Ordenar"
+              >
+                <option value="modificado">Modificado ↓</option>
+                <option value="creado">Creado ↓</option>
+                <option value="titulo">Título A→Z</option>
+              </select>
+            </>
+          )}
         </div>
 
         {showImport && (
@@ -121,20 +173,20 @@ export default function CasosD7() {
             />
             {importError && <div style={s.error}>{importError}</div>}
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={handleImport} style={s.primaryBtn}>Importar</button>
-              <button onClick={() => { setShowImport(false); setImportText(''); setImportError(null) }} style={s.bulkBtn}>Cancelar</button>
+              <button onClick={handleImport} className="fx-btn-primary">Importar</button>
+              <button onClick={() => { setShowImport(false); setImportText(''); setImportError(null) }} className="fx-btn-subtle">Cancelar</button>
             </div>
           </div>
         )}
 
         {casos.length === 0 && (
           <EmptyStateForensic
-            eyebrow="EXPEDIENTES · 0 ABIERTOS"
-            title="Cuando una señal merece investigación, abrís un expediente."
-            body="Un expediente agrupa nodos, señales, fuentes y notas en un sumario citable. Quedan acá hasta que los archives o los exportes como PDF court-ready."
+            eyebrow="MIS CASOS · 0 ABIERTOS"
+            title="Cuando una señal merece investigación, abrís un caso."
+            body="Un caso agrupa señales, empresas, personas y tus notas en un sumario citable. Vive acá hasta que lo exportes como denuncia PDF o JSON portable."
             primaryAction={
               <button onClick={() => createCaso()} className="fx-btn-primary">
-                + ABRIR EXPEDIENTE
+                + ABRIR CASO
               </button>
             }
             secondaryAction={
@@ -145,7 +197,13 @@ export default function CasosD7() {
           />
         )}
 
-      {casos.length > 0 && (
+        {casos.length > 0 && casosListados.length === 0 && (
+          <div style={s.emptyFilter}>
+            Ningún caso coincide con "{filtro}".
+          </div>
+        )}
+
+      {casosListados.length > 0 && (
         <div style={s.tableWrap}>
           <table style={s.table}>
             <thead>
@@ -158,7 +216,7 @@ export default function CasosD7() {
               </tr>
             </thead>
             <tbody>
-              {casos.map(c => (
+              {casosListados.map(c => (
                   <tr key={c.id} style={s.tr}>
                     <td style={s.td}>
                       {adjuntarIds ? (
@@ -225,7 +283,24 @@ const s: Record<string, React.CSSProperties> = {
     display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
     background: '#161b22', border: '1px solid #62C7A0', borderRadius: 4, marginBottom: 14,
   },
-  actions: { display: 'flex', gap: 8, marginBottom: 16 },
+  actions: {
+    display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center',
+    flexWrap: 'wrap' as const,
+  },
+  searchInput: {
+    background: '#0d1117', border: '1px solid #2a3140', color: '#dde3ee',
+    padding: '6px 10px', borderRadius: 3, fontSize: 12,
+    fontFamily: 'inherit', minWidth: 220, marginLeft: 'auto',
+  },
+  sortSelect: {
+    background: '#0d1117', border: '1px solid #2a3140', color: '#dde3ee',
+    padding: '6px 8px', borderRadius: 3, fontSize: 12, cursor: 'pointer',
+  },
+  emptyFilter: {
+    padding: 16, textAlign: 'center' as const, fontSize: 12,
+    color: '#9BA3B4', background: '#161b22',
+    border: '1px dashed #2a3140', borderRadius: 4,
+  },
 
   importBox: {
     background: '#161b22', border: '1px solid #2a3140', padding: 14, borderRadius: 4,

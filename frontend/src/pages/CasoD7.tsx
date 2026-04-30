@@ -38,7 +38,7 @@ export default function CasoD7() {
 
   if (!caso) {
     return (
-      <ArgosShell title="Expediente no encontrado">
+      <ArgosShell title="Caso no encontrado">
         <div style={{ textAlign: 'center', paddingTop: 60 }}>
           <div style={{ color: '#9BA3B4', fontSize: 14, marginBottom: 16 }}>
             Caso no encontrado
@@ -118,7 +118,7 @@ export default function CasoD7() {
 
   return (
     <ArgosShell
-      title={caso.titulo || 'Expediente sin título'}
+      title={caso.titulo || 'Caso sin título'}
       rightSlot={
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={exportJson} style={s.headBtn}>↓ Exportar JSON</button>

@@ -32,7 +32,7 @@ const SECTIONS: NavSection[] = [
   { to: '/dinero', label: 'Dinero', icon: Ico.Briefcase },
   { to: '/senales', label: 'Señales', icon: Ico.Alert },
   { to: '/actores', label: 'Actores', icon: Ico.User },
-  { to: '/casos', label: 'Expedientes', icon: Ico.FileText },
+  { to: '/casos', label: 'Mis casos', icon: Ico.FileText },
   { to: '/watchlist', label: 'Watchlist', icon: Ico.Eye },
   { to: '/comparar', label: 'Comparar', icon: Ico.Network },
   { to: '/fuentes', label: 'Fuentes', icon: Ico.Database },
