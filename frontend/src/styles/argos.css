@@ -1078,3 +1078,28 @@
       color var(--motion-fast) var(--ease-out),
       box-shadow var(--motion-fast) var(--ease-out);
   }
+
+/* PR-1 Wave 5 — entry electric wave + click ripple para aristas del grafo */
+.edge-path {
+  stroke-dasharray: 4 4;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset var(--motion-slow, 1200ms) var(--ease-out);
+}
+.edge-path.edge-wave-active {
+  stroke-dashoffset: -8;
+}
+.edge-path.edge-click-ripple {
+  animation: edge-click-pulse 600ms var(--ease-out);
+}
+@keyframes edge-click-pulse {
+  0%   { stroke-width: 1; }
+  50%  { stroke-width: 3; }
+  100% { stroke-width: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .edge-path.edge-wave-active,
+  .edge-path.edge-click-ripple {
+    animation: none;
+    transition: none;
+  }
+}
