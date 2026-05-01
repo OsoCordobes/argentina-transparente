@@ -68,9 +68,16 @@
   --hairline-strong: rgba(255, 255, 255, 0.20);  /* sección importante */
 
   /* ─── TYPOGRAPHY ───────────────────────────────────────────────────────── */
-  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, 'SF Mono', Consolas, monospace;
-  --font-display: 'Inter Display', var(--font-sans);
+  /*
+   * Geist Sans (Vercel) + Geist Mono — pair distintivo, técnico, alineado a
+   * herramienta forense gubernamental. NO usamos Inter/Roboto/Arial: leen
+   * "AI default" y diluyen el carácter. Geist tiene rasgos geométricos
+   * + apertura visual + diseñado específicamente para data-heavy UIs.
+   * Inter queda como fallback hasta que Geist cargue.
+   */
+  --font-sans: 'Geist', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+  --font-display: 'Geist', var(--font-sans);
 
   /* Type scale (prefer múltiplos de px-grid 1px) */
   --text-xs:   10px;

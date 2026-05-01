@@ -11,8 +11,13 @@
    y componentes consumen. Ver docs/PLAN-LAUNCH-V2.md. */
 @import './styles/tokens.css';
 
-/* JetBrains Mono (mono dual con Inter para data forense: CUITs, IDs, montos) */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Source+Serif+4:wght@400;600&display=swap');
+/*
+ * Geist Sans + Geist Mono — pair distintivo de herramienta forense.
+ * Geist (Vercel, gratis) reemplaza a Inter como font primaria por ser
+ * distintivo y diseñado para data-density UIs. Inter + JetBrains queda
+ * como fallback. Source Serif 4 se conserva para PDFs de denuncia formal.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Source+Serif+4:wght@400;600&display=swap');
 
 @layer base {
   :root {
