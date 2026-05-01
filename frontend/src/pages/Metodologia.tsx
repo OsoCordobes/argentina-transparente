@@ -7,6 +7,14 @@
  * MetodologiaSurface).
  *
  * Footer: stats schema/detectores/fuentes/SLA.
+ *
+ * Wave 3.C — design tokens canónicos:
+ *   - legacy aliases (--text-1/2/3, --hairline-1/2) → canónicos
+ *     (--text-primary/secondary/muted, mantenidos hairline-1/2 ya
+ *     definidos en tokens.css)
+ *   - spacing/font numéricos → var(--space-X)/var(--text-X) cuando aplica
+ *   - se preservan magic numbers chicos (9, 10.5) cuando no calzan en la
+ *     escala (--text-xs es 10px), pero están documentados.
  */
 import { ArgosShell } from '@/components/argos/ArgosShell'
 
@@ -88,47 +96,49 @@ const SECTIONS = [
 export default function Metodologia() {
   return (
     <ArgosShell title="Metodología · especificación técnica">
-      <div style={{ maxWidth: 1040, padding: '20px 0' }}>
-        <div className="fx-eyebrow" style={{ marginBottom: 18 }}>
+      <div style={{ maxWidth: 1040, padding: 'var(--space-5) 0' }}>
+        <div className="fx-eyebrow" style={{ marginBottom: 'var(--space-4)' }}>
           ESPECIFICACIÓN TÉCNICA · v3.0
         </div>
         <h1
           style={{
-            fontSize: 30,
-            color: 'var(--text-1)',
-            fontWeight: 300,
-            letterSpacing: '-0.01em',
-            lineHeight: 1.2,
-            marginBottom: 14,
+            fontSize: 'var(--text-3xl)',
+            color: 'var(--text-primary)',
+            fontWeight: 'var(--weight-normal)',
+            letterSpacing: 'var(--tracking-tight)',
+            lineHeight: 'var(--leading-tight)',
+            marginBottom: 'var(--space-3)',
             marginTop: 0,
+            fontFamily: 'var(--font-display)',
           }}
         >
           Modelo de evidencia, ingestión y deducción
         </h1>
         <p
           style={{
-            fontSize: 13.5,
-            color: 'var(--text-2)',
-            lineHeight: 1.65,
-            marginBottom: 8,
+            fontSize: 'var(--text-md)',
+            color: 'var(--text-secondary)',
+            lineHeight: 'var(--leading-relaxed)',
+            marginBottom: 'var(--space-2)',
+            fontFamily: 'var(--font-sans)',
           }}
         >
           ARGOS opera como sistema de{' '}
-          <span style={{ color: 'var(--text-1)' }}>describabilidad estructural</span>: ingesta
+          <span style={{ color: 'var(--text-primary)' }}>describabilidad estructural</span>: ingesta
           registros públicos verificables, construye un grafo tipado en Neo4j (entidades,
           relaciones, períodos), y ejecuta detectores deterministas que enumeran configuraciones de
           bajo prior estadístico. El sistema no produce inferencias causales; produce{' '}
-          <span style={{ color: 'var(--text-1)' }}>indicadores reproducibles</span> con query,
+          <span style={{ color: 'var(--text-primary)' }}>indicadores reproducibles</span> con query,
           umbral y fuente trazables.
         </p>
         <p
           style={{
-            fontSize: 12,
-            color: 'var(--text-3)',
-            lineHeight: 1.6,
-            marginBottom: 30,
+            fontSize: 'var(--text-sm)',
+            color: 'var(--text-muted)',
+            lineHeight: 'var(--leading-normal)',
+            marginBottom: 'var(--space-8)',
             fontFamily: 'var(--font-mono)',
-            letterSpacing: '0.02em',
+            letterSpacing: 'var(--tracking-wide)',
           }}
         >
           Toda salida es auditable end-to-end: snapshot_id → query_hash → source_uri → record_id.
@@ -139,21 +149,30 @@ export default function Metodologia() {
             key={i}
             style={{
               borderTop: '1px solid var(--hairline-1)',
-              padding: '22px 0',
+              padding: 'var(--space-5) 0',
             }}
           >
             <div
               style={{
                 fontSize: 9,
-                color: 'var(--text-3)',
-                letterSpacing: '0.20em',
+                color: 'var(--text-muted)',
+                letterSpacing: 'var(--tracking-wider)',
                 fontFamily: 'var(--font-mono)',
-                marginBottom: 8,
+                marginBottom: 'var(--space-2)',
+                fontWeight: 'var(--weight-medium)',
               }}
             >
               § {String(i + 1).padStart(2, '0')} · {s.h.toUpperCase()}
             </div>
-            <p style={{ fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.7, margin: 0 }}>
+            <p
+              style={{
+                fontSize: 'var(--text-md)',
+                color: 'var(--text-secondary)',
+                lineHeight: 'var(--leading-relaxed)',
+                margin: 0,
+                fontFamily: 'var(--font-sans)',
+              }}
+            >
               {s.body}
             </p>
           </div>
@@ -162,14 +181,14 @@ export default function Metodologia() {
         <div
           style={{
             borderTop: '1px solid var(--hairline-2)',
-            marginTop: 20,
-            padding: '22px 0',
+            marginTop: 'var(--space-5)',
+            padding: 'var(--space-5) 0',
             display: 'flex',
-            gap: 30,
-            fontSize: 11,
-            color: 'var(--text-3)',
+            gap: 'var(--space-8)',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--text-muted)',
             fontFamily: 'var(--font-mono)',
-            letterSpacing: '0.06em',
+            letterSpacing: 'var(--tracking-wide)',
             flexWrap: 'wrap',
           }}
         >
