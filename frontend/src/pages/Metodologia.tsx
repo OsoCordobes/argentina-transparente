@@ -90,7 +90,7 @@ export default function Metodologia() {
     <ArgosShell title="Metodología · especificación técnica">
       <div style={{ maxWidth: 1040, padding: '20px 0' }}>
         <div className="fx-eyebrow" style={{ marginBottom: 18 }}>
-          ESPECIFICACIÓN TÉCNICA · v3.0 · {new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+          ESPECIFICACIÓN TÉCNICA · v3.0
         </div>
         <h1
           style={{
@@ -173,10 +173,10 @@ export default function Metodologia() {
             flexWrap: 'wrap',
           }}
         >
-          <div>SCHEMA · neo4j 5.x · 14 labels · 31 rel-types</div>
-          <div>DETECTORES · 17 · cobertura 89%</div>
-          <div>FUENTES · 6 conectadas · 4 pendientes</div>
-          <div>SLA T1 · 24h · cumplimiento 30d 97.4%</div>
+          <div>SCHEMA · neo4j 5.x</div>
+          <div>DETECTORES · 17</div>
+          <div>FUENTES · ver /fuentes</div>
+          <div>SLA T1 · 24h objetivo</div>
         </div>
       </div>
     </ArgosShell>

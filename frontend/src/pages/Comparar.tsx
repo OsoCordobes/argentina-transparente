@@ -4,7 +4,7 @@
  * Compara 2 empresas lado a lado con métricas idénticas + diff col.
  * Output: URL shareable, agregar a caso, exportar CSV.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { ArgosShell } from '@/components/argos/ArgosShell'
 
@@ -348,14 +348,6 @@ function formatPesos(n: number): string {
 }
 
 const s: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: '100vh', display: 'flex', flexDirection: 'column',
-    background: '#0d1117', color: '#dde3ee',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-  },
-  main: { flex: 1, maxWidth: 1480, width: '100%', margin: '0 auto', padding: '24px' },
-  head: { marginBottom: 20, paddingBottom: 14, borderBottom: '1px solid #1f2937' },
-  h1: { fontSize: 20, margin: 0, color: '#dde3ee', fontWeight: 600 },
   subtitle: { fontSize: 12, color: '#9BA3B4', marginTop: 6, maxWidth: 720, lineHeight: 1.5 },
 
   slots: {
