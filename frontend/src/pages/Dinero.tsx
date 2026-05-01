@@ -127,7 +127,7 @@ export default function Dinero() {
           letterSpacing: '0.06em',
         }}
       >
-        FUENTE: Neo4j live · {data?.totalContratos ?? 0} contratos
+        FUENTE: DuckDB jerarquía · {data?.totalContratos ?? 0} contratos
       </span>
     </div>
   )

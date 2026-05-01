@@ -115,28 +115,21 @@ export async function fetchFlujoData(anio = 2024): Promise<FlujoData> {
     { s: 'm5', t: 'd4', w: 4 },
   ]
 
-  // DRILL TOP-10 receptores: usar /api/dinero/partidas si está disponible,
-  // sino fallback al dataset del bundle.
-  const drillFallback: FlujoData['drill'] = [
-    { receptor: 'PINTURAS CAVAZZON SRL',     cuit: '30708812337', minOrigen: 'SEC. CULTURA',     contratos: 12, total: '$1.022 M', pctNivel: '18.2', senales: 1, tier: 1 },
-    { receptor: 'CONSTRUCTORA DEL CENTRO',   cuit: '30706621809', minOrigen: 'OBRAS PÚBLICAS',   contratos: 8,  total: '$873 M',   pctNivel: '15.6', senales: 1, tier: 1 },
-    { receptor: 'BBVA BROKER ARGENTINA',     cuit: '30715423081', minOrigen: 'MIN. ECONOMÍA',    contratos: 3,  total: '$612 M',   pctNivel: '10.9', senales: 0, tier: 1 },
-    { receptor: 'PAVIMENTOS DEL SUR SA',     cuit: '30715567223', minOrigen: 'OBRAS PÚBLICAS',   contratos: 6,  total: '$498 M',   pctNivel: '8.9',  senales: 0, tier: 1 },
-    { receptor: 'VIALCOR SA',                cuit: '30709988451', minOrigen: 'OBRAS PÚBLICAS',   contratos: 5,  total: '$372 M',   pctNivel: '6.6',  senales: 0, tier: 1 },
-    { receptor: 'TRANSPORTES OLIVA SRL',     cuit: '30714002188', minOrigen: 'OBRAS PÚBLICAS',   contratos: 4,  total: '$245 M',   pctNivel: '4.4',  senales: 0, tier: 1 },
-    { receptor: 'INGENIERÍA SAN MIGUEL',     cuit: '30710024661', minOrigen: 'MIN. SALUD',       contratos: 3,  total: '$188 M',   pctNivel: '3.4',  senales: 0, tier: 1 },
-    { receptor: 'SERVICIOS URBANOS SRL',     cuit: '30713377119', minOrigen: 'MIN. AMBIENTE',    contratos: 7,  total: '$172 M',   pctNivel: '3.1',  senales: 1, tier: 1 },
-    { receptor: 'RENAULT ARGENTINA S.A.',    cuit: '30502265181', minOrigen: 'MIN. SEGURIDAD',   contratos: 1,  total: '$112 M',   pctNivel: '2.0',  senales: 1, tier: 1 },
-    { receptor: 'CANDE LAC S.A.',            cuit: '30712345672', minOrigen: 'MIN. EDUCACIÓN',   contratos: 2,  total: '$98 M',    pctNivel: '1.7',  senales: 0, tier: 2 },
-  ]
+  // DRILL TOP-10 receptores: cuando exista /api/dinero/partidas se popula
+  // desde DuckDB con datos trazables. Hoy queda VACÍO — CLAUDE.md §2 prohíbe
+  // mostrar montos/CUITs/contratos inventados como si fueran reales (la
+  // versión previa tenía 10 filas hardcodeadas con tier badge T1, lo que
+  // ya viola la regla aunque algunos CUITs fueran reales). El UI muestra
+  // un estado vacío explícito hasta que el endpoint real esté listo.
+  const drill: FlujoData['drill'] = []
 
   return {
     nodes,
     edges,
-    drill: drillFallback,
+    drill,
     loading: false,
     error: null,
     anio,
-    totalContratos: totalContratos || (totalPagado > 0 ? Math.round(totalPagado / 1e8) : 1393),
+    totalContratos: totalContratos || (totalPagado > 0 ? Math.round(totalPagado / 1e8) : 0),
   }
 }
