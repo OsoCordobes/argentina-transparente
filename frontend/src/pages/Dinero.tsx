@@ -284,7 +284,11 @@ export default function Dinero() {
       {graphSnapshot.nodes.length > 0 && (
         <GraphCanvas
           snapshot={graphSnapshot}
-          focusedId={selectedKey}
+          // focusedId queda null para evitar double-styling con highlighted.
+          // El nodo seleccionado vive en el set `highlighted` (mismo patrón
+          // que Señales). El popover cubre la affordance de "qué nodo está
+          // seleccionado" — la zoom/pan a focusedId no aporta acá.
+          focusedId={null}
           hoveredId={hoveredKey}
           highlighted={highlighted}
           idle={false}

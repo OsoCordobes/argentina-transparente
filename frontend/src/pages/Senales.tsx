@@ -281,8 +281,15 @@ export default function Senales() {
   const primaryPane = (
     <div
       onClick={(e) => {
-        // Click en fondo de la tabla (no en una fila) → limpia selección.
-        if (e.target === e.currentTarget) selection.clear()
+        // Click en fondo de la tabla → limpia selección. Excluye filas y
+        // elementos interactivos para que filtros/checkboxes/links no
+        // limpien por accidente. Incluye table/thead/tbody/td/th para
+        // que clicks en chrome de la tabla no disparen clear (alineado
+        // con la intención del spec: solo el fondo vacío del pane).
+        const t = e.target as Element | null
+        if (!t?.closest('tr, table, thead, tbody, td, th, button, input, select, label, a, summary')) {
+          selection.clear()
+        }
       }}
       style={{ flex: 1, padding: '24px 24px 24px 26px', overflow: 'auto', minHeight: 0 }}
     >
