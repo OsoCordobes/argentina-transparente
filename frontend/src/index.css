@@ -6,7 +6,13 @@
    Civic transparency portal - Professional, neutral, accessible
    All colors in HSL format */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:wght@400;600&display=swap');
+/* Importar tokens.css PRIMERO — establece variables CSS canónicas
+   (surface-*, text-*, entity-*, motion-*, etc.) que el resto de CSS
+   y componentes consumen. Ver docs/PLAN-LAUNCH-V2.md. */
+@import './styles/tokens.css';
+
+/* JetBrains Mono (mono dual con Inter para data forense: CUITs, IDs, montos) */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Source+Serif+4:wght@400;600&display=swap');
 
 @layer base {
   :root {
