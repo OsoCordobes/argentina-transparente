@@ -14,12 +14,18 @@
  *   - EMPRESA (filtra por substring de nombre)
  *   - TIER (placeholder; real con M11)
  *
- * Click en row → resalta nodo en grafo. Click en nodo → navega al perfil.
+ * Selección bidireccional (M3):
+ *   - Hover en row → nodo crece + label en grafo.
+ *   - Click en row → selección persistente (toggle); el nodo queda fijo brillante.
+ *   - Click en nodo → selecciona y scrolls la fila correspondiente a la vista.
+ *   - Click en fondo → limpia selección.
+ *   - Para navegar al perfil hay un botón explícito "→" al final de la fila.
  */
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ArgosShell } from '@/components/argos/ArgosShell'
 import { FilterChip, Glyph } from '@/components/argos/forensic/Primitives'
+import { useGraphSelection } from '@/hooks/useGraphSelection'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 
@@ -43,6 +49,11 @@ const PAGE_SIZE = 80
 
 function profileLink(a: Actor): string {
   return a.kind === 'pf' ? `/persona/${a.id}` : `/empresa/${a.id}`
+}
+
+/** Clave estable por actor para sincronizar selección tabla↔grafo. */
+function actorKey(a: Actor): string {
+  return `${a.kind}:${a.id}`
 }
 
 function formatPesos(n: number): string {
@@ -69,7 +80,16 @@ export default function ActoresD6() {
   const [error, setError] = useState<string | null>(null)
   const [searchInput, setSearchInput] = useState(q)
   const [debounced, setDebounced] = useState(q)
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
+
+  // Selección compartida tabla↔grafo (hook reusable: ver hooks/useGraphSelection.ts).
+  const selection = useGraphSelection()
+  const { selectedKey, select, hover, clear } = selection
+
+  // Refs para scroll-to-row cuando la selección viene del grafo.
+  const tableScrollRef = useRef<HTMLDivElement | null>(null)
+  // Track del origen del último select(): si vino del grafo, queremos scroll;
+  // si vino de un click de fila, no hace falta (la fila ya está visible).
+  const lastSelectSource = useRef<'graph' | 'row' | null>(null)
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(searchInput), 250)
@@ -110,6 +130,19 @@ export default function ActoresD6() {
     return fetchPage()
   }, [fetchPage])
 
+  // Cuando la selección cambia desde el grafo, scrollear la fila correspondiente
+  // a la vista. Si vino de la tabla, no hace falta (la fila ya está visible).
+  useEffect(() => {
+    if (!selectedKey) return
+    if (lastSelectSource.current !== 'graph') return
+    const container = tableScrollRef.current
+    if (!container) return
+    const row = container.querySelector(`[data-actor-key="${CSS.escape(selectedKey)}"]`)
+    if (row && 'scrollIntoView' in row) {
+      ;(row as HTMLElement).scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }, [selectedKey])
+
   function setFilter(name: string, value: string | null) {
     const next = new URLSearchParams(searchParams)
     if (value === null || value === '' || value === 'todos') next.delete(name)
@@ -149,6 +182,10 @@ export default function ActoresD6() {
       <div style={{ margin: '-24px -32px -48px', display: 'flex', minHeight: 'calc(100vh - 42px)' }}>
         {/* GRAPH HALF (left, flex 1) */}
         <div
+          onClick={(e) => {
+            // Click en fondo del pane (no en un nodo o un control) → limpia selección.
+            if (e.target === e.currentTarget) clear()
+          }}
           style={{
             flex: '1 1 56%',
             position: 'relative',
@@ -158,7 +195,17 @@ export default function ActoresD6() {
             overflow: 'hidden',
           }}
         >
-          <SubgrafoActores items={filteredItems} hoveredIdx={hoveredIdx} onNodeClick={(it) => navigate(profileLink(it))} />
+          <SubgrafoActores
+            items={filteredItems}
+            selectedKey={selection.selectedKey}
+            hoveredKey={selection.hoveredKey}
+            onNodeClick={(a) => {
+              lastSelectSource.current = 'graph'
+              select(actorKey(a))
+            }}
+            onNodeHover={(key) => hover(key)}
+            onBackgroundClick={() => clear()}
+          />
 
           {/* Top-left: count */}
           <div style={{ position: 'absolute', top: 18, left: 22, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -187,12 +234,18 @@ export default function ActoresD6() {
 
           {/* Bottom-right: hint */}
           <div style={{ position: 'absolute', bottom: 18, right: 22, fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--font-mono)', letterSpacing: '0.06em' }}>
-            click un nodo → drill-down · scroll = zoom · drag = pan
+            click nodo = seleccionar · → en fila = abrir perfil
           </div>
         </div>
 
         {/* LIST HALF (right, fixed min) */}
-        <div style={{ flex: '1 1 44%', display: 'flex', flexDirection: 'column', minWidth: 560, background: 'var(--bg-forensic-1)', maxWidth: 720 }}>
+        <div
+          onClick={(e) => {
+            // Click en fondo del pane (no en una fila o un control) → limpia selección.
+            if (e.target === e.currentTarget) clear()
+          }}
+          style={{ flex: '1 1 44%', display: 'flex', flexDirection: 'column', minWidth: 560, background: 'var(--bg-forensic-1)', maxWidth: 720 }}
+        >
           {/* Search + filters */}
           <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--hairline-1)' }}>
             {/* Search row */}
@@ -278,11 +331,11 @@ export default function ActoresD6() {
               cargando actores…
             </div>
           )}
-          <div style={{ flex: 1, overflow: 'auto' }}>
+          <div ref={tableScrollRef} style={{ flex: 1, overflow: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: 'var(--bg-forensic-0)', borderBottom: '1px solid var(--hairline-1)', position: 'sticky', top: 0 }}>
-                  {['', 'NOMBRE', 'CUIT/DNI', 'JUR.', '$ TOTAL', '⚑', 'T'].map((h, i) => (
+                  {['', 'NOMBRE', 'CUIT/DNI', 'JUR.', '$ TOTAL', '⚑', 'T', ''].map((h, i) => (
                     <th
                       key={i}
                       style={{
@@ -301,44 +354,89 @@ export default function ActoresD6() {
                 </tr>
               </thead>
               <tbody>
-                {filteredItems.map((r, i) => (
-                  <tr
-                    key={`${r.kind}-${r.id}`}
-                    onMouseEnter={() => setHoveredIdx(i)}
-                    onMouseLeave={() => setHoveredIdx(null)}
-                    onClick={() => navigate(profileLink(r))}
-                    style={{
-                      borderBottom: '1px solid var(--hairline-soft)',
-                      cursor: 'pointer',
-                      background: hoveredIdx === i ? 'var(--bg-forensic-2)' : 'transparent',
-                    }}
-                  >
-                    <td style={{ padding: '10px 12px', width: 20 }}>
-                      <Glyph kind={r.kind === 'pf' ? 'PF' : 'PJ'} />
-                    </td>
-                    <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-1)', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {r.label}
-                    </td>
-                    <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-2)', fontVariantNumeric: 'tabular-nums' }}>
-                      {r.identityValue}
-                    </td>
-                    <td style={{ padding: '10px 12px', fontSize: 10, color: 'var(--text-2)', letterSpacing: '0.04em', fontFamily: 'var(--font-mono)' }}>
-                      {r.jurisdiccion ? r.jurisdiccion.split(' ').map(w => w.slice(0, 3)).join('').slice(0, 6).toUpperCase() : '—'}
-                    </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-1)', fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>
-                      {formatPesos(r.montoTotal)}
-                    </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, color: r.senalesActivas > 0 ? 'var(--alarm)' : 'var(--text-4)' }}>
-                      {r.senalesActivas > 0 ? r.senalesActivas : '—'}
-                    </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 9.5, color: r.verificada ? 'var(--ok)' : 'var(--warn)' }}>
-                      T{r.verificada ? 1 : 2}
-                    </td>
-                  </tr>
-                ))}
+                {filteredItems.map((r) => {
+                  const key = actorKey(r)
+                  const isSelected = selection.isSelected(key)
+                  const isHovered = selection.isHovered(key)
+                  const bg = isSelected
+                    ? 'rgba(94,182,255,0.10)'
+                    : isHovered
+                      ? 'var(--bg-forensic-2)'
+                      : 'transparent'
+                  return (
+                    <tr
+                      key={`${r.kind}-${r.id}`}
+                      data-actor-key={key}
+                      onMouseEnter={() => hover(key)}
+                      onMouseLeave={() => hover(null)}
+                      onClick={() => {
+                        lastSelectSource.current = 'row'
+                        select(key)
+                      }}
+                      style={{
+                        borderBottom: '1px solid var(--hairline-soft)',
+                        cursor: 'pointer',
+                        background: bg,
+                      }}
+                    >
+                      <td style={{ padding: '10px 12px', width: 20 }}>
+                        <Glyph kind={r.kind === 'pf' ? 'PF' : 'PJ'} />
+                      </td>
+                      <td style={{ padding: '10px 12px', fontSize: 12, color: 'var(--text-1)', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {r.label}
+                      </td>
+                      <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-2)', fontVariantNumeric: 'tabular-nums' }}>
+                        {r.identityValue}
+                      </td>
+                      <td style={{ padding: '10px 12px', fontSize: 10, color: 'var(--text-2)', letterSpacing: '0.04em', fontFamily: 'var(--font-mono)' }}>
+                        {r.jurisdiccion ? r.jurisdiccion.split(' ').map(w => w.slice(0, 3)).join('').slice(0, 6).toUpperCase() : '—'}
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-1)', fontVariantNumeric: 'tabular-nums', fontWeight: 500 }}>
+                        {formatPesos(r.montoTotal)}
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, color: r.senalesActivas > 0 ? 'var(--alarm)' : 'var(--text-4)' }}>
+                        {r.senalesActivas > 0 ? r.senalesActivas : '—'}
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 9.5, color: r.verificada ? 'var(--ok)' : 'var(--warn)' }}>
+                        T{r.verificada ? 1 : 2}
+                      </td>
+                      <td style={{ padding: '6px 8px', width: 28, textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          aria-label={`Abrir perfil de ${r.label}`}
+                          title="Abrir perfil"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            navigate(profileLink(r))
+                          }}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          style={{
+                            width: 24,
+                            height: 24,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: 'transparent',
+                            border: 0,
+                            cursor: 'pointer',
+                            color: 'var(--text-2)',
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: 13,
+                            lineHeight: 1,
+                            padding: 0,
+                          }}
+                          onMouseOver={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-1)' }}
+                          onMouseOut={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-2)' }}
+                        >
+                          →
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
                 {filteredItems.length === 0 && !loading && (
                   <tr>
-                    <td colSpan={7} style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+                    <td colSpan={8} style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 12 }}>
                       Sin resultados con esos filtros.
                     </td>
                   </tr>
@@ -356,11 +454,26 @@ export default function ActoresD6() {
 
 interface SubgrafoActoresProps {
   items: Actor[]
-  hoveredIdx: number | null
+  /** Key del actor seleccionado (persistente) — null si ninguno. */
+  selectedKey: string | null
+  /** Key del actor hover (transitorio) — null si ninguno. */
+  hoveredKey: string | null
+  /** Click en un nodo: NO navega; selecciona en el estado compartido. */
   onNodeClick: (a: Actor) => void
+  /** Hover sobre un nodo: pasa el key para sincronizar tabla→grafo. */
+  onNodeHover: (key: string | null) => void
+  /** Click sobre el fondo SVG (no un nodo): limpia selección. */
+  onBackgroundClick: () => void
 }
 
-function SubgrafoActores({ items, hoveredIdx, onNodeClick }: SubgrafoActoresProps) {
+function SubgrafoActores({
+  items,
+  selectedKey,
+  hoveredKey,
+  onNodeClick,
+  onNodeHover,
+  onBackgroundClick,
+}: SubgrafoActoresProps) {
   // Posición pseudo-aleatoria estable basada en el index, dentro de un círculo central
   const W = 800
   const H = 700
@@ -378,7 +491,14 @@ function SubgrafoActores({ items, hoveredIdx, onNodeClick }: SubgrafoActoresProp
   }
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: '100%', display: 'block' }}>
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      style={{ width: '100%', height: '100%', display: 'block' }}
+      onClick={(e) => {
+        // Click en el SVG pero no sobre un nodo (los <g> hacen stopPropagation).
+        if (e.target === e.currentTarget) onBackgroundClick()
+      }}
+    >
       {/* Fondo: pequeñas líneas conectando vecinos visualmente */}
       {items.slice(0, 80).map((it, i) => {
         const p = pos(i, Math.min(items.length, 80))
@@ -397,11 +517,32 @@ function SubgrafoActores({ items, hoveredIdx, onNodeClick }: SubgrafoActoresProp
       {/* Nodos */}
       {items.slice(0, 80).map((it, i) => {
         const p = pos(i, Math.min(items.length, 80))
-        const r = it.senalesActivas > 0 ? 6 : 4
-        const fill = it.senalesActivas > 0 ? 'var(--alarm)' : it.kind === 'pf' ? 'var(--warn)' : 'var(--select)'
-        const isHovered = hoveredIdx === i
+        const baseR = it.senalesActivas > 0 ? 6 : 4
+        const baseFill = it.senalesActivas > 0 ? 'var(--alarm)' : it.kind === 'pf' ? 'var(--warn)' : 'var(--select)'
+        const key = `${it.kind}:${it.id}`
+        const isSelected = selectedKey === key
+        const isHovered = hoveredKey === key
+
+        // Selected gana sobre hovered. Selected: r * 1.4, fill solid, stroke 2.5px,
+        // brighter color (#7DC3FF), label always visible.
+        const r = isSelected ? baseR * 1.4 : baseR
+        const fill = isSelected ? '#7DC3FF' : baseFill
+        const fillOpacity = isSelected ? 1 : isHovered ? 1 : 0.7
+        const strokeColor = isSelected ? '#7DC3FF' : baseFill
+        const strokeOpacity = isSelected ? 1 : isHovered ? 1 : 0.4
+        const strokeWidth = isSelected ? 2.5 : isHovered ? 1.5 : 0.7
+        const showLabel = isSelected || isHovered
         return (
-          <g key={it.id} style={{ cursor: 'pointer' }} onClick={() => onNodeClick(it)}>
+          <g
+            key={it.id}
+            style={{ cursor: 'pointer' }}
+            onClick={(e) => {
+              e.stopPropagation()
+              onNodeClick(it)
+            }}
+            onMouseEnter={() => onNodeHover(key)}
+            onMouseLeave={() => onNodeHover(null)}
+          >
             {it.kind === 'pj' ? (
               <rect
                 x={p.x - r}
@@ -409,10 +550,10 @@ function SubgrafoActores({ items, hoveredIdx, onNodeClick }: SubgrafoActoresProp
                 width={r * 2}
                 height={r * 2}
                 fill={fill}
-                fillOpacity={isHovered ? 1 : 0.7}
-                stroke={fill}
-                strokeOpacity={isHovered ? 1 : 0.4}
-                strokeWidth={isHovered ? 1.5 : 0.7}
+                fillOpacity={fillOpacity}
+                stroke={strokeColor}
+                strokeOpacity={strokeOpacity}
+                strokeWidth={strokeWidth}
                 transform={`rotate(45 ${p.x} ${p.y})`}
               />
             ) : (
@@ -421,13 +562,13 @@ function SubgrafoActores({ items, hoveredIdx, onNodeClick }: SubgrafoActoresProp
                 cy={p.y}
                 r={r}
                 fill={fill}
-                fillOpacity={isHovered ? 1 : 0.7}
-                stroke={fill}
-                strokeOpacity={isHovered ? 1 : 0.4}
-                strokeWidth={isHovered ? 1.5 : 0.7}
+                fillOpacity={fillOpacity}
+                stroke={strokeColor}
+                strokeOpacity={strokeOpacity}
+                strokeWidth={strokeWidth}
               />
             )}
-            {isHovered && (
+            {showLabel && (
               <text
                 x={p.x + r + 6}
                 y={p.y + 3}
@@ -435,6 +576,7 @@ function SubgrafoActores({ items, hoveredIdx, onNodeClick }: SubgrafoActoresProp
                 fontFamily="JetBrains Mono, monospace"
                 fontSize="9.5"
                 letterSpacing="0.04em"
+                style={{ pointerEvents: 'none' }}
               >
                 {it.label.slice(0, 30)}
               </text>
