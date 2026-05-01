@@ -105,8 +105,15 @@ export default function ActoresD6() {
   }, [debounced, q, searchParams, setSearchParams])
 
   // Fetch (sólo q + tipo backend; resto filtra client-side hasta M11)
+  // Bug fix BLOCKER 3 (página vacía): pasamos a guard explícito por
+  // `cancelled` flag (en lugar de chequear `ac.signal.aborted` post-await,
+  // que en algunas condiciones de red se reportaba inconsistente entre
+  // navegadores). También agregamos console.error en el catch para que
+  // futuras fallas sean visibles en DevTools — antes el componente
+  // simplemente no renderizaba sin pista de qué pasó.
   const fetchPage = useCallback(() => {
     const ac = new AbortController()
+    let cancelled = false
     setLoading(true); setError(null)
     const qs = new URLSearchParams()
     if (q) qs.set('q', q)
@@ -115,15 +122,37 @@ export default function ActoresD6() {
     qs.set('limit', String(PAGE_SIZE))
     qs.set('offset', '0')
 
-    fetch(`${API_URL}/api/actores-d6?${qs.toString()}`, { signal: ac.signal })
+    const url = `${API_URL}/api/actores-d6?${qs.toString()}`
+
+    fetch(url, { signal: ac.signal })
       .then(async r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`)
         return r.json() as Promise<ListResp>
       })
-      .then(d => { if (!ac.signal.aborted) setItems(d.items) })
-      .catch(e => { if (!ac.signal.aborted) setError((e as Error).message) })
-      .finally(() => { if (!ac.signal.aborted) setLoading(false) })
-    return () => ac.abort()
+      .then(d => {
+        if (cancelled) return
+        if (!d || !Array.isArray(d.items)) {
+          console.error('[ActoresD6] respuesta inesperada del backend', { url, d })
+          setError('Respuesta inesperada del servidor (items no es array)')
+          return
+        }
+        setItems(d.items)
+      })
+      .catch(e => {
+        if (cancelled) return
+        // Una abort silenciosa NO es error de usuario: la silenciamos.
+        if ((e as { name?: string }).name === 'AbortError') return
+        console.error('[ActoresD6] fetch falló', { url, error: e })
+        setError((e as Error).message)
+      })
+      .finally(() => {
+        if (cancelled) return
+        setLoading(false)
+      })
+    return () => {
+      cancelled = true
+      ac.abort()
+    }
   }, [q, tipo, conSenales])
 
   useEffect(() => {
@@ -442,7 +471,11 @@ export default function ActoresD6() {
                 {filteredItems.length === 0 && !loading && (
                   <tr>
                     <td colSpan={8} style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 12 }}>
-                      Sin resultados con esos filtros.
+                      {items.length === 0
+                        ? (error
+                            ? `Sin datos: ${error}`
+                            : 'Sin datos del backend (puede que el servicio no haya respondido). Refresca para reintentar.')
+                        : 'Sin resultados con esos filtros.'}
                     </td>
                   </tr>
                 )}

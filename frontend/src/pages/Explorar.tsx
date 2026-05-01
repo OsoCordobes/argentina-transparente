@@ -91,7 +91,8 @@ export default function Explorar() {
             position: 'fixed',
             bottom: 12,
             right: 12,
-            zIndex: 50,
+            // var(--z-overlay): pill flotante sobre el contenido.
+            zIndex: 100,
             padding: '8px 14px',
             background: '#171b24',
             border: '1px solid #2c3447',

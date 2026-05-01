@@ -53,6 +53,19 @@
     --sidebar-w-rest: 240px;
     --sidebar-w-active: 360px;
     --header-h: 42px;
+
+    /* Z-index scale — ordenado por capa visual.
+       Cualquier z-index hardcodeado en el código debe usar uno de estos.
+       Los valores eran caóticos antes (3,4,5,6,7 mezclados): un tooltip
+       podía caer detrás de un panel, o el search bar detrás de un nodo. */
+    --z-base: 1;          /* svg canvas, contenido normal */
+    --z-raised: 10;       /* nodos enfocados, labels */
+    --z-overlay: 100;     /* overlays sobre el grafo (KPIs, badges) */
+    --z-search: 500;      /* search bar, command palette */
+    --z-dropdown: 700;    /* dropdowns, popovers */
+    --z-tooltip: 1000;    /* tooltips */
+    --z-modal: 2000;      /* modales, dialogs */
+    --z-toast: 3000;      /* notificaciones, toasts */
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;height:100%;overflow:hidden;background:var(--bg-0);color:var(--text);font-family:'Inter','Helvetica Neue',Arial,sans-serif;font-feature-settings:"ss01","cv11";-webkit-font-smoothing:antialiased;}
@@ -100,7 +113,7 @@
     overflow:hidden;
     transition: width .55s cubic-bezier(.2,.85,.15,1),
                 flex-basis .55s cubic-bezier(.2,.85,.15,1);
-    z-index:5;
+    z-index: var(--z-overlay);
   }
   .sidebar.has-chat{
     width: var(--sidebar-w-active);
@@ -115,7 +128,7 @@
     background:linear-gradient(to bottom, rgba(5,7,13,0.65), rgba(5,7,13,0.0));
     -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
-    z-index:4;
+    z-index: var(--z-overlay);
   }
   .canvas-wrap{position:absolute;inset:var(--header-h) 0 0 0;overflow:hidden;}
 
@@ -305,7 +318,7 @@
     transform: translateY(8px);
     transition: opacity .2s, transform .2s, color .15s, border-color .15s;
     pointer-events: none;
-    z-index: 2;
+    z-index: var(--z-base);
   }
   .scroll-anchor.visible{
     opacity: 1;
@@ -348,7 +361,7 @@
   /* Hero */
   .hero{
     position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);
-    width:min(680px, 76%);text-align:center;z-index:3;pointer-events:none;
+    width:min(680px, 76%);text-align:center;z-index: var(--z-overlay);pointer-events:none;
     transition:
       opacity .35s cubic-bezier(.4,0,1,1),
       transform .55s cubic-bezier(.4,0,.2,1),
@@ -417,7 +430,7 @@
 
   /* Chat input (centered + footer modes) */
   .input-wrap{
-    position:absolute;left:50%;z-index:6;width:min(720px, 78%);
+    position:absolute;left:50%;z-index: var(--z-search);width:min(720px, 78%);
     transform:translateX(-50%);
     transition:
       top .65s cubic-bezier(.2,.85,.15,1),
@@ -428,6 +441,25 @@
   }
   .input-wrap.center{top:calc(50% - 8px);}
   .input-wrap.footer{bottom:24px;width:min(620px, 60%);}
+  /* BLOCKER 5: cuando el search bar tiene foco en estado hero, lo desplazamos
+     ~120px hacia arriba para que el grafo gane protagonismo. La clase la
+     aplica ExplorarLayout vía `searchFocused && inHero`. La transición
+     reusa el cubic-bezier original del `.input-wrap` para coherencia. */
+  .input-wrap.center.input-focused{
+    top:calc(50% - 128px);
+  }
+  /* hero-faded: aleteamos opacity + ligero blur cuando el bar tiene foco,
+     para que el grafo (en el fondo, opacity:0.4 cuando idle) recupere
+     protagonismo visual sin desaparecer del DOM. */
+  .hero.hero-faded{
+    opacity:0.25;
+    filter:blur(3px);
+    transform:translate(-50%,-58%) scale(.98);
+    transition:
+      opacity .25s cubic-bezier(.4,0,.2,1),
+      filter .25s ease,
+      transform .35s cubic-bezier(.4,0,.2,1);
+  }
   .input{
     /* Buscador rectangular estilo intel-tool en free tier — esquinas
        suaves (4px) en lugar de pill. Cuando el tier paga active el chat
@@ -474,7 +506,7 @@
   /* Chat thread */
   .thread{
     position:fixed;left:24px;bottom:100px;width:380px;
-    display:flex;flex-direction:column;z-index:5;
+    display:flex;flex-direction:column;z-index: var(--z-dropdown);
     background: rgba(12,17,28,0.62);
     -webkit-backdrop-filter: blur(22px) saturate(140%);
     backdrop-filter: blur(22px) saturate(140%);
@@ -713,7 +745,7 @@
     position:absolute;right:24px;top:calc(var(--header-h) + 24px);
     bottom:24px;
     width:380px;
-    display:flex;flex-direction:column;z-index:6;
+    display:flex;flex-direction:column;z-index: var(--z-dropdown);
     transform:translateX(120%); transition: transform .35s cubic-bezier(.2,.7,.2,1);
   }
   .panel.open{transform:translateX(0);}
@@ -897,7 +929,7 @@
 
   /* Section views (placeholders) */
   .section-view{
-    position:absolute;inset:var(--header-h) 0 0 0;display:grid;place-items:center;text-align:center;padding:40px;z-index:7;
+    position:absolute;inset:var(--header-h) 0 0 0;display:grid;place-items:center;text-align:center;padding:40px;z-index: var(--z-modal);
     background:rgba(5,7,13,0.55);
     -webkit-backdrop-filter: blur(18px);backdrop-filter: blur(18px);
   }

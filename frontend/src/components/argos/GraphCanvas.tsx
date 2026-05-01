@@ -337,9 +337,31 @@ function GraphCanvasInner({
 
   useEffect(() => {
     if (!wrapRef.current) return
+    let pending = false
+    // Bug fix: en flex containers con `overflow: hidden` (ej. Señales pane), un
+    // setState directo dentro del callback de ResizeObserver dispara un loop:
+    // setState → re-render → layout shift sub-pixel → RO fires → setState …
+    // El grafo "crece" aparentando overflow infinito al hacer scroll.
+    // Solución: coalescer múltiples eventos en un solo update por frame con
+    // requestAnimationFrame, y skip-update si las dimensiones no cambiaron de
+    // forma observable (>= 1px). Esto rompe el loop de feedback positivo.
     const ro = new ResizeObserver((entries) => {
-      const cr = entries[0].contentRect
-      setSize({ w: cr.width, h: cr.height })
+      if (pending) return
+      pending = true
+      requestAnimationFrame(() => {
+        pending = false
+        const cr = entries[0]?.contentRect
+        if (!cr) return
+        setSize((prev) => {
+          if (
+            Math.abs(prev.w - cr.width) < 1 &&
+            Math.abs(prev.h - cr.height) < 1
+          ) {
+            return prev
+          }
+          return { w: cr.width, h: cr.height }
+        })
+      })
     })
     ro.observe(wrapRef.current)
     return () => ro.disconnect()
@@ -1142,7 +1164,9 @@ function GraphCanvasInner({
           fontSize: 11,
           color: 'var(--text-1)',
           pointerEvents: 'none',
-          zIndex: 50,
+          // z-index: var(--z-tooltip) — debe estar por encima del search bar
+          // (var(--z-search)=500) cuando el cursor toca un nodo en cualquier vista.
+          zIndex: 1000,
           boxShadow: '0 4px 18px rgba(0,0,0,0.45)',
           opacity: hoveredTooltipId ? 1 : 0,
           willChange: 'transform',

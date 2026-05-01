@@ -39,7 +39,8 @@ export function Onboarding() {
         background: 'rgba(0,0,0,0.6)',
         display: 'grid',
         placeItems: 'center',
-        zIndex: 1000,
+        // var(--z-modal) — el onboarding es un modal full-screen.
+        zIndex: 2000,
       }}
     >
       <div

@@ -177,6 +177,7 @@ function FixtureBanner() {
         borderBottom: '1px solid #F5B544',
         position: 'sticky',
         top: 0,
+        // var(--z-overlay): banner sticky sobre el contenido.
         zIndex: 100,
       }}
     >

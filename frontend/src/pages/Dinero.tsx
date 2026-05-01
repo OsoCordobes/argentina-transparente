@@ -98,7 +98,12 @@ export default function Dinero() {
       .finally(() => setLoading(false))
   }, [anio])
 
-  // FCMs como filtersBar reutilizable
+  // FCMs como filtersBar reutilizable.
+  // Nota BLOCKER 4: los chips MINISTERIO/DESTINO/MONTO/TIER son inertes
+  // (no disparan refetch). Los marcamos con `title` para advertirlo en hover
+  // y reducimos su opacidad para no engañar al usuario haciéndolo creer
+  // que pueden filtrar el grafo. NIVEL/JURISDICCIÓN/AÑO sí derivan del URL.
+  const inertTitle = 'Filtro decorativo — todavía no impacta el flujo (endpoint pendiente).'
   const filtersBar = (
     <div
       style={{
@@ -114,10 +119,18 @@ export default function Dinero() {
       <FCM label="NIVEL" value="PROVINCIAL" active />
       <FCM label="JURISDICCIÓN" value={jurisdiccion === 'cordoba-capital' ? 'CÓRDOBA' : jurisdiccion.toUpperCase()} active />
       <FCM label="AÑO" value={String(anio)} active />
-      <FCM label="MINISTERIO" value="TODOS" />
-      <FCM label="DESTINO" value="CONTRATOS" />
-      <FCM label="MONTO ≥" value="$100 M" />
-      <FCM label="TIER" value="T1" active />
+      <span title={inertTitle} style={{ opacity: 0.5 }}>
+        <FCM label="MINISTERIO" value="TODOS" />
+      </span>
+      <span title={inertTitle} style={{ opacity: 0.5 }}>
+        <FCM label="DESTINO" value="CONTRATOS" />
+      </span>
+      <span title={inertTitle} style={{ opacity: 0.5 }}>
+        <FCM label="MONTO ≥" value="$100 M" />
+      </span>
+      <span title={inertTitle} style={{ opacity: 0.5 }}>
+        <FCM label="TIER" value="T1" active />
+      </span>
       <div style={{ flex: 1 }} />
       <span
         style={{
@@ -183,7 +196,33 @@ export default function Dinero() {
               Error: {error}
             </div>
           )}
-          {data && !loading && (
+          {data && !loading && data.nodes.length === 0 && (
+            <div
+              style={{
+                padding: '60px 30px',
+                textAlign: 'center',
+                color: 'var(--text-3)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 12,
+                letterSpacing: '0.04em',
+                lineHeight: 1.7,
+              }}
+            >
+              <div style={{ color: 'var(--text-2)', marginBottom: 8 }}>
+                Endpoint <code>/api/dinero/sankey-jerarquico</code> pendiente.
+              </div>
+              <div>
+                Por ahora no hay datos trazables AFIP→Nivel→Ministerio→Destino.
+                <br />
+                {data.totalContratos > 0 && (
+                  <>
+                    Backend reportó <strong style={{ color: 'var(--text-1)' }}>{data.totalContratos}</strong> contratos en {anio}.
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+          {data && !loading && data.nodes.length > 0 && (
             <SankeyJerarquico nodes={data.nodes} edges={data.edges} />
           )}
         </div>
@@ -197,8 +236,8 @@ export default function Dinero() {
           letterSpacing: '0.04em',
           lineHeight: 1.5,
         }}>
-          ★ Cols AFIP→Nivel: estimación oficial coparticipación {anio} (presupuesto.gob.ar).
-          Cols Min→Destino: derivado de presupuesto_ejecucion + contratos vivos.
+          ★ Datos pendientes: backend de /api/dinero/sankey-jerarquico no
+          está implementado. CLAUDE.md §2 prohíbe fabricar montos.
         </div>
       </div>
 
@@ -324,7 +363,8 @@ export default function Dinero() {
             fontSize: 11,
             color: 'var(--text-1)',
             letterSpacing: '0.02em',
-            zIndex: 5,
+            // var(--z-dropdown): popover sobre el grafo backbone.
+            zIndex: 700,
           }}
           onClick={(e) => e.stopPropagation()}
         >

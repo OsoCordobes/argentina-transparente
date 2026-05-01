@@ -980,6 +980,11 @@ export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: Explo
   const [labelsMode, setLabelsMode] = useState<'minimal' | 'all'>('minimal')
   const [labelsDepth, setLabelsDepth] = useState<1 | 2 | 3>(1)
   const [sending, setSending] = useState(false)
+  // BLOCKER 5: cuando el usuario enfoca el search bar, el bar se desliza hacia
+  // arriba para liberar protagonismo del grafo. Antes el bar quedaba en el
+  // centro tapando todo el grafo. Implementación CSS: clase `input-focused`
+  // sobre `.input-wrap` (ver argos.css).
+  const [searchFocused, setSearchFocused] = useState(false)
   // F8 — contador de novedades sobre la watchlist personal del user.
   const [novedadesCount, setNovedadesCount] = useState(0)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1420,8 +1425,13 @@ export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: Explo
 
             {/* Hero state — minimalismo de herramienta de inteligencia.
                 Sin titular acusatorio, sin counts saturando. Solo una
-                identificación discreta + la North Star sutil + el buscador. */}
-            <div className={`hero ${inHero ? '' : 'hidden'}`} aria-hidden={!inHero}>
+                identificación discreta + la North Star sutil + el buscador.
+                BLOCKER 5: clase `hero-faded` cuando el search bar tiene foco
+                inicial — aletea visualmente para dar protagonismo al grafo. */}
+            <div
+              className={`hero ${inHero ? '' : 'hidden'} ${searchFocused && inHero ? 'hero-faded' : ''}`}
+              aria-hidden={!inHero}
+            >
               <div className="hero-chip">
                 <span className="pulse" /> ARGOS · Inteligencia patrimonial pública
               </div>
@@ -1429,7 +1439,9 @@ export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: Explo
             </div>
 
             {/* Input */}
-            <div className={`input-wrap ${inHero ? 'center' : 'footer'} ${sending ? 'sending' : ''}`}>
+            <div
+              className={`input-wrap ${inHero ? 'center' : 'footer'} ${sending ? 'sending' : ''} ${searchFocused && inHero ? 'input-focused' : ''}`}
+            >
               <form
                 className="input"
                 onSubmit={(e) => {
@@ -1457,7 +1469,14 @@ export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: Explo
                   aria-label="Pregunta a ARGOS"
                   onFocus={() => {
                     wakeGraph()
+                    setSearchFocused(true)
                     dispatch({ t: 'CHAT_FADE', level: 'typing' })
+                  }}
+                  onBlur={() => {
+                    // Pequeño delay para que clicks en chips contextuales o
+                    // sugerencias no cierren el modo "focused" al perder
+                    // focus durante el handoff.
+                    setTimeout(() => setSearchFocused(false), 150)
                   }}
                 />
                 <span
