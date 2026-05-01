@@ -645,3 +645,34 @@ export function useCoberturaGlobal() {
     retry: 0,
   })
 }
+
+// ─── Grafo jerárquico v2 (depth-structured) — Wave PR-1 ───────────────────
+
+export interface GrafoJerarquiaV2DepthLevel {
+  nodes: GrafoJerarquiaNode[]
+  edges: GrafoJerarquiaEdge[]
+}
+
+export interface GrafoJerarquiaV2Response {
+  depth0: GrafoJerarquiaV2DepthLevel
+  depth1: GrafoJerarquiaV2DepthLevel
+  depth2: GrafoJerarquiaV2DepthLevel
+  depth3: GrafoJerarquiaV2DepthLevel
+  meta: {
+    jurisdiccion: string
+    totalNodos: number
+    totalAristas: number
+    montoTotal: number
+  }
+}
+
+export function useGrafoJerarquiaV2(
+  jurisdiccion: 'cordoba-capital' | 'cordoba-provincia' | 'all' = 'cordoba-capital'
+) {
+  return useQuery({
+    queryKey: ['grafo', 'jerarquia-v2', jurisdiccion],
+    queryFn: () =>
+      fetchJSON<GrafoJerarquiaV2Response>(`/api/grafo/jerarquia/v2?jurisdiccion=${jurisdiccion}`),
+    staleTime: 5 * 60_000,
+  })
+}
