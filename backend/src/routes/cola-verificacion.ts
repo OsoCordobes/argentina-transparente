@@ -60,6 +60,10 @@ interface SeñalRow {
   evidencia_json: string
   legal_json: string
   computado_en: string
+  /** JSON array de CUITs/DNIs involucrados en la señal — poblada por
+   *  analyze.ts (Sprint 2). Permite que el frontend resalte los nodos
+   *  involucrados en el grafo cuando una señal está seleccionada. */
+  entidades_cuit: string | null
 }
 
 const SEVERIDADES = ['grave', 'moderada', 'leve'] as const
@@ -107,7 +111,7 @@ colaVerificacionRouter.get('/', async (req: Request, res: Response) => {
     const items = await dbAll<SeñalRow>(
       `SELECT id, municipio, tipologia, titulo, resumen, score, severidad,
               estado_verificacion, verificado_por, verificado_en,
-              evidencia_json, legal_json, computado_en
+              evidencia_json, legal_json, computado_en, entidades_cuit
          FROM señales_cache
          ${whereSql}
          ORDER BY score DESC, computado_en ASC
@@ -134,6 +138,9 @@ colaVerificacionRouter.get('/', async (req: Request, res: Response) => {
         evidencia: parseJsonSafe(r.evidencia_json, []),
         legal: parseJsonSafe(r.legal_json, {}),
         computadoEn: r.computado_en,
+        // M2 (graph-context-everywhere): array de CUITs/DNIs involucrados.
+        // Patrón consistente con /api/contrato/:hash y /api/entidad/:nombre.
+        cuits: parseJsonSafe<string[]>(r.entidades_cuit, []),
       })),
       paginacion: { total, limit, offset, hayMas: offset + items.length < total },
     })
