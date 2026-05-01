@@ -12,7 +12,7 @@
  */
 import '@/styles/argos.css'
 import '@/styles/argos-forensic.css'
-import { ReactNode, useState } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { Ico } from './ArgosIcons'
 import { ForensicHeader } from './forensic/Primitives'
@@ -122,6 +122,20 @@ export function ArgosShell({ title, rightSlot, children }: ArgosShellProps) {
   const [deltaOpen, setDeltaOpen] = useState(false)
   // Sección mono uppercase derivada del title (toma la primera palabra antes de ·)
   const sectionLabel = title.split('·')[0].trim().toUpperCase()
+
+  // Wave 4 — keyboard infra global: Esc dispara `argos:escape` event.
+  // Cualquier componente puede subscribirse para cerrar panels/popups.
+  // Solo expone el event; no modifica behavior existente.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        window.dispatchEvent(new CustomEvent('argos:escape'))
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   return (
     <div className="app">
       <Sidebar />

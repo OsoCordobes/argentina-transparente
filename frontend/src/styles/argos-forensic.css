@@ -220,7 +220,9 @@
   letter-spacing: 0.04em;
 }
 
-/* ─── Botón sutil (chip-style) ────────────────────────────────────────── */
+/* ─── Botón sutil (chip-style) ──────────────────────────────────────────
+   Wave 4: transitions vía tokens (--motion-fast / --ease-out) y estados
+   active/disabled explícitos. */
 .fx-btn-subtle {
   background: transparent;
   border: 1px solid var(--hairline-2);
@@ -231,8 +233,19 @@
   letter-spacing: 0.10em;
   text-transform: uppercase;
   cursor: pointer;
+  transition:
+    background var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
 }
 .fx-btn-subtle:hover { color: var(--text-1); border-color: var(--hairline-2); background: var(--bg-forensic-2); }
+.fx-btn-subtle:active { background: var(--surface-overlay); }
+.fx-btn-subtle:disabled,
+.fx-btn-subtle[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
 
 /* ─── Botón primary (celeste, action principal) ──────────────────────── */
 .fx-btn-primary {
@@ -246,8 +259,20 @@
   text-transform: uppercase;
   cursor: pointer;
   font-weight: 500;
+  transition:
+    background var(--motion-fast) var(--ease-out),
+    filter var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
 }
 .fx-btn-primary:hover { filter: brightness(1.10); }
+.fx-btn-primary:active { filter: brightness(0.95); }
+.fx-btn-primary:disabled,
+.fx-btn-primary[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+  filter: none;
+}
 
 /* ─── Sección con divisor ─────────────────────────────────────────────── */
 .fx-section {
