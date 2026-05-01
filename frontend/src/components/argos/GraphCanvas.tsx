@@ -30,27 +30,13 @@ import {
   forceLink,
   forceCenter,
   forceCollide,
+  forceRadial,
   forceX,
   forceY,
   type Simulation,
   type SimulationNodeDatum,
   type SimulationLinkDatum,
 } from 'd3-force'
-import { hierarchy, cluster, type HierarchyNode } from 'd3-hierarchy'
-import { interpolateZoom, type ZoomView } from 'd3-interpolate'
-import {
-  Building2,
-  User,
-  Briefcase,
-  FileText,
-  AlertTriangle,
-} from 'lucide-react'
-import type { ComponentType, SVGProps } from 'react'
-import {
-  getEntityColor,
-  getEntityShape,
-  type EntityType,
-} from '@/components/argos/primitives/EntityIcon'
 import type {
   ArgosGraph,
   ArgosNode,
@@ -126,119 +112,28 @@ function colorFor(n: ArgosNode): string {
 }
 
 /**
- * Map a graph node type → canonical entity taxonomy used by the design
- * system primitives (EntityIcon). This lets us pick shape, color and icon
- * from a single source of truth (`getEntityShape` / `getEntityColor` /
- * Lucide icon table) instead of duplicating the visual rules here.
+ * Path SVG para arista curva tipo "rama de árbol genealógico".
+ * Punto de control en el midpoint perpendicularmente desplazado ~10% de
+ * la longitud de la arista. Da sensación orgánica (vs rayos rectos).
  *
- * Wave 2 — premium genealogical tree.
+ * Para edge_length L, con normal unitaria (nx, ny), la curva sale ~0.1L
+ * del lado donde el target está más bajo (para que padre→hijo se vea
+ * "fluyendo hacia abajo" en el árbol).
  */
-function nodeToEntityType(n: ArgosNode): EntityType {
-  const t = n.type
-  if (t === 'jurisdiccion' || t === 'reparticion') return 'estado'
-  if (t === 'empresa' || t === 'proveedor') return 'empresa'
-  if (t === 'persona' || t === 'director' || t === 'funcionario') return 'persona'
-  if (t === 'contrato') return 'documento'
-  if (t === 'señal') return 'senal'
-  return 'estado'
-}
-
-const ICON_FOR_ENTITY: Record<EntityType, ComponentType<SVGProps<SVGSVGElement>>> = {
-  estado: Building2 as unknown as ComponentType<SVGProps<SVGSVGElement>>,
-  empresa: Briefcase as unknown as ComponentType<SVGProps<SVGSVGElement>>,
-  persona: User as unknown as ComponentType<SVGProps<SVGSVGElement>>,
-  documento: FileText as unknown as ComponentType<SVGProps<SVGSVGElement>>,
-  senal: AlertTriangle as unknown as ComponentType<SVGProps<SVGSVGElement>>,
-}
-
-/**
- * Curved Bézier path between (sx,sy)→(tx,ty) used for "gano" edges
- * (Empresa → Repartición). The control point is offset perpendicular to
- * the line by ~12% of length, giving the genealogical tree feel without
- * crossing other branches.
- */
-function bezierPathD(sx: number, sy: number, tx: number, ty: number): string {
+function quadraticPathD(sx: number, sy: number, tx: number, ty: number): string {
   const dx = tx - sx
   const dy = ty - sy
   const len = Math.hypot(dx, dy) || 1
+  // Vector normal perpendicular (rotado 90° antihorario).
   const nx = -dy / len
   const ny = dx / len
-  const k = Math.max(8, Math.min(48, len * 0.12))
+  // Offset proporcional a la longitud (10% de L) con cap a 36px en edges
+  // muy largas. Para edges cortas (<60px) baja a 6-8px → curva apenas
+  // perceptible, evita que nodos cercanos se solapen con la curva.
+  const k = Math.max(6, Math.min(36, len * 0.1))
   const cpx = (sx + tx) / 2 + nx * k
   const cpy = (sy + ty) / 2 + ny * k
   return `M${sx.toFixed(1)},${sy.toFixed(1)} Q${cpx.toFixed(1)},${cpy.toFixed(1)} ${tx.toFixed(1)},${ty.toFixed(1)}`
-}
-
-/**
- * Style table for edges, keyed by ArgosEdgeKind.
- *
- * Wave 2 — taxonomía visual semántica:
- *   - pertenece_a   (Estado→Repartición): gris muted, 1.5px, sin arrow
- *   - gano          (Empresa→Repartición): ámbar curvado, log-scaled
- *   - tiene_director (Empresa→Persona): cyan dashed
- *   - conflicto_con (cualquier persona/empresa): rojo glow
- *   - señalado_por  (Empresa→Señal): rojo dotted
- *   - opera_en/dirige/trabaja_en/etc.: fallback con baseline propio
- */
-interface EdgeStyle {
-  stroke: string
-  width: number
-  dash?: string
-  curve: boolean
-  baseline: number
-  glow: boolean
-}
-
-function styleForEdge(kind: ArgosEdgeKind, weight: number): EdgeStyle {
-  const w = Math.max(0, Math.min(1, weight ?? 0.4))
-  switch (kind) {
-    case 'pertenece_a':
-      return { stroke: 'var(--text-muted)', width: 1.5, curve: false, baseline: 0.55, glow: false }
-    case 'gano':
-    case 'opera_en':
-      // Width log-scaled by weight (proxy for monto). 1px → 3px.
-      return {
-        stroke: 'var(--entity-empresa)',
-        width: 1 + w * 2,
-        curve: true,
-        baseline: 0.5,
-        glow: false,
-      }
-    case 'tiene_director':
-    case 'dirige':
-      return {
-        stroke: 'var(--entity-documento)',
-        width: 1,
-        dash: '6 3',
-        curve: false,
-        baseline: 0.4,
-        glow: false,
-      }
-    case 'conflicto_con':
-      return {
-        stroke: 'var(--semantic-danger)',
-        width: 2,
-        curve: false,
-        baseline: 0.7,
-        glow: true,
-      }
-    case 'señalado_por':
-      return {
-        stroke: 'var(--semantic-danger)',
-        width: 2,
-        dash: '2 4',
-        curve: false,
-        baseline: 0.55,
-        glow: false,
-      }
-    case 'trabaja_en':
-      return { stroke: '#78C8C8', width: 1, curve: false, baseline: 0.3, glow: false }
-    case 'es_la_misma_persona':
-    case 'comparte_director':
-      return { stroke: '#B79CFF', width: 1, dash: '4 2', curve: false, baseline: 0.3, glow: false }
-    default:
-      return { stroke: '#6FB8E8', width: 0.8, curve: false, baseline: 0.22, glow: false }
-  }
 }
 
 /** Path recto (M sx,sy L tx,ty) — para aristas no-jerárquicas. */
@@ -265,118 +160,6 @@ function isHierarchicalEdge(kind: ArgosEdgeKind | string): boolean {
   )
 }
 
-/**
- * Build a deterministic radial-tree layout (d3.cluster) from the snapshot.
- *
- * Strategy:
- *  1. Pick "parent" relations from hierarchical edges. Direction is
- *     child → parent: empresa --gano--> repartición, repartición
- *     --pertenece_a--> estado.
- *  2. Find roots = nodes that are not children of any parent map entry.
- *     If multiple, wrap them in a virtual super-root (id="__root__").
- *  3. Build d3.hierarchy() and run d3.cluster().size([2π, radius]).
- *  4. Convert (angle, radius) → cartesian centered on (cx, cy).
- *
- * Returns a Map<id, {x, y}> with anchor positions. Nodes not reachable
- * from any root (orphans) are omitted; the caller falls back to a soft
- * radial seed for them.
- */
-function buildRadialLayout(
-  nodes: ArgosNode[],
-  edges: ArgosEdge[],
-  cx: number,
-  cy: number,
-  radius: number,
-): Map<string, { x: number; y: number }> {
-  // child → parent (only ONE parent per child to make the hierarchy a tree).
-  const parentOf = new Map<string, string>()
-  const idSet = new Set(nodes.map((n) => n.id))
-  for (const e of edges) {
-    if (!isHierarchicalEdge(e.kind)) continue
-    const sId = typeof e.source === 'string' ? e.source : e.source?.id
-    const tId = typeof e.target === 'string' ? e.target : e.target?.id
-    if (!sId || !tId || !idSet.has(sId) || !idSet.has(tId)) continue
-    // For 'gano'/'opera_en'/'tiene_director': source is the leaf, target is parent.
-    // For 'pertenece_a': source (Repartición) → target (Estado), source is child.
-    const child = sId
-    const parent = tId
-    if (child === parent) continue
-    if (!parentOf.has(child)) parentOf.set(child, parent)
-  }
-  // Detect roots: nodes that have no parent and ARE referenced (or are
-  // depth-0 jurisdicciones).
-  const roots: string[] = []
-  for (const n of nodes) {
-    if (!parentOf.has(n.id)) {
-      // include only nodes with at least one child; orphan leaves get
-      // soft radial fallback instead of artificial roots.
-      const isReferencedAsParent = nodes.some((m) => parentOf.get(m.id) === n.id)
-      const explicitRoot = getNodeDepth(n) === 0
-      if (isReferencedAsParent || explicitRoot) roots.push(n.id)
-    }
-  }
-  if (roots.length === 0) return new Map()
-
-  // Build child-list adjacency for hierarchy() construction.
-  const childrenOf = new Map<string, string[]>()
-  parentOf.forEach((parent, child) => {
-    if (!childrenOf.has(parent)) childrenOf.set(parent, [])
-    childrenOf.get(parent)!.push(child)
-  })
-
-  // Cycle guard: if any node would visit itself via parent chain, drop it.
-  const safe = (id: string): boolean => {
-    const seen = new Set<string>([id])
-    let cur = parentOf.get(id)
-    while (cur) {
-      if (seen.has(cur)) return false
-      seen.add(cur)
-      cur = parentOf.get(cur)
-    }
-    return true
-  }
-
-  // Single virtual root if multiple real roots.
-  const rootId = roots.length === 1 ? roots[0] : '__root__'
-  if (rootId === '__root__') {
-    childrenOf.set('__root__', roots.filter(safe))
-  }
-
-  interface LayoutDatum { id: string }
-  const buildNode = (id: string, depth = 0, visited = new Set<string>()): LayoutDatum & { children?: LayoutDatum[] } => {
-    if (visited.has(id) || depth > 8) return { id }
-    visited.add(id)
-    const kids = childrenOf.get(id) ?? []
-    if (kids.length === 0) return { id }
-    return {
-      id,
-      children: kids.filter((k) => !visited.has(k)).map((k) => buildNode(k, depth + 1, new Set(visited))),
-    }
-  }
-
-  let root: HierarchyNode<LayoutDatum>
-  try {
-    root = hierarchy<LayoutDatum>(buildNode(rootId), (d) => d.children)
-  } catch {
-    return new Map()
-  }
-  cluster<LayoutDatum>().size([2 * Math.PI, radius])(root)
-
-  const out = new Map<string, { x: number; y: number }>()
-  root.each((node) => {
-    const id = node.data.id
-    if (id === '__root__') {
-      out.set(id, { x: cx, y: cy })
-      return
-    }
-    // d3.cluster sets x = angle (0..2π), y = radius (0..radius).
-    const angle = (node as unknown as { x: number }).x - Math.PI / 2
-    const r = (node as unknown as { y: number }).y
-    out.set(id, { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) })
-  })
-  return out
-}
-
 // ─── Tipado d3-force ──────────────────────────────────────────────────────────
 
 /**
@@ -385,11 +168,6 @@ function buildRadialLayout(
  */
 interface NodeDatum extends ArgosNode, SimulationNodeDatum {
   index?: number
-  /** Anchor position from the d3.cluster radial layout. forceX/forceY pull
-   *  every node toward (fx0, fy0) with strength 0.85 → deterministic tree
-   *  shape with subtle "breathing" instead of chaotic forceRadial. */
-  fx0?: number
-  fy0?: number
 }
 
 /**
@@ -599,32 +377,11 @@ function GraphCanvasInner({
     const cy = size.h / 2
     const span = Math.min(size.w, size.h) * 0.45
 
-    // ── Wave 2: deterministic radial-tree layout ─────────────────────────
-    // Step 1: build d3.hierarchy from hierarchical edges, run d3.cluster()
-    // → returns anchor positions (fx0, fy0) per node. forceX/forceY pull
-    // every node toward its anchor with strength 0.85 → genealogical-tree
-    // shape with subtle drift, NOT chaotic random radial.
-    const anchors = buildRadialLayout(
-      snapshot.nodes,
-      snapshot.edges as ArgosEdge[],
-      cx,
-      cy,
-      span * 0.95,
-    )
-
-    const nodes: NodeDatum[] = snapshot.nodes.map((n, i) => {
-      const a = anchors.get(n.id)
-      if (a) {
-        return { ...n, x: a.x, y: a.y, fx0: a.x, fy0: a.y }
-      }
-      // Orphan fallback: scatter softly around the outer ring at a stable
-      // angle derived from the index → reproducible.
-      const angle = (i / Math.max(1, snapshot.nodes.length)) * 2 * Math.PI
-      const r = span * 0.85
-      const fx = cx + r * Math.cos(angle)
-      const fy = cy + r * Math.sin(angle)
-      return { ...n, x: fx, y: fy, fx0: fx, fy0: fy }
-    })
+    const nodes: NodeDatum[] = snapshot.nodes.map((n, i) => ({
+      ...n,
+      x: cx + (Math.cos(i * 2.3) * 0.5 + (Math.random() - 0.5)) * span,
+      y: cy + (Math.sin(i * 2.3) * 0.5 + (Math.random() - 0.5)) * span,
+    }))
 
     const ids = new Set(nodes.map((n) => n.id))
     const edges: LinkDatum[] = (snapshot.edges as ArgosEdge[])
@@ -641,63 +398,73 @@ function GraphCanvasInner({
         weight: e.weight,
       }))
 
-    // Wave 2: la simulación NO se queda viva en idle. Las anchors fx0/fy0
-    // garantizan estructura, y forceX/forceY @ 0.85 amarran los nodos.
-    // forceManyBody@-15 (soft) da "respiración" sin caos. Tras alphaDecay
-    // (0.04, ~1.5s) la sim se detiene (alphaMin>0, alphaTarget=0).
+    // Movimiento sutil continuo: alphaTarget > 0 mantiene la simulación
+    // viva en idle (los nodos "respiran"). Si el usuario tiene
+    // prefers-reduced-motion: reduce, dejamos los nodos quietos.
     const reduceMotion =
       typeof window !== 'undefined' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const idleAlphaTarget = reduceMotion ? 0 : 0.003
 
     const sim = forceSimulation<NodeDatum, LinkDatum>(nodes)
       .force(
         'charge',
-        // SOFT charge — anchors do the heavy lifting now.
-        forceManyBody<NodeDatum>().strength(-15),
+        forceManyBody<NodeDatum>().strength((d) => {
+          if (d.type === 'jurisdiccion' || d.type === 'reparticion') return -380
+          if (d.type === 'proveedor' || d.type === 'empresa') return -130
+          if (d.type === 'señal') return -170
+          if (d.type === 'persona') return -100
+          return -55
+        }),
       )
       .force(
         'link',
         forceLink<NodeDatum, LinkDatum>(edges)
           .id((d) => d.id)
-          // Distances reduced — anchors already place the nodes; link
-          // force only nudges them slightly toward each other.
           .distance((e) => {
-            if (e.kind === 'gano') return 60
-            if (e.kind === 'opera_en') return 90
-            if (e.kind === 'tiene_director') return 70
-            if (e.kind === 'señalado_por') return 50
+            if (e.kind === 'gano') return 50
+            if (e.kind === 'opera_en') return 110
+            if (e.kind === 'tiene_director') return 65
+            if (e.kind === 'señalado_por') return 60
             if (e.kind === 'dirige') return 70
-            if (e.kind === 'trabaja_en') return 80
-            if (e.kind === 'es_la_misma_persona') return 30
-            if (e.kind === 'conflicto_con') return 100
-            if (e.kind === 'pertenece_a') return 80
+            if (e.kind === 'trabaja_en') return 90
+            if (e.kind === 'es_la_misma_persona') return 35
+            if (e.kind === 'conflicto_con') return 120
             return 80
           })
-          .strength(0.15),
+          .strength(0.4),
       )
-      .force('center', forceCenter(cx, cy).strength(0.03))
+      .force('center', forceCenter(cx, cy).strength(0.05))
       .force(
         'collide',
         forceCollide<NodeDatum>()
-          .radius((d) => nodeBaseRadius(d) + 10)
+          .radius((d) => nodeBaseRadius(d) + 8)
           .strength(0.9),
       )
-      // Wave 2: forceX/forceY a las anchors del d3.cluster (0.85 strength).
-      // Reemplaza el viejo forceRadial; las anchors son posiciones exactas
-      // del árbol genealógico, no anillos concéntricos vagos.
+      // GAP 3: forceRadial — cada profundidad tiene un anillo concéntrico,
+      // amarrando los nodos a su nivel jerárquico. Sin esto, los hijos
+      // "flotan" sin estructura visible.
+      //   depth 0 (Estado): pegado al centro (strength 0.6)
+      //   depth 1 (Reparticiones): cling al primer anillo (strength 0.35)
+      //   depth 2+ (Empresas): cling al anillo exterior (strength 0.25)
       .force(
-        'xAnchor',
-        forceX<NodeDatum>().x((d) => d.fx0 ?? cx).strength(0.85),
-      )
-      .force(
-        'yAnchor',
-        forceY<NodeDatum>().y((d) => d.fy0 ?? cy).strength(0.85),
+        'radial',
+        forceRadial<NodeDatum>(
+          (d) => depthRadius(getNodeDepth(d), span),
+          cx,
+          cy,
+        ).strength((d) => {
+          const depth = getNodeDepth(d)
+          if (depth === 0) return 0.6
+          if (depth === 1) return 0.35
+          return 0.25
+        }),
       )
       .alphaDecay(0.04)
-      // Wave 2: la sim se detiene cuando llega a alphaMin. Sin perpetual
-      // jitter — el árbol es el árbol. reduceMotion fuerza parada inmediata.
-      .alphaMin(reduceMotion ? 0.5 : 0.02)
-      .alphaTarget(0)
+      // reduceMotion: alphaMin=0.001 para que la sim se detenga al decaer.
+      // Movimiento sutil: alphaMin=0 + alphaTarget>0 mantiene la sim viva.
+      .alphaMin(reduceMotion ? 0.001 : 0)
+      .alphaTarget(idleAlphaTarget)
 
     const nodeMap = new Map<string, NodeDatum>(nodes.map((n) => [n.id, n]))
 
@@ -714,12 +481,8 @@ function GraphCanvasInner({
         const s = endpointNode(e.source, nodeMap)
         const t = endpointNode(e.target, nodeMap)
         if (!s || !t || s.x == null || t.x == null || s.y == null || t.y == null) continue
-        // Wave 2 — curve flag from styleForEdge (e.g., 'gano' is curved,
-        // 'pertenece_a' is straight, etc.). Hierarchical fallback retained.
-        const style = styleForEdge(e.kind, e.weight ?? 0.4)
-        const useCurve = style.curve || isHierarchicalEdge(e.kind)
-        const d = useCurve
-          ? bezierPathD(s.x, s.y, t.x, t.y)
+        const d = isHierarchicalEdge(e.kind)
+          ? quadraticPathD(s.x, s.y, t.x, t.y)
           : straightPathD(s.x, s.y, t.x, t.y)
         ref.lineEl.setAttribute('d', d)
       }
@@ -874,23 +637,14 @@ function GraphCanvasInner({
   }, [size.w, size.h])
 
   // ─── Pan/zoom on focus change ────────────────────────────────────────────
-  // Wave 2: usamos d3.interpolateZoom (van Wijk 2003) para animar el
-  // viewport entre el estado actual y el target node de manera
-  // perceptualmente uniforme — minimiza el "salto cognitivo" del usuario
-  // al saltar entre escalas grandes.
-  //
-  // Mecánica: el view state es (tx, ty, k). Lo convertimos a la triada
-  // ZoomView de d3-interpolate `[cx, cy, width]` donde:
-  //   cx,cy = centro del viewport en world-space = (-tx + W/2)/k, (-ty + H/2)/k
-  //   width = W/k                              (extensión world visible)
-  // Tras el zoom, reconstruimos (tx, ty, k) desde cualquier ZoomView.
-  //
-  // Iter 8.15 preservado: si el nodo aún no está en simRef (acaba de
-  // expandirse desde sidebar), reintentamos.
+  // Iter 8.15: el nodo focado puede haber sido agregado por
+  // expandirNodoGrafo (click desde sidebar Mapa del poder) y todavía
+  // no estar en simRef. Usamos un timer + retry cuando snapshot cambia
+  // para asegurar que el pan llegue al nodo nuevo.
+
   useEffect(() => {
     if (!focusedId) return
     let cancelled = false
-    let raf = 0
     const tryFocus = (attempts: number) => {
       if (cancelled) return
       const node = simRef.current?.nodes.find((n) => n.id === focusedId)
@@ -898,71 +652,20 @@ function GraphCanvasInner({
         if (attempts > 0) setTimeout(() => tryFocus(attempts - 1), 200)
         return
       }
-      const W = size.w
-      const H = size.h
-      const k1 = (node.type === 'jurisdiccion' || node.type === 'reparticion')
+      const cx = size.w / 2
+      const cy = size.h / 2
+      const k = (node.type === 'jurisdiccion' || node.type === 'reparticion')
         ? 1.15
         : 1.45
-      const nx = node.x ?? W / 2
-      const ny = node.y ?? H / 2
-
-      // Current view → ZoomView
-      const v0 = viewRef.current
-      const cx0 = (-v0.tx + W / 2) / Math.max(0.01, v0.k)
-      const cy0 = (-v0.ty + H / 2) / Math.max(0.01, v0.k)
-      const w0 = W / Math.max(0.01, v0.k)
-      const start: ZoomView = [cx0, cy0, w0]
-      const end: ZoomView = [nx, ny, W / k1]
-
-      let interp: (t: number) => ZoomView
-      try {
-        interp = interpolateZoom(start, end)
-      } catch {
-        // Fallback: instant set
-        targetView.current = { k: k1, tx: W / 2 - nx * k1, ty: H / 2 - ny * k1 }
-        simRef.current?.sim.alpha(0.18).restart()
-        return
-      }
-
-      const reduce =
-        typeof window !== 'undefined' &&
-        window.matchMedia('(prefers-reduced-motion: reduce)').matches
-      if (reduce) {
-        targetView.current = { k: k1, tx: W / 2 - nx * k1, ty: H / 2 - ny * k1 }
-        simRef.current?.sim.alpha(0.18).restart()
-        return
-      }
-
-      // Total duration scaled by interp.duration (van Wijk ms estimate),
-      // capped to [400ms, 900ms] to avoid sluggish small zooms / overlong
-      // far jumps.
-      const interpAny = interp as unknown as { duration?: number } & ((t: number) => ZoomView)
-      const totalMs = Math.max(400, Math.min(900, interpAny.duration ?? 700))
-      const t0 = performance.now()
-      const easeOut = (t: number) => 1 - Math.pow(1 - t, 3)
-
-      const step = () => {
-        if (cancelled) return
-        const elapsed = performance.now() - t0
-        const tNorm = Math.min(1, elapsed / totalMs)
-        const view = interp(easeOut(tNorm))
-        const [vcx, vcy, vw] = view
-        const k = W / Math.max(1e-3, vw)
-        const tx = W / 2 - vcx * k
-        const ty = H / 2 - vcy * k
-        targetView.current = { k, tx, ty }
-        if (tNorm < 1) {
-          raf = requestAnimationFrame(step)
-        }
-      }
-      raf = requestAnimationFrame(step)
+      const nx = node.x ?? cx
+      const ny = node.y ?? cy
+      targetView.current = { k, tx: cx - nx * k, ty: cy - ny * k }
       simRef.current?.sim.alpha(0.18).restart()
     }
     const t = setTimeout(() => tryFocus(5), 280)
     return () => {
       cancelled = true
       clearTimeout(t)
-      if (raf) cancelAnimationFrame(raf)
     }
   }, [focusedId, size.w, size.h, snapshot])
 
@@ -1066,43 +769,6 @@ function GraphCanvasInner({
     return visited
   }, [labelsMode, labelsDepth, focusedId, hoveredId, heroNodeId, adjacency, nodes])
 
-  /**
-   * Wave 2 — top-5 empresas per parent repartición.
-   *
-   * Spec: at depth ≥ 2, only show the label of the top 5 nodes by `weight`
-   * for each parent (parent = target of a hierarchical edge from this node).
-   * That keeps the radial tree readable: each repartición highlights its
-   * "main" providers without flooding the canvas with hundreds of
-   * tiny labels.
-   *
-   * Output: Set<string> of node ids whose label should always render.
-   */
-  const topPerParent = useMemo(() => {
-    const allowed = new Set<string>()
-    // Build child→parent (hierarchical only).
-    const childParent = new Map<string, string>()
-    edges.forEach((e) => {
-      if (!isHierarchicalEdge(e.kind)) return
-      const sId = endpointId(e.source)
-      const tId = endpointId(e.target)
-      if (!childParent.has(sId)) childParent.set(sId, tId)
-    })
-    // Bucket children by parent.
-    const buckets = new Map<string, NodeDatum[]>()
-    nodes.forEach((n) => {
-      const p = childParent.get(n.id)
-      if (!p) return
-      if (getNodeDepth(n) < 2) return
-      if (!buckets.has(p)) buckets.set(p, [])
-      buckets.get(p)!.push(n)
-    })
-    buckets.forEach((arr) => {
-      arr.sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0))
-      arr.slice(0, 5).forEach((n) => allowed.add(n.id))
-    })
-    return allowed
-  }, [edges, nodes])
-
   // ─── IMPERATIVE: focus/hover/highlight → mutar opacidad y labels ─────────
 
   useEffect(() => {
@@ -1120,20 +786,20 @@ function GraphCanvasInner({
       if (ref.labelEl) {
         const r0Base = nodeBaseRadius(n)
         const depth = getNodeDepth(n)
-        // Wave 2 — labels visibility por taxonomía:
+        // GAP 2: labels visibles by default cuando el nodo es estructural.
         //   - depth 0 (Estado raíz): SIEMPRE
         //   - depth 1 (Reparticiones): SIEMPRE
-        //   - depth 2+: SOLO top 5 by weight per parent (topPerParent)
+        //   - weight > 0.6: SIEMPRE (top empresas por monto)
         //   - severidad grave: SIEMPRE (alarmas)
-        //   - hover/focus/highlighted: aditivo (expande contexto)
+        // El comportamiento aditivo (focus/hover/expand) se preserva.
         const isStructural = depth <= 1
-        const isTopChild = topPerParent.has(id)
+        const isHeavy = (n.weight ?? 0) > 0.6
         const isAlarm = n.flags?.severidad === 'grave'
         const isLargeJ = n.type === 'jurisdiccion' && r0Base >= 18
         const inExpand = labelExpandSet ? labelExpandSet.has(id) : false
         const showLabel =
           isStructural ||
-          isTopChild ||
+          isHeavy ||
           isAlarm ||
           isHero ||
           isLargeJ ||
@@ -1161,8 +827,15 @@ function GraphCanvasInner({
       // GAP 6: edge raised opacity si la fuente o destino están hovered.
       const touchesHover = hoveredId != null && (sId === hoveredId || tId === hoveredId)
 
-      // Wave 2 — baseline opacity from styleForEdge (single source of truth).
-      const baseline = styleForEdge(e.kind, e.weight ?? 0.4).baseline
+      // GAP 1: baseline opacity por kind. Aristas jerárquicas (gano,
+      // pertenece_a, opera_en, tiene_director) deben ser visibles SIEMPRE
+      // — son el esqueleto del árbol. conflicto_con queda 0.65 (alarma roja).
+      // Otras kinds intermedias 0.22 (visibles, no dominantes).
+      const isHier = isHierarchicalEdge(e.kind)
+      let baseline: number
+      if (e.kind === 'conflicto_con') baseline = 0.65
+      else if (isHier) baseline = 0.5
+      else baseline = 0.22
 
       let op: number
       if (focusedId) {
@@ -1187,7 +860,7 @@ function GraphCanvasInner({
     // simRef.current vía `nodes`/`edges` cerrados arriba). Las deps
     // listadas representan los inputs reales de visibilidad/highlight.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusedId, hoveredId, highlighted, neighborSet, labelExpandSet, topPerParent, idle, heroNodeId])
+  }, [focusedId, hoveredId, highlighted, neighborSet, labelExpandSet, idle, heroNodeId])
 
   const handleHover = useCallback((id: string | null) => onHover(id), [onHover])
   const handleSelect = useCallback((id: string) => onSelect(id), [onSelect])
@@ -1269,10 +942,28 @@ function GraphCanvasInner({
             })}
           </g>
 
-          {/* edges-group — Wave 2: estilo semántico por kind via styleForEdge */}
+          {/* edges-group */}
           <g className="edges-group">
             {edges.map((e, i) => {
-              const style = styleForEdge(e.kind, e.weight ?? 0.4)
+              const stroke =
+                e.kind === 'conflicto_con' ? '#E5484D'
+                : e.kind === 'señalado_por' ? '#F5B544'
+                : e.kind === 'tiene_director' ? '#B79CFF'
+                : e.kind === 'dirige' ? '#FFAA5A'
+                : e.kind === 'trabaja_en' ? '#78C8C8'
+                : e.kind === 'es_la_misma_persona' ? '#B79CFF'
+                : e.kind === 'gano' ? '#9BA3B4'
+                : '#6FB8E8'
+              const sw = e.kind === 'conflicto_con'
+                ? 1.2 + (e.weight || 0.5) * 2.0
+                : 0.6 + (e.weight || 0.3) * 1.6
+              const dash = e.kind === 'conflicto_con' ? '4 3' : undefined
+              // Baseline strokeOpacity por kind (GAP 1). El imperative
+              // effect lo sobreescribe por focus/hover, esto es solo el
+              // estado de partida antes del primer tick del effect.
+              const baselineOp = e.kind === 'conflicto_con' ? 0.65
+                : isHierarchicalEdge(e.kind) ? 0.5
+                : 0.22
               return (
                 <path
                   key={i}
@@ -1280,91 +971,75 @@ function GraphCanvasInner({
                     if (el) edgeRefs.current[i] = { lineEl: el }
                   }}
                   fill="none"
-                  stroke={style.stroke}
-                  strokeWidth={style.width}
-                  strokeOpacity={style.baseline}
-                  strokeDasharray={style.dash}
+                  stroke={stroke}
+                  strokeWidth={sw}
+                  strokeOpacity={baselineOp}
+                  strokeDasharray={dash}
                   strokeLinecap="round"
-                  filter={style.glow ? 'url(#soft-glow)' : undefined}
                 />
               )
             })}
           </g>
 
-          {/* nodes-group — Wave 2: shapes by entity taxonomy (hexagon for
-              estado, rounded square for empresa, circle for persona,
-              diamond for documento, inverted triangle for señal) */}
+          {/* nodes-group */}
           <g className="nodes-group">
             {nodes.map((n, idx) => {
               const r0Base = nodeBaseRadius(n)
+              const c = colorFor(n)
               const sev: ArgosSeveridad | undefined = n.flags?.severidad
-              const entityType = nodeToEntityType(n)
-              const palette = getEntityColor(entityType, sev === 'moderada' ? 'moderada' : 'grave')
               const haloId =
                 sev === 'grave' ? 'halo-rojo'
                 : sev === 'moderada' ? 'halo-ambar'
                 : n.id === heroNodeId ? 'halo-celeste-hero'
                 : 'halo-celeste'
-              // Wave 2: nodeBaseRadius is treated as half-extent of the
-              // shape's bounding box. So the SVG path size = 2*r.
               const r = r0Base
-              const sizePx = r * 2
               const haloR = r * 4
               const initX = n.x ?? 0
               const initY = n.y ?? 0
               const depth = getNodeDepth(n)
 
-              const shape = getEntityShape(entityType, sizePx)
-              // Override fill/stroke for special legacy cases that need
-              // distinct visuals not covered by entity color palette.
-              let fill = palette.fill
-              let stroke = palette.stroke
-              let fillOp = 0.92
-              let strokeOp = 0.7
-              let strokeW = 1.5
-              if (n.type === 'proveedor' && !n.flags?.verificadoAfip) {
-                fillOp = 0.7
-                strokeOp = 0.5
+              let fill = c
+              let fillOp = 0.85
+              let strokeCol = c
+              let strokeOp = 0.28
+              let strokeW = 0.8
+              if (n.type === 'proveedor') {
+                if (n.flags?.verificadoAfip) {
+                  fill = '#FFFFFF'; fillOp = 0.92; strokeCol = '#FFFFFF'; strokeOp = 0.7
+                } else {
+                  fill = '#D8DEE9'; fillOp = 0.65; strokeCol = '#D8DEE9'; strokeOp = 0.4
+                }
               } else if (n.type === 'jurisdiccion') {
-                fillOp = 0.22
-                strokeW = 1.8
+                fillOp = 0.16
+                strokeW = 1.4
               } else if (n.type === 'contrato') {
-                fillOp = 0.5
-                strokeOp = 0.5
-              } else if (sev === 'grave') {
-                fill = 'var(--entity-senal-grave)'
-                stroke = 'var(--entity-senal-grave)'
-              } else if (sev === 'moderada') {
-                fill = 'var(--entity-senal-moderada)'
-                stroke = 'var(--entity-senal-moderada)'
+                fillOp = 0.10
+                strokeOp = 0.10
               }
 
-              // Wave 2: label truncation + styling per depth.
+              // GAP 5: label truncation y styling diferenciado por depth.
               const truncLen = depth <= 1 ? 32 : 24
               const labelText =
                 n.label.length > truncLen ? n.label.slice(0, truncLen - 2) + '…' : n.label
               const labelFontSize =
                 depth === 0 ? 13 : depth === 1 ? 12 : depth === 2 ? 10 : 9
               const labelFontWeight = depth <= 1 ? 600 : 500
-              // Wave 2: mono for CUIT/IDs, sans for institutional names.
-              const looksLikeId =
-                /^\d+$/.test(n.id) || /CUIT|cuit/.test(n.subtitle ?? '')
-              const labelFontFamily = looksLikeId ? 'var(--font-mono)' : 'var(--font-sans)'
               const labelFill = colorFor(n)
 
               // Premium touch B — glow para Estado raíz + top reparticiones.
               const applyGlow =
                 depth === 0 || (depth === 1 && (n.weight ?? 0) > 0.7)
 
-              // Wave 2: render Lucide icon overlay for depth ≤ 1 nodes
-              // (root + reparticiones) and important depth-2+ nodes
-              // (weight > 0.7). For smaller leaves, shape + color is enough.
-              const showIcon =
-                depth <= 1 || (n.weight ?? 0) > 0.7
-              const Icon = ICON_FOR_ENTITY[entityType]
-              const iconSize = Math.max(8, Math.round(sizePx * 0.5))
-
+              // Premium touch E — entry transition. Stagger por idx, max 600ms.
+              // Usamos CSS transition vía style + key dinámica del snapshot
+              // para reiniciar al cambiar nodos. La clase .node-entering
+              // arranca con opacity 0 y se anima a 1 vía CSS.
               const entryDelay = Math.min(idx * 20, 600)
+
+              // BLOCKER 1: solo aplicamos `node-entering` si el nodo aún
+              // no terminó su transición. El Set `enteredRef` se resetea
+              // al cambiar snapshot. En re-renders por hover/etc el nodo
+              // ya está marcado y NO recibe la clase, evitando flicker.
               const isEntering = !enteredRef.current.has(n.id)
               return (
                 <g
@@ -1383,6 +1058,10 @@ function GraphCanvasInner({
                       dotEl: el.querySelector('.dot'),
                       labelEl: el.querySelector('.node-label'),
                     })
+                    // Premium touch E — tras montar, removemos la clase
+                    // .node-entering en el siguiente frame y marcamos al
+                    // nodo como "ya entró" para evitar re-aplicación en
+                    // futuros renders. Idempotente.
                     if (isEntering) {
                       requestAnimationFrame(() => {
                         el.classList.remove('node-entering')
@@ -1392,10 +1071,14 @@ function GraphCanvasInner({
                   }}
                   onMouseEnter={(ev) => {
                     handleHover(n.id)
+                    // BLOCKER 2: la posición se mueve via RAF imperativo,
+                    // solo `hoveredTooltipId` toca React state (1 update
+                    // por enter/leave, no por pixel).
                     setHoveredTooltipId(n.id)
                     scheduleTooltipMove(ev.clientX, ev.clientY)
                   }}
                   onMouseMove={(ev) => {
+                    // BLOCKER 2: NO setState. RAF-batched, ref-driven.
                     if (hoveredTooltipId === n.id) {
                       scheduleTooltipMove(ev.clientX, ev.clientY)
                     }
@@ -1403,6 +1086,8 @@ function GraphCanvasInner({
                   onMouseLeave={() => {
                     handleHover(null)
                     setHoveredTooltipId(null)
+                    // Cancelar cualquier RAF pendiente para evitar que un
+                    // último move post-leave lo reposicione.
                     if (tooltipRafRef.current != null) {
                       cancelAnimationFrame(tooltipRafRef.current)
                       tooltipRafRef.current = null
@@ -1420,48 +1105,24 @@ function GraphCanvasInner({
                   }}
                 >
                   <circle className="halo" r={haloR} fill={`url(#${haloId})`} opacity="0" />
-                  {/* Subtle outline ring (separate from the shape so
-                      hover/focus glow can pulse without recomputing path). */}
                   <circle
                     className="ring"
-                    r={r + 3}
+                    r={r + 2}
                     fill="none"
-                    stroke={stroke}
-                    strokeOpacity={strokeOp * 0.4}
+                    stroke={strokeCol}
+                    strokeOpacity={strokeOp * 0.6}
                     strokeWidth={1}
                   />
-                  {/* Wave 2 — taxonomic shape from EntityIcon primitive.
-                      Path is generated centered on (size/2, size/2); we
-                      shift it by (-r, -r) so its center lands at (0,0). */}
-                  <g
+                  <circle
                     className="dot"
-                    transform={`translate(${-r},${-r})`}
+                    r={r}
+                    fill={fill}
+                    fillOpacity={fillOp}
+                    stroke={strokeCol}
+                    strokeWidth={strokeW}
+                    strokeOpacity={strokeOp}
                     filter={applyGlow ? 'url(#argos-glow)' : undefined}
-                  >
-                    <path
-                      d={shape.d}
-                      fill={fill}
-                      fillOpacity={fillOp}
-                      stroke={stroke}
-                      strokeWidth={strokeW}
-                      strokeOpacity={strokeOp}
-                    />
-                  </g>
-                  {/* Lucide icon overlay (centered) — only for important nodes. */}
-                  {showIcon && Icon && (
-                    <g
-                      transform={`translate(${-iconSize / 2},${-iconSize / 2})`}
-                      pointerEvents="none"
-                    >
-                      <Icon
-                        width={iconSize}
-                        height={iconSize}
-                        stroke="var(--text-primary)"
-                        strokeWidth={1.75}
-                        fill="none"
-                      />
-                    </g>
-                  )}
+                  />
                   <text
                     className="node-label"
                     y={r + 14}
@@ -1469,7 +1130,6 @@ function GraphCanvasInner({
                       display: 'none',
                       fontSize: `${labelFontSize}px`,
                       fontWeight: labelFontWeight,
-                      fontFamily: labelFontFamily,
                       fill: labelFill,
                       pointerEvents: 'none',
                     }}
