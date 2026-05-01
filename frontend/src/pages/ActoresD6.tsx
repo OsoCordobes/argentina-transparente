@@ -25,6 +25,7 @@ import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ArgosShell } from '@/components/argos/ArgosShell'
 import { FilterChip, Glyph } from '@/components/argos/forensic/Primitives'
+import { EmptyState, LoadingState, TierBadge } from '@/components/argos/primitives'
 import { useGraphSelection } from '@/hooks/useGraphSelection'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
@@ -356,13 +357,13 @@ export default function ActoresD6() {
 
           {/* Tabla densa */}
           {error && (
-            <div style={{ padding: 14, color: 'var(--alarm)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+            <div style={{ padding: 'var(--space-4)', color: 'var(--semantic-danger)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-base)' }}>
               Error: {error}
             </div>
           )}
           {loading && filteredItems.length === 0 && (
-            <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
-              cargando actores…
+            <div style={{ padding: 'var(--space-6)' }}>
+              <LoadingState mode="block" lines={4} label="Cargando actores" />
             </div>
           )}
           <div ref={tableScrollRef} style={{ flex: 1, overflow: 'auto' }}>
@@ -393,7 +394,7 @@ export default function ActoresD6() {
                   const isSelected = selection.isSelected(key)
                   const isHovered = selection.isHovered(key)
                   const bg = isSelected
-                    ? 'rgba(94,182,255,0.10)'
+                    ? 'color-mix(in srgb, var(--accent-secondary) 10%, transparent)'
                     : isHovered
                       ? 'var(--bg-forensic-2)'
                       : 'transparent'
@@ -431,8 +432,8 @@ export default function ActoresD6() {
                       <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, color: r.senalesActivas > 0 ? 'var(--alarm)' : 'var(--text-4)' }}>
                         {r.senalesActivas > 0 ? r.senalesActivas : '—'}
                       </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 9.5, color: r.verificada ? 'var(--ok)' : 'var(--warn)' }}>
-                        T{r.verificada ? 1 : 2}
+                      <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                        <TierBadge tier={r.verificada ? 1 : 2} size="sm" />
                       </td>
                       <td style={{ padding: '6px 8px', width: 28, textAlign: 'right' }}>
                         <button
@@ -470,12 +471,24 @@ export default function ActoresD6() {
                 })}
                 {filteredItems.length === 0 && !loading && (
                   <tr>
-                    <td colSpan={8} style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 12 }}>
-                      {items.length === 0
-                        ? (error
-                            ? `Sin datos: ${error}`
-                            : 'Sin datos del backend (puede que el servicio no haya respondido). Refresca para reintentar.')
-                        : 'Sin resultados con esos filtros.'}
+                    <td colSpan={8} style={{ padding: 0 }}>
+                      {items.length === 0 ? (
+                        <EmptyState
+                          eyebrow="ACTORES · 0 ENCONTRADOS"
+                          title={error ? 'Sin datos del backend' : 'Sin actores cargados'}
+                          body={
+                            error
+                              ? `El backend respondió con un error: ${error}`
+                              : 'El servicio no devolvió actores. Refrescá la página o revisá la conexión con el backend.'
+                          }
+                        />
+                      ) : (
+                        <EmptyState
+                          eyebrow={`ACTORES · 0 DE ${items.length}`}
+                          title="Sin resultados con esos filtros"
+                          body="Probá quitar filtros (tipo, jurisdicción, señales) para ampliar la búsqueda."
+                        />
+                      )}
                     </td>
                   </tr>
                 )}
@@ -562,11 +575,11 @@ function SubgrafoActores({
         const isHovered = hoveredKey === key
 
         // Selected gana sobre hovered. Selected: r * 1.4, fill solid, stroke 2.5px,
-        // brighter color (#7DC3FF), label always visible.
+        // brighter color (var(--accent-secondary)), label always visible.
         const r = isSelected ? baseR * 1.4 : baseR
-        const fill = isSelected ? '#7DC3FF' : baseFill
+        const fill = isSelected ? 'var(--accent-secondary)' : baseFill
         const fillOpacity = isSelected ? 1 : isHovered ? 1 : 0.7
-        const strokeColor = isSelected ? '#7DC3FF' : baseFill
+        const strokeColor = isSelected ? 'var(--accent-secondary)' : baseFill
         const strokeOpacity = isSelected ? 1 : isHovered ? 1 : 0.4
         const strokeWidth = isSelected ? 2.5 : isHovered ? 1.5 : 0.7
         const showLabel = isSelected || isHovered
@@ -611,7 +624,7 @@ function SubgrafoActores({
                 x={p.x + r + 6}
                 y={p.y + 3}
                 fill="var(--text-1)"
-                fontFamily="JetBrains Mono, monospace"
+                fontFamily="var(--font-mono)"
                 fontSize="9.5"
                 letterSpacing="0.04em"
                 style={{ pointerEvents: 'none' }}
