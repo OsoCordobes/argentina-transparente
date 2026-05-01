@@ -35,12 +35,24 @@ function zoomLevelOf(k: number): ZoomLevel {
 
 export function GraphEngine({
   snapshot,
+  layout: layoutKind = 'radial-cluster',
   selectedId,
   hoveredId: hoveredFromOutside,
   onSelect,
   onHover,
   onZoom,
 }: GraphEngineProps) {
+  // Code-quality review post-Task 12: el prop `layout` antes era ignorado
+  // (shadow naming con la const useMemo). Ahora lo recibimos como
+  // `layoutKind`. PR-1 solo soporta 'radial-cluster'; 'vertical-tree' es
+  // placeholder hasta layouts/vertical-tree.ts (futuro PR). Si llega un
+  // valor distinto, warneamos y caemos en radial.
+  if (layoutKind !== 'radial-cluster' && process.env.NODE_ENV !== 'production') {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[GraphEngine] layout="${layoutKind}" no implementado todavía; usando radial-cluster.`,
+    )
+  }
   const svgRef = useRef<SVGSVGElement>(null)
   const contentRef = useRef<SVGGElement>(null)
   const edgeRefs = useRef<Map<string, SVGPathElement>>(new Map())
@@ -75,7 +87,8 @@ export function GraphEngine({
     return () => ro.disconnect()
   }, [])
 
-  // Layout — recalc cuando snapshot o size cambia
+  // Layout — recalc cuando snapshot o size cambia. layoutKind incluido en
+  // deps para que un eventual switch a vertical-tree dispare recompute.
   const layout = useMemo(
     () =>
       computeRadialLayout({
@@ -85,7 +98,7 @@ export function GraphEngine({
         centerY: size.h / 2,
         maxRadius: Math.min(size.w, size.h) * 0.42,
       }),
-    [snapshot, size]
+    [snapshot, size, layoutKind]
   )
 
   // LOD — qué nodos renderizar según viewport + zoom
@@ -102,18 +115,25 @@ export function GraphEngine({
 
   // Sim de respiración — re-create on snapshot/layout change.
   // El tick fuerza re-render para que las nuevas posiciones se reflejen.
+  // Sim — re-create only when LAYOUT changes (snapshot or size).
+  // Antes dependía también de visibleNodes que cambia en cada zoom → sim
+  // se recreaba en cada wheel event causando churn. Fix: dependencia única
+  // de layout (que ya recomputa en snapshot+size) — visibleNodes solo afecta
+  // qué dibujamos, no la sim. Code-quality review post-Task 12 lo identificó
+  // como BLOCKER. Trade-off: si LOD recorta nodos, los recortados igual son
+  // simulados detrás de escena (no se ven). Aceptable: el cap es 300 max.
   const [tick, setTick] = useState(0)
   useEffect(() => {
     const reduceMotion =
       typeof window !== 'undefined' &&
       typeof window.matchMedia === 'function' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const sim = createBreathingSim(visibleNodes, layout.anchors, reduceMotion)
+    const sim = createBreathingSim(snapshot.nodes, layout.anchors, reduceMotion)
     sim.on('tick', () => setTick(t => t + 1))
     return () => {
       sim.stop()
     }
-  }, [layout, visibleNodes])
+  }, [layout, snapshot.nodes])
 
   // Position lookup — el sim mutó copias de los GraphNode pero no las visibles.
   // Para PR-1 usamos la posición ancla directamente; el "breathing" se hace
@@ -141,8 +161,12 @@ export function GraphEngine({
     },
   })
 
-  // Entry wave on first paint con snapshot válido
+  // Entry wave on first paint con snapshot válido.
+  // Code-quality review BLOCKER 2: fireEntryWave ahora retorna cancel() —
+  // lo guardamos y limpiamos en cleanup del effect para no leakear refs DOM
+  // si el componente se desmonta mid-wave (~1.5s window).
   const firstWaveRef = useRef(false)
+  const lastClickCancelRef = useRef<(() => void) | null>(null)
   useEffect(() => {
     if (firstWaveRef.current) return
     if (visibleEdges.length === 0) return
@@ -155,7 +179,8 @@ export function GraphEngine({
       arr.push(`${e.source}->${e.target}`)
       edgesByDepth.set(d, arr)
     }
-    fireEntryWave(edgeRefs.current, edgesByDepth)
+    const cancelWave = fireEntryWave(edgeRefs.current, edgesByDepth)
+    return cancelWave
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot])
 
@@ -224,7 +249,13 @@ export function GraphEngine({
               onClick={ev => {
                 ev.stopPropagation()
                 onSelect?.(n.id)
-                fireClickRipple(n.id, edgeRefs.current, adjacentEdgeIds(n.id))
+                // Cancel ripple anterior si todavía estaba corriendo.
+                lastClickCancelRef.current?.()
+                lastClickCancelRef.current = fireClickRipple(
+                  n.id,
+                  edgeRefs.current,
+                  adjacentEdgeIds(n.id),
+                )
               }}
             >
               <EntityNode
