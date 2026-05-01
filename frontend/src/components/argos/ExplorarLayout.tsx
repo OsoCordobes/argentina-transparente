@@ -954,7 +954,12 @@ function Header({
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 interface ExplorarLayoutProps {
-  graph: ArgosGraph
+  /**
+   * Grafo legacy (camino back-compat para Empresa/Persona profile pages).
+   * En el nuevo home (PR-1 grafo-premium) pasar `null` y proveer
+   * `children` que renderiza el GraphEngine vía HomeAdapter.
+   */
+  graph: ArgosGraph | null
   isLoading: boolean
   /**
    * Nodo a poner en foco al montar (ej. cuando el usuario aterriza en
@@ -965,9 +970,17 @@ interface ExplorarLayoutProps {
    *   - abre el NodeDetailPanel con la info del actor.
    */
   initialFocusedNodeId?: string
+  /**
+   * Slot para reemplazar el render legacy del canvas. Si está provisto,
+   * se renderiza dentro de `canvas-wrap` en lugar del `graph-wrap +
+   * hero + input-wrap + NodeDetailPanel` legacy (PR-1 grafo-premium).
+   * Cuando se pasa children, las loading/empty states las maneja el
+   * adapter inyectado, no este layout.
+   */
+  children?: React.ReactNode
 }
 
-export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: ExplorarLayoutProps) {
+export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId, children }: ExplorarLayoutProps) {
   const [s, dispatch] = useReducer(reducer, initialState)
   const inputRef = useRef<HTMLInputElement>(null)
   const [phIdx, setPhIdx] = useState(0)
@@ -998,8 +1011,12 @@ export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: Explo
   // Cargar grafo: SOLO desde el `graph` prop (real backend via /api/dashboard).
   // Si está vacío + !isLoading, mostramos empty state explícito en el render.
   // NUNCA caemos a fixtures sintéticos (CLAUDE.md §2).
+  // En el path nuevo (children provistos) el grafo legacy queda vacío — el
+  // adapter inyectado renderiza el GraphEngine con su propio estado.
   useEffect(() => {
-    dispatch({ t: 'GRAPH_LOADED', payload: graph })
+    if (graph) {
+      dispatch({ t: 'GRAPH_LOADED', payload: graph })
+    }
   }, [graph])
 
   // ─── Feature E — restore chat thread al montar (1 vez) ────────────────────
@@ -1315,7 +1332,8 @@ export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: Explo
   )
 
   // Loading inicial — backend cargando grafo real
-  if (isLoading && s.graph.nodes.length === 0) {
+  // (no aplica al path con children: HomeAdapter maneja su propio loading)
+  if (!children && isLoading && s.graph.nodes.length === 0) {
     return (
       <div className="app">
         <Onboarding />
@@ -1329,7 +1347,8 @@ export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: Explo
   }
 
   // Backend desconectado o sin datos — estado vacío explícito (cero alucinaciones)
-  if (!isLoading && s.graph.nodes.length === 0) {
+  // (no aplica al path con children: HomeAdapter maneja su propio empty state)
+  if (!children && !isLoading && s.graph.nodes.length === 0) {
     return (
       <div className="app">
         <Onboarding />
@@ -1394,7 +1413,11 @@ export function ExplorarLayout({ graph, isLoading, initialFocusedNodeId }: Explo
           lastVisitIso={lastVisit}
         />
 
-        {showGraph && (
+        {showGraph && children && (
+          <div className="canvas-wrap">{children}</div>
+        )}
+
+        {showGraph && !children && (
           <div className="canvas-wrap">
             <div
               className={`graph-wrap ${graphIdle ? 'graph-idle' : 'graph-awake'}`}
