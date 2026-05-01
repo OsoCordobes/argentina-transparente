@@ -132,9 +132,14 @@ export default function ActoresD6() {
 
   // Cuando la selección cambia desde el grafo, scrollear la fila correspondiente
   // a la vista. Si vino de la tabla, no hace falta (la fila ya está visible).
+  // Reset de lastSelectSource al final: el origin marker se consume exactamente
+  // una vez — evita scroll redundante si StrictMode o un parent re-render
+  // dispara el effect sin cambio real de selectedKey.
   useEffect(() => {
     if (!selectedKey) return
-    if (lastSelectSource.current !== 'graph') return
+    const source = lastSelectSource.current
+    lastSelectSource.current = null
+    if (source !== 'graph') return
     const container = tableScrollRef.current
     if (!container) return
     const row = container.querySelector(`[data-actor-key="${CSS.escape(selectedKey)}"]`)

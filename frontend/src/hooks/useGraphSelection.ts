@@ -24,7 +24,12 @@ export interface GraphSelectionState {
   selectedKey: string | null
   /** Item hover (transitorio). null = sin hover. */
   hoveredKey: string | null
-  /** Setea selección persistente. Pasar null para limpiar. */
+  /**
+   * Setea selección persistente. Comportamiento:
+   *   - `select(null)` limpia.
+   *   - `select(key)` con key distinta a la actual → cambia selección.
+   *   - `select(key)` con key igual a la actual → toggle (deselecciona).
+   */
   select: (key: string | null) => void
   /** Setea hover. Pasar null al salir. */
   hover: (key: string | null) => void
