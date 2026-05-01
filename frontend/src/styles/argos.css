@@ -909,6 +909,13 @@
   /* Graph svg */
   svg.graph{width:100%;height:100%;display:block;}
   .node{cursor:pointer;}
+  /* Premium touch E — entry transition. .node-entering arranca con opacity:0;
+     una vez removida (1 frame post-mount), el `transition` inline anima
+     0 → 1 con stagger por idx. Respetar prefers-reduced-motion. */
+  .node.node-entering{opacity:0;}
+  @media (prefers-reduced-motion: reduce){
+    .node.node-entering{opacity:1;}
+  }
   /* GPU pulse — replaces JS Math.sin per-frame */
   @keyframes node-pulse {
     0%   { transform: scale(1); }
