@@ -14,6 +14,7 @@
 import { Router, Request, Response } from 'express'
 import { getGrafoNucleo, expandirNodo, getGrafoStats, isGraphAvailable, listarConflictos } from '../lib/graph'
 import { getJerarquiaCordoba } from '../lib/grafo-jerarquia'
+import { getJerarquiaV2 } from '../lib/grafo-jerarquia-v2'
 
 const grafoRouter = Router()
 export default grafoRouter
@@ -27,6 +28,25 @@ grafoRouter.get('/nucleo', async (req: Request, res: Response) => {
   try {
     const grafo = await getGrafoNucleo({ limite, municipio })
     res.json({ ...grafo, graphAvailable: true })
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message })
+  }
+})
+
+// Jerarquía v2 — response depth-structured (depth0/1/2/3 separados).
+// Foundation del Wave PR-1 grafo premium: el frontend semantic-zoom
+// fetchea por nivel on-demand. Reusa getJerarquiaCordoba(), solo cambia
+// el shape de la respuesta. No reemplaza /jerarquia (legacy queda compat).
+grafoRouter.get('/jerarquia/v2', async (req: Request, res: Response) => {
+  const jurisdiccion = (() => {
+    const v = String(req.query.jurisdiccion ?? 'cordoba-capital')
+    return v === 'cordoba-capital' || v === 'cordoba-provincia' || v === 'all'
+      ? v
+      : 'cordoba-capital'
+  })() as 'cordoba-capital' | 'cordoba-provincia' | 'all'
+  try {
+    const grafo = await getJerarquiaV2({ jurisdiccion })
+    res.json(grafo)
   } catch (err) {
     res.status(500).json({ error: (err as Error).message })
   }
