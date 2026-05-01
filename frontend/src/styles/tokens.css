@@ -213,3 +213,43 @@
   /* Header */
   --header-h: 42px;
 }
+
+/* ─── PRIMITIVE ANIMATIONS ────────────────────────────────────────────────
+   Keyframes consumidas por componentes primitives (LoadingState shimmer,
+   EntityIcon pulse halo). Centralizadas acá para que las animations sean
+   también design tokens (no hardcodeadas en cada componente).
+
+   Respeto a prefers-reduced-motion: el block global más arriba
+   (animation-duration: 0.01ms !important) ya las neutraliza. */
+
+@keyframes argos-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes argos-pulse-halo {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 0;
+  }
+}
+
+@keyframes argos-dot-pulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(0.95);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
