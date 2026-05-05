@@ -24,6 +24,8 @@ import { HomeGraphInner } from './HomeGraphInner'
 import { GraphLegend } from './GraphLegend'
 import { GraphZoomControls } from './GraphZoomControls'
 import { NodeDetailPanel } from './NodeDetailPanel'
+import { GraphSearch } from './GraphSearch'
+import { GraphFilters } from './GraphFilters'
 
 const SIGMA_SETTINGS = {
   // Programs custom: borde para señales graves + curva para multi-edge.
@@ -104,7 +106,10 @@ export function HomeGraph() {
           onSelect={setSelectedId}
           onHover={setHoveredId}
         />
-        {/* Zoom controls usan useCamera — DEBEN vivir dentro del SigmaContainer */}
+        {/* Estos componentes usan hooks de sigma (useCamera, useSigma) —
+            DEBEN vivir dentro del SigmaContainer */}
+        <GraphFilters />
+        <GraphSearch onSelect={setSelectedId} />
         <GraphZoomControls />
       </SigmaContainer>
 
