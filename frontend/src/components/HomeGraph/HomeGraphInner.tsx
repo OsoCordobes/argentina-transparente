@@ -113,9 +113,12 @@ export function HomeGraphInner({ graph, selectedId, onSelect, onHover, detail }:
       defaultEdgeType: 'curve',
       // Render labels cuando el nodo está hovered/selected o cuando es grande
       renderLabels: true,
-      labelDensity: 0.07,
-      labelGridCellSize: 60,
-      labelRenderedSizeThreshold: 8,
+      // Densidad baja para no saturar al pasar de 200 nodos. Sigma elige
+      // labels priorizando por size — los nodos grandes (ministerios con
+      // mucho monto/empleados) ganan visibilidad.
+      labelDensity: 0.04,
+      labelGridCellSize: 90,
+      labelRenderedSizeThreshold: 11,
       labelFont: '"Geist", "Inter", system-ui, sans-serif',
       labelColor: { color: '#E5E7EB' },
       labelSize: 12,
