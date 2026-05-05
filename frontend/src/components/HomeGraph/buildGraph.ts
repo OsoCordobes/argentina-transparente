@@ -174,44 +174,183 @@ function edgeSize(kind: GraphEdgeAttrs['kind'], weight: number): number {
 export function buildGraph(data: MapaProvincialResponse): Graph<GraphNodeAttrs, GraphEdgeAttrs> {
   const graph = new Graph<GraphNodeAttrs, GraphEdgeAttrs>({ multi: true, type: 'directed' })
 
-  // ─── posicionamiento inicial dual-root ─────────────────────────────────
-  // Provincia gravita hacia el norte (y negativo), capital hacia el sur.
-  // FA2 después refina pero el sesgo se mantiene en la primer paint.
-  const N = data.nodes.length
-  const seenJur = new Map<'provincia' | 'capital', number>()
-  let provIdx = 0, capIdx = 0
-  const provCount = data.nodes.filter(n => n.jurisdiccion === 'provincia').length
-  const capCount = data.nodes.filter(n => n.jurisdiccion === 'capital').length
-  const otherCount = data.nodes.filter(n => n.jurisdiccion === null).length
+  // ═══════════════════════════════════════════════════════════════════════
+  // CLUSTER-AWARE LAYOUT
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // En lugar de dejar que ForceAtlas2 produzca un anillo uniforme, pre-
+  // posicionamos cada nodo en su "barrio" temático:
+  //
+  //   1. Provincia ocupa la mitad IZQUIERDA del canvas
+  //   2. Capital ocupa la mitad DERECHA
+  //   3. Cada ministerio (depth 1) es CENTRO de su propio cluster, posicionado
+  //      en arco vertical dentro de su jurisdicción
+  //   4. Cada empresa (depth 2) gravita hacia el ministerio donde tiene su
+  //      contrato más grande (heaviest contrata edge)
+  //   5. Cada dirección (depth 2) gravita hacia su ministerio inferido por
+  //      coincidencia de nombre — fallback: jurisdicción raíz
+  //   6. Cada persona (depth 3) hacia su reparticion
+  //
+  // FA2 después solo refina LOCALMENTE (slowDown muy alto) — no destruye
+  // los clusters porque las posiciones iniciales son muy estables.
 
-  function initialPosition(node: { id: string; type: string; depth: number; jurisdiccion: 'provincia' | 'capital' | null; weight: number }): { x: number; y: number } {
-    // Roots: provincia al norte (-y), capital al sur (+y)
-    if (node.type === 'jurisdiccion') {
-      return node.jurisdiccion === 'provincia' ? { x: 0, y: -8 } : { x: 0, y: 8 }
-    }
-    // Sin jurisdicción (empresas, personas) → centro inicial, FA2 las acomoda
-    if (!node.jurisdiccion) {
-      const i = otherCount > 0 ? (graph.order % otherCount) : 0
-      const angle = (i / Math.max(1, otherCount)) * 2 * Math.PI
-      return { x: Math.cos(angle) * 4, y: Math.sin(angle) * 4 }
-    }
-    // Ministerios/direcciones/organismos: distribuir en arco de 180° por jurisdicción
-    const idx = node.jurisdiccion === 'provincia' ? provIdx++ : capIdx++
-    const total = node.jurisdiccion === 'provincia' ? Math.max(1, provCount) : Math.max(1, capCount)
-    const baseY = node.jurisdiccion === 'provincia' ? -8 : 8
-    const r = node.depth === 1 ? 5 : node.depth === 2 ? 9 : 12
-    // Arco: -π → 0 (norte) o 0 → π (sur)
-    const t = (idx + 1) / (total + 1)
-    let angle: number
-    if (node.jurisdiccion === 'provincia') {
-      angle = -Math.PI + t * Math.PI  // -π hasta 0
+  // ─── Step 1: identificar cluster centers (ministerios + organismos) ───
+  const ministerios = data.nodes.filter(n => n.type === 'ministerio' || n.type === 'organismo')
+  const ministeriosByJur = {
+    provincia: ministerios.filter(m => m.jurisdiccion === 'provincia'),
+    capital: ministerios.filter(m => m.jurisdiccion === 'capital'),
+  }
+  // Ordenar por weight (más grandes primero) — los grandes quedan al medio
+  ministeriosByJur.provincia.sort((a, b) => b.weight - a.weight)
+  ministeriosByJur.capital.sort((a, b) => b.weight - a.weight)
+
+  // ─── Step 2: posicionar cluster centers en zonas separadas ────────────
+  // World units: definimos un canvas conceptual de 200x100. Provincia
+  // ocupa x=[-100, -10], Capital ocupa x=[+10, +100].
+  const PROV_CX = -55
+  const CAP_CX = +55
+  const HALF_HEIGHT = 50  // y va de -50 a +50 dentro de cada zona
+
+  const ministerioPos = new Map<string, { x: number; y: number }>()
+
+  function distributeMinisterios(
+    arr: typeof ministerios,
+    centerX: number,
+  ): void {
+    if (arr.length === 0) return
+    // Distribución en grid vertical: columna centrada, los grandes van más
+    // cerca del centro Y, los chicos hacia los bordes
+    const N = arr.length
+    arr.forEach((m, i) => {
+      // i=0 (más grande) → y=0; i=1,2 → y=±20; etc.
+      const ringIdx = Math.ceil((i + 1) / 2)
+      const sign = i % 2 === 0 ? 1 : -1
+      const ySlots = Math.ceil(N / 2)
+      const yStep = (HALF_HEIGHT * 2) / Math.max(1, ySlots * 2)
+      // Distribuir los ministerios en arco que los aleja del centro horizontal
+      const arcOffset = ringIdx * 6  // empuja hacia afuera
+      const xOffset = centerX > 0 ? +arcOffset : -arcOffset
+      const y = sign * ringIdx * yStep
+      ministerioPos.set(m.id, { x: centerX + xOffset, y })
+    })
+  }
+  distributeMinisterios(ministeriosByJur.provincia, PROV_CX)
+  distributeMinisterios(ministeriosByJur.capital, CAP_CX)
+
+  // ─── Step 3: para cada empresa, encontrar su ministerio principal ─────
+  // El primary cluster es el ministerio destino de la arista 'contrata' con
+  // mayor weight. Si una empresa contrata con 3 ministerios, gravita al de
+  // mayor monto.
+  const empresaPrimaryCluster = new Map<string, string>()
+  for (const e of data.edges) {
+    if (e.kind !== 'contrata') continue
+    const cur = empresaPrimaryCluster.get(e.source)
+    if (!cur) {
+      empresaPrimaryCluster.set(e.source, e.target)
     } else {
-      angle = t * Math.PI  // 0 hasta π
+      // Comparar weights — si esta arista es más grande, reemplaza
+      const curEdge = data.edges.find(ee => ee.source === e.source && ee.target === cur && ee.kind === 'contrata')
+      if (!curEdge || e.weight > curEdge.weight) {
+        empresaPrimaryCluster.set(e.source, e.target)
+      }
     }
-    return {
-      x: Math.cos(angle) * r,
-      y: baseY + Math.sin(angle) * r * 0.6,
+  }
+
+  // ─── Step 4: para direcciones, inferir ministerio padre por nombre ────
+  // Las direcciones del backend hangean de la jurisdicción raíz (no de un
+  // ministerio específico). Aplicamos una heurística por keyword:
+  //   "DIRECCIÓN DE EDUCACIÓN" → busca ministerio con "EDUCACI" en el nombre
+  function inferDireccionParent(label: string, jurisdiccion: 'provincia' | 'capital' | null): string | null {
+    if (!jurisdiccion) return null
+    const lbl = label.toLowerCase()
+    const candidates = ministeriosByJur[jurisdiccion]
+    // Stop words que no ayudan al match
+    const KEYWORDS: Record<string, string[]> = {
+      educacion: ['educac'],
+      salud: ['salud', 'sanit', 'hospital'],
+      seguridad: ['segurid', 'polic', 'penitenciar'],
+      desarrollo: ['desarrollo'],
+      ambiente: ['ambient', 'sostenib', 'sustent'],
+      economia: ['econom', 'finanz', 'tribut', 'hacienda'],
+      cultura: ['cultur', 'arte'],
+      transporte: ['transp', 'trans', 'movilid'],
+      gobernacion: ['gobern', 'jefatur', 'general'],
+      justicia: ['justici', 'derecho'],
+      trabajo: ['trabaj', 'empleo'],
+      vivienda: ['vivienda', 'habit'],
+      agricultura: ['agricultur', 'rural', 'ganader'],
+      industria: ['industr', 'comerc', 'produc'],
     }
+    for (const [, kws] of Object.entries(KEYWORDS)) {
+      const hitsLabel = kws.some(k => lbl.includes(k))
+      if (!hitsLabel) continue
+      // Buscar ministerio que también matchee
+      const match = candidates.find(m => kws.some(k => m.label.toLowerCase().includes(k)))
+      if (match) return match.id
+    }
+    return null
+  }
+
+  // ─── Step 5: función de posicionamiento por cluster ───────────────────
+  // Usamos hash determinista del id para el offset angular de cada hijo —
+  // así el layout es estable entre rebuilds (no random).
+  function hashFloat(s: string): number {
+    let h = 2166136261
+    for (let i = 0; i < s.length; i++) {
+      h = (h ^ s.charCodeAt(i)) >>> 0
+      h = Math.imul(h, 16777619) >>> 0
+    }
+    return (h % 10000) / 10000  // [0, 1)
+  }
+
+  function clusterCenter(jurId: 'provincia' | 'capital'): { x: number; y: number } {
+    return { x: jurId === 'provincia' ? PROV_CX : CAP_CX, y: 0 }
+  }
+
+  function initialPosition(node: { id: string; type: string; depth: number; jurisdiccion: 'provincia' | 'capital' | null; label: string }): { x: number; y: number } {
+    // Roots: jurisdicciones en posiciones fijas (centro de su mitad)
+    if (node.type === 'jurisdiccion') {
+      return clusterCenter(node.jurisdiccion ?? 'capital')
+    }
+    // Ministerios + organismos: posición pre-calculada
+    if (node.type === 'ministerio' || node.type === 'organismo') {
+      const pos = ministerioPos.get(node.id)
+      if (pos) return pos
+      // Fallback: centro de la jurisdicción + offset
+      const c = clusterCenter(node.jurisdiccion ?? 'capital')
+      return { x: c.x + (hashFloat(node.id) - 0.5) * 30, y: (hashFloat(node.id + '#y') - 0.5) * 60 }
+    }
+    // Empresas: gravita hacia su ministerio principal (heaviest contrata)
+    if (node.type === 'empresa') {
+      const cluster = empresaPrimaryCluster.get(node.id)
+      const center = cluster ? ministerioPos.get(cluster) : null
+      const fallback = node.jurisdiccion ? clusterCenter(node.jurisdiccion) : { x: 0, y: 0 }
+      const c = center ?? fallback
+      const angle = hashFloat(node.id) * 2 * Math.PI
+      const r = 4 + hashFloat(node.id + '#r') * 5
+      return { x: c.x + Math.cos(angle) * r, y: c.y + Math.sin(angle) * r }
+    }
+    // Direcciones: inferir parent por keyword, fallback jurisdicción
+    if (node.type === 'direccion') {
+      const inferred = inferDireccionParent(node.label, node.jurisdiccion)
+      const center = inferred ? ministerioPos.get(inferred) : null
+      const fallback = node.jurisdiccion ? clusterCenter(node.jurisdiccion) : { x: 0, y: 0 }
+      const c = center ?? fallback
+      const angle = hashFloat(node.id) * 2 * Math.PI
+      const r = 3 + hashFloat(node.id + '#r') * 3
+      return { x: c.x + Math.cos(angle) * r, y: c.y + Math.sin(angle) * r }
+    }
+    // Personas: si tienen reparticion ID en la primera arista trabaja_en, usar ese
+    // (no tenemos cluster directo aquí — las personas se quedan al lado de la
+    // jurisdicción, FA2 las acomodará por sus aristas)
+    if (node.type === 'persona' || node.type === 'empleado') {
+      const c = node.jurisdiccion ? clusterCenter(node.jurisdiccion) : { x: 0, y: 0 }
+      const angle = hashFloat(node.id) * 2 * Math.PI
+      const r = 8 + hashFloat(node.id + '#r') * 6
+      return { x: c.x + Math.cos(angle) * r, y: c.y + Math.sin(angle) * r }
+    }
+    // Default fallback
+    return { x: 0, y: 0 }
   }
 
   // ─── INSERT NODES ─────────────────────────────────────────────────────

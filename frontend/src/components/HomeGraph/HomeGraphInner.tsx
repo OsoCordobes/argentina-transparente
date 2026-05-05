@@ -20,6 +20,7 @@ import {
 } from '@react-sigma/core'
 import FA2LayoutSupervisor from 'graphology-layout-forceatlas2/worker'
 import forceAtlas2 from 'graphology-layout-forceatlas2'
+import noverlap from 'graphology-layout-noverlap'
 import type Graph from 'graphology'
 import type { MapaDetail } from '@/lib/queries'
 import type { GraphNodeAttrs, GraphEdgeAttrs } from './buildGraph'
@@ -46,54 +47,66 @@ export function HomeGraphInner({ graph, selectedId, onSelect, onHover, detail }:
     loadGraph(graph)
   }, [graph, loadGraph])
 
-  // 2) Layout: FA2 con settings sintonizadas para 200-500 nodos + dual-root.
-  //    La idea: posiciones iniciales (asignadas en buildGraph) ya separan
-  //    provincia (norte) de capital (sur); FA2 sólo refina sin destruir
-  //    la separación geográfica. linLogMode atrae más a clusters densos
-  //    (ministerios + sus empresas se compactan).
+  // 2) Layout: pre-posicionamiento por cluster ya viene de buildGraph.
+  //    FA2 sólo refina LOCALMENTE (slowDown alto, scalingRatio bajo).
+  //    noverlap pasa al final para limpiar overlaps sin destruir clusters.
   useEffect(() => {
     if (!graph || graph.order === 0) return
-    // Pre-warm: ~400 iteraciones síncronas para asentar las fuerzas en
-    // grafos más densos.
+
+    // 2.a — FA2 light: 80 iteraciones para ajustar posiciones manteniendo
+    //       la estructura cluster. NO usamos linLogMode (causa colapso
+    //       cuando los clusters están bien separados).
     forceAtlas2.assign(graph, {
-      iterations: 400,
+      iterations: 80,
       settings: {
-        gravity: 0.4,           // baja para no aplastar todo al centro
-        scalingRatio: 32,       // separa más los clusters
-        slowDown: 6,
+        gravity: 0.05,           // muy baja — los clusters ya están en posición
+        scalingRatio: 4,         // bajo — apenas separa
+        slowDown: 50,            // alto — movimiento mínimo
         barnesHutOptimize: true,
         adjustSizes: true,
-        outboundAttractionDistribution: true,
-        edgeWeightInfluence: 1.2,
-        linLogMode: true,       // clusters densos se atraen más fuerte
-        strongGravityMode: false,
+        edgeWeightInfluence: 0.5,
+        linLogMode: false,
       },
       getEdgeWeight: 'weight',
     })
 
-    // Worker continuo — micro-movimiento que mantiene la sensación de vida.
+    // 2.b — noverlap: limpia overlaps sin re-arrange global. Esencial para
+    //       que los nodos del mismo cluster no se superpongan.
+    noverlap.assign(graph, {
+      maxIterations: 100,
+      settings: {
+        margin: 1.5,
+        ratio: 1.0,
+        speed: 3,
+      },
+    })
+
+    // 2.c — Sigma refresh para reflejar las nuevas posiciones
+    sigma.refresh()
+
+    // 2.d — Worker continuo MUY suave para "respiración" sutil sin
+    //       reordenar. Auto-pausa rápido (3s) para que la lectura sea
+    //       estable después.
     const supervisor = new FA2LayoutSupervisor(graph, {
       settings: {
-        gravity: 0.4,
-        scalingRatio: 32,
-        slowDown: 30,            // muy lento — sólo correcciones sutiles
+        gravity: 0.05,
+        scalingRatio: 4,
+        slowDown: 80,
         barnesHutOptimize: true,
         adjustSizes: true,
-        edgeWeightInfluence: 1.2,
-        linLogMode: true,
+        edgeWeightInfluence: 0.5,
+        linLogMode: false,
       },
       getEdgeWeight: 'weight',
     })
     supervisor.start()
-    // Auto-pausa después de 8s. El usuario aún ve micro-movimiento al cargar
-    // y tras eso queda estático hasta que filtre/expanda.
-    const stopTimer = setTimeout(() => supervisor.stop(), 8000)
+    const stopTimer = setTimeout(() => supervisor.stop(), 3000)
 
     return () => {
       clearTimeout(stopTimer)
       supervisor.kill()
     }
-  }, [graph])
+  }, [graph, sigma])
 
   // 3) Registrar event handlers
   useEffect(() => {
