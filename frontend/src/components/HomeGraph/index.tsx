@@ -17,7 +17,7 @@ import EdgeCurveProgram from '@sigma/edge-curve'
 import { NodeBorderProgram } from '@sigma/node-border'
 import '@react-sigma/core/lib/style.css'
 
-import { useMapaProvincial } from '@/lib/queries'
+import { useMapaProvincial, type MapaDetail } from '@/lib/queries'
 import { LoadingState, ErrorState, EmptyState } from '@/components/argos/primitives'
 import { buildGraph, ENTITY_COLORS, type GraphNodeAttrs, type GraphEdgeAttrs } from './buildGraph'
 import { HomeGraphInner } from './HomeGraphInner'
@@ -26,6 +26,10 @@ import { GraphZoomControls } from './GraphZoomControls'
 import { NodeDetailPanel } from './NodeDetailPanel'
 import { GraphSearch } from './GraphSearch'
 import { GraphFilters } from './GraphFilters'
+import { SemanticZoomController } from './SemanticZoomController'
+import { GraphOnboarding } from './GraphOnboarding'
+import { BackgroundParticles } from './BackgroundParticles'
+import { TerritoryBackdrop } from './TerritoryBackdrop'
 
 const SIGMA_SETTINGS = {
   // Programs custom: borde para señales graves + curva para multi-edge.
@@ -46,7 +50,8 @@ const SIGMA_SETTINGS = {
 }
 
 export function HomeGraph() {
-  const query = useMapaProvincial({ detail: 'meso', jurisdiccion: 'ambas' })
+  const [detail, setDetail] = useState<MapaDetail>('meso')
+  const query = useMapaProvincial({ detail, jurisdiccion: 'ambas' })
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
 
@@ -92,6 +97,10 @@ export function HomeGraph() {
         overflow: 'hidden',
       }}
     >
+      {/* Capa de profundidad — atrás de todo */}
+      <BackgroundParticles />
+      <TerritoryBackdrop />
+
       <SigmaContainer<GraphNodeAttrs, GraphEdgeAttrs>
         style={{
           width: '100%',
@@ -105,9 +114,11 @@ export function HomeGraph() {
           selectedId={selectedId}
           onSelect={setSelectedId}
           onHover={setHoveredId}
+          detail={detail}
         />
         {/* Estos componentes usan hooks de sigma (useCamera, useSigma) —
             DEBEN vivir dentro del SigmaContainer */}
+        <SemanticZoomController detail={detail} setDetail={setDetail} />
         <GraphFilters />
         <GraphSearch onSelect={setSelectedId} />
         <GraphZoomControls />
@@ -130,27 +141,41 @@ export function HomeGraph() {
         onClose={() => setSelectedId(null)}
       />
 
-      {/* Hint cuando no hay selección y no hay hover — muy sutil */}
-      {!selectedId && !hoveredId && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            color: 'rgba(229, 231, 235, 0.32)',
-            fontFamily: 'var(--font-mono, monospace)',
-            fontSize: 11,
-            letterSpacing: '0.18em',
-            textTransform: 'uppercase',
-            pointerEvents: 'none',
-            zIndex: 1,
-            textShadow: '0 0 12px rgba(0,0,0,0.6)',
-          }}
-        >
-          Hover · Click · Scroll
-        </div>
-      )}
+      {/* Detail level pill — center bottom, sutil */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 18,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(15, 22, 38, 0.78)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          border: '1px solid rgba(148, 163, 184, 0.18)',
+          borderRadius: 14,
+          padding: '6px 16px',
+          color: '#94A3B8',
+          fontFamily: '"Geist Mono", monospace',
+          fontSize: 9.5,
+          letterSpacing: '0.18em',
+          textTransform: 'uppercase',
+          zIndex: 90,
+          pointerEvents: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+        }}
+      >
+        <span style={{
+          width: 6, height: 6, borderRadius: '50%',
+          background: detail === 'macro' ? '#94A3B8' : detail === 'meso' ? '#4FC3F7' : '#FFB74D',
+          boxShadow: detail === 'meso' ? '0 0 6px #4FC3F7' : detail === 'deep' ? '0 0 6px #FFB74D' : 'none',
+        }} />
+        vista {detail} · {query.data?.meta.totalNodos ?? 0} nodos
+      </div>
+
+      {/* Onboarding modal (first load) */}
+      <GraphOnboarding />
     </div>
   )
 }

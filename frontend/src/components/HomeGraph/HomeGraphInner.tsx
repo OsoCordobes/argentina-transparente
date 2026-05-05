@@ -21,6 +21,7 @@ import {
 import FA2LayoutSupervisor from 'graphology-layout-forceatlas2/worker'
 import forceAtlas2 from 'graphology-layout-forceatlas2'
 import type Graph from 'graphology'
+import type { MapaDetail } from '@/lib/queries'
 import type { GraphNodeAttrs, GraphEdgeAttrs } from './buildGraph'
 
 interface Props {
@@ -28,9 +29,10 @@ interface Props {
   selectedId: string | null
   onSelect: (id: string | null) => void
   onHover: (id: string | null) => void
+  detail: MapaDetail
 }
 
-export function HomeGraphInner({ graph, selectedId, onSelect, onHover }: Props) {
+export function HomeGraphInner({ graph, selectedId, onSelect, onHover, detail }: Props) {
   const sigma = useSigma()
   const loadGraph = useLoadGraph()
   const registerEvents = useRegisterEvents()
@@ -134,14 +136,27 @@ export function HomeGraphInner({ graph, selectedId, onSelect, onHover }: Props) 
 
         // Filtros / oculto: cae a opacity baja
         if (data.hidden) {
-          next.color = withAlpha(data.color, 0.08)
+          next.color = withAlpha(data.color, 0.06)
           next.label = ''
           return next
         }
 
+        // ─── Detail-level visibility ──────────────────────────────────
+        // En MACRO: depth 0+1 plenos; depth 2 al 30%; depth 3 oculto
+        // En MESO: depth 0+1+2 plenos; depth 3 al 25%
+        // En DEEP: todo pleno
+        if (detail === 'macro' && data.depth >= 2) {
+          next.color = withAlpha(data.color, data.depth === 2 ? 0.30 : 0)
+          next.label = ''
+          if (data.depth === 3) return next
+        } else if (detail === 'meso' && data.depth === 3) {
+          next.color = withAlpha(data.color, 0.25)
+          next.label = ''
+        }
+
         // CUIT no verificado → un poco más translúcido
         if (!data.cuitVerificado) {
-          next.color = withAlpha(data.color, 0.7)
+          next.color = withAlpha((next.color as string) ?? data.color, 0.7)
         }
 
         // Hover / selected
@@ -205,12 +220,12 @@ export function HomeGraphInner({ graph, selectedId, onSelect, onHover }: Props) 
         return next
       },
     })
-  }, [setSettings, hoveredId, selectedId, graph])
+  }, [setSettings, hoveredId, selectedId, graph, detail])
 
   // Notificar a sigma que el reducer cambió — fuerza re-render.
   useEffect(() => {
     sigma.refresh()
-  }, [hoveredId, selectedId, sigma])
+  }, [hoveredId, selectedId, detail, sigma])
 
   return null
 }

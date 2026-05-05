@@ -23,7 +23,10 @@ for (const route of ROUTES) {
   const page = await browser.newPage()
   await page.setViewport(VIEWPORT)
   await page.evaluateOnNewDocument(() => {
-    try { localStorage.setItem('argos.onboarding_seen.v1', '1') } catch {}
+    try {
+      localStorage.setItem('argos.onboarding_seen.v1', '1')
+      localStorage.setItem('argos.onboarding.mapa.v1', '1')
+    } catch {}
   })
   const consoleErrors = []
   page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()) })
