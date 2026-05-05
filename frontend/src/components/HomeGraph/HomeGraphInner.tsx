@@ -53,31 +53,31 @@ export function HomeGraphInner({ graph, selectedId, onSelect, onHover, detail }:
   useEffect(() => {
     if (!graph || graph.order === 0) return
 
-    // 2.a — FA2 light: 80 iteraciones para ajustar posiciones manteniendo
-    //       la estructura cluster. NO usamos linLogMode (causa colapso
-    //       cuando los clusters están bien separados).
+    // 2.a — FA2 mínimo: 30 iteraciones para ajustar levemente. Las
+    //       posiciones por cluster (de buildGraph) son la fuente de verdad;
+    //       FA2 sólo elimina micro-superposiciones sin mover los clusters.
     forceAtlas2.assign(graph, {
-      iterations: 80,
+      iterations: 30,
       settings: {
-        gravity: 0.05,           // muy baja — los clusters ya están en posición
-        scalingRatio: 4,         // bajo — apenas separa
-        slowDown: 50,            // alto — movimiento mínimo
+        gravity: 0.02,           // casi nada de pull al centro
+        scalingRatio: 2,
+        slowDown: 100,           // muy alto = movimiento mínimo
         barnesHutOptimize: true,
         adjustSizes: true,
-        edgeWeightInfluence: 0.5,
+        edgeWeightInfluence: 0.3,
         linLogMode: false,
       },
       getEdgeWeight: 'weight',
     })
 
-    // 2.b — noverlap: limpia overlaps sin re-arrange global. Esencial para
-    //       que los nodos del mismo cluster no se superpongan.
+    // 2.b — noverlap más agresivo. Es el que más ayuda con clusters densos
+    //       (Capital tiene 100+ empresas alrededor de pocas reparticiones).
     noverlap.assign(graph, {
-      maxIterations: 100,
+      maxIterations: 200,
       settings: {
-        margin: 1.5,
-        ratio: 1.0,
-        speed: 3,
+        margin: 2.5,
+        ratio: 1.2,
+        speed: 5,
       },
     })
 
@@ -126,12 +126,12 @@ export function HomeGraphInner({ graph, selectedId, onSelect, onHover, detail }:
       defaultEdgeType: 'curve',
       // Render labels cuando el nodo está hovered/selected o cuando es grande
       renderLabels: true,
-      // Densidad baja para no saturar al pasar de 200 nodos. Sigma elige
-      // labels priorizando por size — los nodos grandes (ministerios con
-      // mucho monto/empleados) ganan visibilidad.
-      labelDensity: 0.04,
-      labelGridCellSize: 90,
-      labelRenderedSizeThreshold: 11,
+      // Densidad muy baja — sólo mostramos labels de nodos GRANDES
+      // (jurisdicciones + ministerios prominentes). Reduce drásticamente
+      // el ruido visual con 268+ nodos.
+      labelDensity: 0.025,
+      labelGridCellSize: 130,
+      labelRenderedSizeThreshold: 14,
       labelFont: '"Geist", "Inter", system-ui, sans-serif',
       labelColor: { color: '#E5E7EB' },
       labelSize: 12,

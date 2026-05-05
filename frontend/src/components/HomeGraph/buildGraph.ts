@@ -133,8 +133,9 @@ function nodeColor(t: GraphNodeAttrs['entityType'], jur: 'provincia' | 'capital'
 }
 
 function nodeSize(n: { entityType: string; weight: number; depth: number; monto: number; empleados: number }): number {
-  const base = n.depth === 0 ? 22 : n.depth === 1 ? 14 : n.depth === 2 ? 8 : 5
-  const range = n.depth === 0 ? 14 : n.depth === 1 ? 14 : n.depth === 2 ? 8 : 4
+  // Tamaños bumped para que la jerarquía depth-base sea más legible visualmente
+  const base = n.depth === 0 ? 28 : n.depth === 1 ? 16 : n.depth === 2 ? 7 : 5
+  const range = n.depth === 0 ? 18 : n.depth === 1 ? 18 : n.depth === 2 ? 7 : 4
   return base + n.weight * range
 }
 
