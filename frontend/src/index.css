@@ -1,3 +1,11 @@
+/* CRÍTICO: los @import deben venir ANTES de cualquier otra regla CSS,
+   incluyendo @tailwind. Si no, el navegador (y PostCSS Import) los
+   ignoran silenciosamente y todas las custom properties (--surface-base,
+   --entity-estado, --font-sans, etc.) quedan undefined → todo el grafo
+   renderiza fill=black sobre bg=black. */
+@import './styles/tokens.css';
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Source+Serif+4:wght@400;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,19 +13,6 @@
 /* Argentina Transparente - Design System
    Civic transparency portal - Professional, neutral, accessible
    All colors in HSL format */
-
-/* Importar tokens.css PRIMERO — establece variables CSS canónicas
-   (surface-*, text-*, entity-*, motion-*, etc.) que el resto de CSS
-   y componentes consumen. Ver docs/PLAN-LAUNCH-V2.md. */
-@import './styles/tokens.css';
-
-/*
- * Geist Sans + Geist Mono — pair distintivo de herramienta forense.
- * Geist (Vercel, gratis) reemplaza a Inter como font primaria por ser
- * distintivo y diseñado para data-density UIs. Inter + JetBrains queda
- * como fallback. Source Serif 4 se conserva para PDFs de denuncia formal.
- */
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Source+Serif+4:wght@400;600&display=swap');
 
 @layer base {
   :root {
