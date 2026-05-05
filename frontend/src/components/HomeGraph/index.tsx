@@ -15,7 +15,13 @@ import { useMemo, useState } from 'react'
 import { SigmaContainer } from '@react-sigma/core'
 import EdgeCurveProgram from '@sigma/edge-curve'
 import { NodeBorderProgram } from '@sigma/node-border'
+import { createNodeImageProgram } from '@sigma/node-image'
 import '@react-sigma/core/lib/style.css'
+
+import { precomputeAllSprites } from './sprites'
+
+// Pre-genera sprites una sola vez al cargar el módulo.
+precomputeAllSprites()
 
 import { useMapaProvincial, type MapaDetail } from '@/lib/queries'
 import { LoadingState, ErrorState, EmptyState } from '@/components/argos/primitives'
@@ -31,10 +37,23 @@ import { GraphOnboarding } from './GraphOnboarding'
 import { BackgroundParticles } from './BackgroundParticles'
 import { TerritoryBackdrop } from './TerritoryBackdrop'
 
+// Programa custom: pictograma con imagen DENTRO del círculo coloreado.
+// `keepWithinCircle: true` clip el icono al círculo, `drawingMode: 'background'`
+// usa node.color como fill del círculo y node.image como glyph centrado.
+const PictogramProgram = createNodeImageProgram({
+  keepWithinCircle: true,
+  drawingMode: 'background',
+  padding: 0.18,
+  colorAttribute: 'color',
+  imageAttribute: 'image',
+})
+
 const SIGMA_SETTINGS = {
-  // Programs custom: borde para señales graves + curva para multi-edge.
-  defaultNodeType: 'border',
+  // Default = pictogram (todos los nodos tienen image asignado en buildGraph).
+  // Border se reserva para nodos con señal grave/moderada (override por nodo).
+  defaultNodeType: 'pictogram',
   nodeProgramClasses: {
+    pictogram: PictogramProgram,
     border: NodeBorderProgram,
   },
   defaultEdgeType: 'curve',
@@ -44,7 +63,6 @@ const SIGMA_SETTINGS = {
   // Visual baseline
   renderEdgeLabels: false,
   allowInvalidContainer: true,
-  // Sigma color por defecto si un atributo falla — mejor visible que invisible
   defaultNodeColor: '#475569',
   defaultEdgeColor: '#334155',
 }

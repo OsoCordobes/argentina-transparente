@@ -9,6 +9,7 @@
 
 import Graph from 'graphology'
 import type { MapaProvincialResponse } from '@/lib/queries'
+import { getSprite } from './sprites'
 
 // ═══════════════════════════════════════════════════════════════════════
 // PALETA — todos los colores hex resueltos en JS para que sigma los
@@ -75,6 +76,7 @@ export interface GraphNodeAttrs {
   label: string
   // sigma program
   type?: string
+  image?: string  // data URL del sprite Lucide (Phase D)
   // metadata propia
   entityType: 'jurisdiccion' | 'ministerio' | 'direccion' | 'organismo' | 'empresa' | 'persona' | 'empleado'
   jurisdiccion: 'provincia' | 'capital' | null
@@ -234,7 +236,9 @@ export function buildGraph(data: MapaProvincialResponse): Graph<GraphNodeAttrs, 
       size,
       color: cuitVerificado ? color : applyAlpha(color, 0.65),
       label: n.label,
-      type: 'border',  // node-border program para halos en señales
+      // 'pictogram' = node-image program con borde y halo de señal grave/moderada.
+      type: 'pictogram',
+      image: getSprite({ type: n.type, jurisdiccion: n.jurisdiccion }),
       entityType: n.type,
       jurisdiccion: n.jurisdiccion,
       depth: n.depth,
