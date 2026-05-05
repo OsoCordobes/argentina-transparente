@@ -122,6 +122,11 @@ export function HomeGraph() {
         <GraphFilters />
         <GraphSearch onSelect={setSelectedId} />
         <GraphZoomControls />
+        {/* NodeDetailPanel también usa useSigma (para leer graph) */}
+        <NodeDetailPanel
+          node={selectedNode}
+          onClose={() => setSelectedId(null)}
+        />
       </SigmaContainer>
 
       {/* Overlays externos al canvas (no requieren sigma context) */}
@@ -133,12 +138,6 @@ export function HomeGraph() {
           empleadosTotal: query.data?.meta.empleadosTotal ?? 0,
           porTipo: query.data?.meta.porTipo ?? {},
         }}
-      />
-
-      {/* Panel detalle del nodo seleccionado */}
-      <NodeDetailPanel
-        node={selectedNode}
-        onClose={() => setSelectedId(null)}
       />
 
       {/* Detail level pill — center bottom, sutil */}
