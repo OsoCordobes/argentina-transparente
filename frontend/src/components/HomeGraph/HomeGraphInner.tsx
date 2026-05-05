@@ -44,41 +44,48 @@ export function HomeGraphInner({ graph, selectedId, onSelect, onHover }: Props) 
     loadGraph(graph)
   }, [graph, loadGraph])
 
-  // 2) Pre-asentar layout con FA2 sincrónico unas iteraciones para arrancar
-  //    desde un estado decente, después dejar el supervisor corriendo en
-  //    worker para que las relaciones "respiren".
+  // 2) Layout: FA2 con settings sintonizadas para 200-500 nodos + dual-root.
+  //    La idea: posiciones iniciales (asignadas en buildGraph) ya separan
+  //    provincia (norte) de capital (sur); FA2 sólo refina sin destruir
+  //    la separación geográfica. linLogMode atrae más a clusters densos
+  //    (ministerios + sus empresas se compactan).
   useEffect(() => {
     if (!graph || graph.order === 0) return
-    // Pre-warm: 200 iteraciones síncronas. Es el "explosion" inicial.
+    // Pre-warm: ~400 iteraciones síncronas para asentar las fuerzas en
+    // grafos más densos.
     forceAtlas2.assign(graph, {
-      iterations: 200,
+      iterations: 400,
       settings: {
-        gravity: 0.6,
-        scalingRatio: 18,
-        slowDown: 4,
+        gravity: 0.4,           // baja para no aplastar todo al centro
+        scalingRatio: 32,       // separa más los clusters
+        slowDown: 6,
         barnesHutOptimize: true,
         adjustSizes: true,
         outboundAttractionDistribution: true,
-        edgeWeightInfluence: 1,
+        edgeWeightInfluence: 1.2,
+        linLogMode: true,       // clusters densos se atraen más fuerte
+        strongGravityMode: false,
       },
       getEdgeWeight: 'weight',
     })
 
-    // Worker continuo — micro-movimiento que hace que el grafo se sienta vivo.
+    // Worker continuo — micro-movimiento que mantiene la sensación de vida.
     const supervisor = new FA2LayoutSupervisor(graph, {
       settings: {
-        gravity: 0.6,
-        scalingRatio: 18,
-        slowDown: 18,
+        gravity: 0.4,
+        scalingRatio: 32,
+        slowDown: 30,            // muy lento — sólo correcciones sutiles
         barnesHutOptimize: true,
         adjustSizes: true,
-        edgeWeightInfluence: 1,
+        edgeWeightInfluence: 1.2,
+        linLogMode: true,
       },
       getEdgeWeight: 'weight',
     })
     supervisor.start()
-    // Auto-pausa después de 6s para no quemar CPU si el usuario no interactúa.
-    const stopTimer = setTimeout(() => supervisor.stop(), 6000)
+    // Auto-pausa después de 8s. El usuario aún ve micro-movimiento al cargar
+    // y tras eso queda estático hasta que filtre/expanda.
+    const stopTimer = setTimeout(() => supervisor.stop(), 8000)
 
     return () => {
       clearTimeout(stopTimer)

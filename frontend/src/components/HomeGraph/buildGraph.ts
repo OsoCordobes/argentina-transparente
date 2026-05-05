@@ -1,43 +1,71 @@
 // frontend/src/components/HomeGraph/buildGraph.ts
 //
-// Pure adapter: response de /api/grafo/jerarquia/v2 → instancia Graphology.
+// Pure adapter: response de /api/grafo/mapa-provincial → instancia
+// Graphology con encoding visual completo data-driven.
 //
-// Responsabilidades:
-//   1. Aplanar los 4 niveles de depth en un único Graph.
-//   2. Calcular encoding visual a partir de los datos REALES (monto,
-//      contratos, weight, señales) — esto es lo que hace que el grafo
-//      "respire" la base de datos en lugar de ser geometría hardcodeada.
-//   3. Asignar posiciones iniciales (ForceAtlas2 las refina).
-//
-// Sin react, sin sigma — testeable como función pura.
+// 7 tipos de nodo + 8 tipos de arista. Layout dual-root: provincia
+// pre-posicionada al norte (y < 0), capital al sur (y > 0). FA2 refina
+// pero las posiciones iniciales preservan la lectura jurisdiccional.
 
 import Graph from 'graphology'
-import type { GrafoJerarquiaV2Response } from '@/lib/queries'
+import type { MapaProvincialResponse } from '@/lib/queries'
 
-// Tokens canónicos resueltos en JS para que sigma los reciba como strings
-// hex. Si tocás --entity-* en tokens.css, también tocá acá.
-export const ENTITY_COLORS = {
-  jurisdiccion: '#4A9EFF',  // Estado / Provincia
-  reparticion: '#22D3EE',   // Ministerios / Secretarías
-  empresa: '#F59E0B',       // Empresas / Proveedores
-  persona: '#A78BFA',       // Personas / Funcionarios / Directores
-  documento: '#94A3B8',     // Contratos / Documentos
+// ═══════════════════════════════════════════════════════════════════════
+// PALETA — todos los colores hex resueltos en JS para que sigma los
+// reciba como strings. Sincronizados con docs/superpowers/plans/2026-05-05.
+// ═══════════════════════════════════════════════════════════════════════
+
+export const COLORS = {
+  // Jurisdicciones (depth 0)
+  jurProvincia: '#4FC3F7',  // azul provincial
+  jurCapital:   '#FFB74D',  // amber capital
+
+  // Ministerios + secretarías (depth 1) — tono de su jurisdicción
+  ministerioProvincia: '#29B6F6',
+  ministerioCapital:   '#FFA726',
+
+  // Organismos descentralizados (depth 1, jurisdicción mixta)
+  organismo: '#A78BFA',
+
+  // Sub-niveles (depth 2)
+  direccion: '#94A3B8',  // gris neutro
+  empresa:   '#F59E0B',  // amber
+
+  // Personas (depth 3)
+  personaFuncionario: '#60A5FA',  // celeste
+  personaDirector:    '#C084FC',  // violet
+  empleado:           '#CBD5E1',  // gris muy claro
+
+  // Aristas — color por kind
+  edgeContiene:           'rgba(148, 163, 184, 0.20)',
+  edgeComparteJurisd:     'rgba(120, 144, 255, 0.55)',
+  edgeContrata:           '#F59E0B',
+  edgeTrabajaEn:          'rgba(203, 213, 225, 0.16)',
+  edgeDirige:             '#C084FC',
+  edgePreside:            '#60A5FA',
+  edgeConflicto:          '#EF4444',
+  edgeCompartedirector:   'rgba(192, 132, 252, 0.42)',
+
+  // Fallbacks
+  defaultNode: '#475569',
+  defaultEdge: 'rgba(71, 85, 105, 0.4)',
 } as const
 
-export const EDGE_COLORS = {
-  pertenece_a: '#1E3A8A',   // estructural, sutil
-  gano: '#F59E0B',          // contrato — color empresa
-  contrata: '#F59E0B',
-  dirige: '#A78BFA',        // dirección — color persona
-  conflicto_con: '#EF4444', // alarma
-  emite: '#22D3EE',         // emisión documental
-  default: '#475569',
-} as const
+// Para legend / detail panel
+export const ENTITY_COLORS: Record<string, string> = {
+  jurisdiccion: COLORS.jurProvincia,  // legend usa una representativa
+  ministerio: COLORS.ministerioCapital,
+  direccion: COLORS.direccion,
+  organismo: COLORS.organismo,
+  empresa: COLORS.empresa,
+  persona: COLORS.personaFuncionario,
+  empleado: COLORS.empleado,
+}
 
-export type EntityType = keyof typeof ENTITY_COLORS
-export type EdgeKind = keyof typeof EDGE_COLORS
+// ═══════════════════════════════════════════════════════════════════════
+// TIPOS — Graphology node/edge attrs
+// ═══════════════════════════════════════════════════════════════════════
 
-// Atributos que sigma lee directamente de los nodos
 export interface GraphNodeAttrs {
   // requeridos por sigma
   x: number
@@ -45,154 +73,210 @@ export interface GraphNodeAttrs {
   size: number
   color: string
   label: string
-  // sigma image program
+  // sigma program
   type?: string
-  image?: string
-  // metadata propia (sigma la ignora pero la usamos en hover/click)
-  entityType: EntityType
-  rawType: string
+  // metadata propia
+  entityType: 'jurisdiccion' | 'ministerio' | 'direccion' | 'organismo' | 'empresa' | 'persona' | 'empleado'
+  jurisdiccion: 'provincia' | 'capital' | null
+  depth: 0 | 1 | 2 | 3
   subtitle: string
   weight: number
-  depth: number
+  // datos crudos
   monto: number
   contratos: number
+  empleados: number
+  cuit: string | null
+  cuitVerificado: boolean
   hasGrave: boolean
   hasModerada: boolean
-  cuitVerificado: boolean
-  // visibility (filtros)
+  // hidden by filter
   hidden?: boolean
-  // borde (señal grave)
+  // borde para señales graves
   borderColor?: string
   borderSize?: number
+  // sub-attrs: para detail panel y reducers
+  rawData: Record<string, unknown>
 }
 
 export interface GraphEdgeAttrs {
   size: number
   color: string
-  type?: string  // 'curve' para multi-edge
-  kind: EdgeKind
+  type?: string
+  kind:
+    | 'contiene'
+    | 'comparte_jurisdiccion'
+    | 'contrata'
+    | 'trabaja_en'
+    | 'dirige'
+    | 'preside'
+    | 'conflicto_con'
+    | 'comparte_director'
   weight: number
   hidden?: boolean
 }
 
-/**
- * Construye un Graphology Graph a partir de la respuesta del backend.
- * El layout final lo aplica ForceAtlas2 — acá sólo damos posiciones
- * iniciales sensatas (depth0 al centro, resto en anillo) para que la
- * simulación arranque desde un estado no degenerado.
- */
-export function buildGraph(data: GrafoJerarquiaV2Response): Graph<GraphNodeAttrs, GraphEdgeAttrs> {
+// ═══════════════════════════════════════════════════════════════════════
+// ENCODING HELPERS
+// ═══════════════════════════════════════════════════════════════════════
+
+function nodeColor(t: GraphNodeAttrs['entityType'], jur: 'provincia' | 'capital' | null): string {
+  if (t === 'jurisdiccion') return jur === 'provincia' ? COLORS.jurProvincia : COLORS.jurCapital
+  if (t === 'ministerio') return jur === 'provincia' ? COLORS.ministerioProvincia : COLORS.ministerioCapital
+  if (t === 'organismo') return COLORS.organismo
+  if (t === 'direccion') return COLORS.direccion
+  if (t === 'empresa') return COLORS.empresa
+  if (t === 'persona') return COLORS.personaFuncionario
+  if (t === 'empleado') return COLORS.empleado
+  return COLORS.defaultNode
+}
+
+function nodeSize(n: { entityType: string; weight: number; depth: number; monto: number; empleados: number }): number {
+  const base = n.depth === 0 ? 22 : n.depth === 1 ? 14 : n.depth === 2 ? 8 : 5
+  const range = n.depth === 0 ? 14 : n.depth === 1 ? 14 : n.depth === 2 ? 8 : 4
+  return base + n.weight * range
+}
+
+function edgeColor(kind: GraphEdgeAttrs['kind']): string {
+  switch (kind) {
+    case 'contiene': return COLORS.edgeContiene
+    case 'comparte_jurisdiccion': return COLORS.edgeComparteJurisd
+    case 'contrata': return COLORS.edgeContrata
+    case 'trabaja_en': return COLORS.edgeTrabajaEn
+    case 'dirige': return COLORS.edgeDirige
+    case 'preside': return COLORS.edgePreside
+    case 'conflicto_con': return COLORS.edgeConflicto
+    case 'comparte_director': return COLORS.edgeCompartedirector
+    default: return COLORS.defaultEdge
+  }
+}
+
+function edgeSize(kind: GraphEdgeAttrs['kind'], weight: number): number {
+  // weight viene 0..1 normalizado del backend
+  switch (kind) {
+    case 'comparte_jurisdiccion': return 4.5
+    case 'contrata': return 0.6 + Math.sqrt(Math.max(0, weight)) * 4.0
+    case 'contiene': return 0.4 + weight * 0.6
+    case 'trabaja_en': return 0.3
+    case 'dirige': return 1.4
+    case 'preside': return 1.8
+    case 'conflicto_con': return 2.5
+    case 'comparte_director': return 1.0
+    default: return 1.0
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// MAIN BUILDER
+// ═══════════════════════════════════════════════════════════════════════
+
+export function buildGraph(data: MapaProvincialResponse): Graph<GraphNodeAttrs, GraphEdgeAttrs> {
   const graph = new Graph<GraphNodeAttrs, GraphEdgeAttrs>({ multi: true, type: 'directed' })
 
-  // 1) Aplanar nodos + computar escalas globales sobre los datos reales
-  const allNodes = [
-    ...data.depth0.nodes,
-    ...data.depth1.nodes,
-    ...data.depth2.nodes,
-    ...data.depth3.nodes,
-  ]
-  const allEdges = [
-    ...data.depth0.edges,
-    ...data.depth1.edges,
-    ...data.depth2.edges,
-    ...data.depth3.edges,
-  ]
+  // ─── posicionamiento inicial dual-root ─────────────────────────────────
+  // Provincia gravita hacia el norte (y negativo), capital hacia el sur.
+  // FA2 después refina pero el sesgo se mantiene en la primer paint.
+  const N = data.nodes.length
+  const seenJur = new Map<'provincia' | 'capital', number>()
+  let provIdx = 0, capIdx = 0
+  const provCount = data.nodes.filter(n => n.jurisdiccion === 'provincia').length
+  const capCount = data.nodes.filter(n => n.jurisdiccion === 'capital').length
+  const otherCount = data.nodes.filter(n => n.jurisdiccion === null).length
 
-  // Escala de tamaño: √(monto) normalizado. Damos un piso para que
-  // entidades sin monto (ej. estado raíz) sigan visibles.
-  const maxMonto = Math.max(
-    1,
-    ...allNodes.map(n => Number((n.data as { monto?: number })?.monto ?? 0)),
-  )
-  const sizeFromMonto = (monto: number, depth: number): number => {
-    const MIN = 4
-    const MAX = depth === 0 ? 28 : depth === 1 ? 22 : 14
-    if (monto <= 0) return depth === 0 ? 24 : MIN + 2
-    const norm = Math.sqrt(monto / maxMonto)
-    return MIN + (MAX - MIN) * norm
+  function initialPosition(node: { id: string; type: string; depth: number; jurisdiccion: 'provincia' | 'capital' | null; weight: number }): { x: number; y: number } {
+    // Roots: provincia al norte (-y), capital al sur (+y)
+    if (node.type === 'jurisdiccion') {
+      return node.jurisdiccion === 'provincia' ? { x: 0, y: -8 } : { x: 0, y: 8 }
+    }
+    // Sin jurisdicción (empresas, personas) → centro inicial, FA2 las acomoda
+    if (!node.jurisdiccion) {
+      const i = otherCount > 0 ? (graph.order % otherCount) : 0
+      const angle = (i / Math.max(1, otherCount)) * 2 * Math.PI
+      return { x: Math.cos(angle) * 4, y: Math.sin(angle) * 4 }
+    }
+    // Ministerios/direcciones/organismos: distribuir en arco de 180° por jurisdicción
+    const idx = node.jurisdiccion === 'provincia' ? provIdx++ : capIdx++
+    const total = node.jurisdiccion === 'provincia' ? Math.max(1, provCount) : Math.max(1, capCount)
+    const baseY = node.jurisdiccion === 'provincia' ? -8 : 8
+    const r = node.depth === 1 ? 5 : node.depth === 2 ? 9 : 12
+    // Arco: -π → 0 (norte) o 0 → π (sur)
+    const t = (idx + 1) / (total + 1)
+    let angle: number
+    if (node.jurisdiccion === 'provincia') {
+      angle = -Math.PI + t * Math.PI  // -π hasta 0
+    } else {
+      angle = t * Math.PI  // 0 hasta π
+    }
+    return {
+      x: Math.cos(angle) * r,
+      y: baseY + Math.sin(angle) * r * 0.6,
+    }
   }
 
-  // 2) Insertar nodos con encoding completo
-  const N = allNodes.length
-  const RING_R = 6  // radio inicial en unidades de layout — FA2 escala después
-  for (let i = 0; i < allNodes.length; i++) {
-    const n = allNodes[i]
-    const depth = (n.data as { depth?: number })?.depth ?? 0
-    const monto = Number((n.data as { monto?: number })?.monto ?? 0)
-    const contratos = Number((n.data as { contratos?: number })?.contratos ?? 0)
-    const flags = (n.data as { flags?: { senalGrave?: boolean; senalModerada?: boolean } })?.flags ?? {}
-
-    const entityType = mapBackendType(n.type)
-    const color = ENTITY_COLORS[entityType] ?? ENTITY_COLORS.documento
-
-    // Posición inicial: depth0 al centro, depth1 en anillo cercano,
-    // depth2/3 en anillo más amplio. FA2 los va a re-organizar.
-    let x: number, y: number
-    if (depth === 0) { x = 0; y = 0 }
-    else {
-      const angle = (i / Math.max(1, N)) * 2 * Math.PI
-      const r = depth === 1 ? RING_R : depth === 2 ? RING_R * 2.2 : RING_R * 3.4
-      x = Math.cos(angle) * r
-      y = Math.sin(angle) * r
-    }
-
-    const cuitVerificado = !/sin\s+cuit\s+verificado/i.test(n.subtitle ?? '')
+  // ─── INSERT NODES ─────────────────────────────────────────────────────
+  for (const n of data.nodes) {
+    const pos = initialPosition(n)
+    const color = nodeColor(n.type, n.jurisdiccion)
+    const size = nodeSize({
+      entityType: n.type,
+      weight: n.weight,
+      depth: n.depth,
+      monto: Number(n.data.monto ?? 0),
+      empleados: Number(n.data.empleados ?? 0),
+    })
+    const cuit = (n.data.cuit as string) ?? null
+    const cuitVerificado = !!n.flags?.cuitVerificado || !!cuit
+    const hasGrave = !!n.flags?.senalGrave
+    const hasModerada = !!n.flags?.senalModerada
 
     graph.addNode(n.id, {
-      x, y,
-      size: sizeFromMonto(monto, depth),
-      color,
+      x: pos.x,
+      y: pos.y,
+      size,
+      color: cuitVerificado ? color : applyAlpha(color, 0.65),
       label: n.label,
-      type: 'circle',
-      entityType,
-      rawType: n.type,
+      type: 'border',  // node-border program para halos en señales
+      entityType: n.type,
+      jurisdiccion: n.jurisdiccion,
+      depth: n.depth,
       subtitle: n.subtitle ?? '',
-      weight: n.weight ?? 0,
-      depth,
-      monto,
-      contratos,
-      hasGrave: !!flags.senalGrave,
-      hasModerada: !!flags.senalModerada,
+      weight: n.weight,
+      monto: Number(n.data.monto ?? 0),
+      contratos: Number(n.data.contratos ?? 0),
+      empleados: Number(n.data.empleados ?? 0),
+      cuit,
       cuitVerificado,
-      // Borde rojo si tiene señal grave
-      borderColor: flags.senalGrave ? '#EF4444' : flags.senalModerada ? '#F59E0B' : undefined,
-      borderSize: flags.senalGrave || flags.senalModerada ? 2 : 0,
+      hasGrave,
+      hasModerada,
+      borderColor: hasGrave ? COLORS.edgeConflicto : hasModerada ? '#F59E0B' : undefined,
+      borderSize: hasGrave || hasModerada ? 2.5 : 0,
+      rawData: n.data,
     })
   }
 
-  // 3) Insertar aristas con encoding por kind y weight
-  // Soporta multi-edges (mismo source/target pero distintos años/contratos).
-  const maxEdgeWeight = Math.max(1, ...allEdges.map(e => Number(e.weight ?? 1)))
-  const sizeFromWeight = (w: number) => 0.6 + Math.sqrt((w ?? 1) / maxEdgeWeight) * 3.2
-
-  for (const e of allEdges) {
+  // ─── INSERT EDGES ─────────────────────────────────────────────────────
+  for (const e of data.edges) {
     if (!graph.hasNode(e.source) || !graph.hasNode(e.target)) continue
-    const kind = (e.kind ?? 'pertenece_a') as EdgeKind
-    const color = EDGE_COLORS[kind] ?? EDGE_COLORS.default
-
     try {
       graph.addEdge(e.source, e.target, {
-        size: sizeFromWeight(Number(e.weight ?? 1)),
-        color,
-        type: 'curve',  // permite que el plugin edge-curve separe los multi-edges
-        kind,
-        weight: Number(e.weight ?? 1),
+        size: edgeSize(e.kind, e.weight),
+        color: edgeColor(e.kind),
+        type: 'curve',
+        kind: e.kind,
+        weight: e.weight,
       })
     } catch {
-      // duplicado exacto en multi=true es raro pero no fatal
+      // multi-edge duplicado exacto, no fatal
     }
   }
 
   return graph
 }
 
-function mapBackendType(rawType: string): EntityType {
-  if (rawType === 'jurisdiccion' || rawType === 'reparticion') {
-    return rawType === 'jurisdiccion' ? 'jurisdiccion' : 'reparticion'
-  }
-  if (rawType === 'empresa' || rawType === 'proveedor') return 'empresa'
-  if (rawType === 'persona' || rawType === 'funcionario' || rawType === 'director') return 'persona'
-  if (rawType === 'contrato' || rawType === 'documento') return 'documento'
-  // fallback razonable
-  return 'documento'
+// Aplica alpha a un color hex (#RRGGBB) → "rgba(r,g,b,a)"
+function applyAlpha(hex: string, alpha: number): string {
+  if (!hex || hex[0] !== '#' || hex.length < 7) return hex
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r},${g},${b},${alpha})`
 }

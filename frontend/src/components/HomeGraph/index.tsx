@@ -17,7 +17,7 @@ import EdgeCurveProgram from '@sigma/edge-curve'
 import { NodeBorderProgram } from '@sigma/node-border'
 import '@react-sigma/core/lib/style.css'
 
-import { useGrafoJerarquiaV2 } from '@/lib/queries'
+import { useMapaProvincial } from '@/lib/queries'
 import { LoadingState, ErrorState, EmptyState } from '@/components/argos/primitives'
 import { buildGraph, ENTITY_COLORS, type GraphNodeAttrs, type GraphEdgeAttrs } from './buildGraph'
 import { HomeGraphInner } from './HomeGraphInner'
@@ -46,7 +46,7 @@ const SIGMA_SETTINGS = {
 }
 
 export function HomeGraph() {
-  const query = useGrafoJerarquiaV2('cordoba-capital')
+  const query = useMapaProvincial({ detail: 'meso', jurisdiccion: 'ambas' })
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
 
@@ -119,6 +119,8 @@ export function HomeGraph() {
           totalNodos: query.data?.meta.totalNodos ?? 0,
           totalAristas: query.data?.meta.totalAristas ?? 0,
           montoTotal: query.data?.meta.montoTotal ?? 0,
+          empleadosTotal: query.data?.meta.empleadosTotal ?? 0,
+          porTipo: query.data?.meta.porTipo ?? {},
         }}
       />
 

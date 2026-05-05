@@ -676,3 +676,74 @@ export function useGrafoJerarquiaV2(
     staleTime: 5 * 60_000,
   })
 }
+
+// ─── Mapa Provincial Comprehensive (Phase A 2026-05-05) ───────────────────
+// Reemplaza al jerarquia/v2 para el home. Multi-fuente: contratos +
+// agentes_publicos + entes_estatales + (deep) personas. 270 nodos en
+// meso, 415 en deep.
+
+export type MapaDetail = 'macro' | 'meso' | 'deep'
+export type MapaJurisdiccion = 'ambas' | 'provincia' | 'capital'
+
+export interface MapaNode {
+  id: string
+  type: 'jurisdiccion' | 'ministerio' | 'direccion' | 'organismo' | 'empresa' | 'persona' | 'empleado'
+  label: string
+  subtitle?: string
+  weight: number
+  depth: 0 | 1 | 2 | 3
+  jurisdiccion: 'provincia' | 'capital' | null
+  data: Record<string, unknown>
+  flags?: { senalGrave?: boolean; senalModerada?: boolean; cuitVerificado?: boolean }
+}
+
+export interface MapaEdge {
+  source: string
+  target: string
+  kind:
+    | 'contiene'
+    | 'comparte_jurisdiccion'
+    | 'contrata'
+    | 'trabaja_en'
+    | 'dirige'
+    | 'preside'
+    | 'conflicto_con'
+    | 'comparte_director'
+  weight: number
+  data?: Record<string, unknown>
+}
+
+export interface MapaProvincialResponse {
+  nodes: MapaNode[]
+  edges: MapaEdge[]
+  meta: {
+    detail: MapaDetail
+    jurisdicciones: ('provincia' | 'capital')[]
+    totalNodos: number
+    totalAristas: number
+    porTipo: Record<string, number>
+    montoTotal: number
+    empleadosTotal: number
+    fuentes: string[]
+    año: number | null
+  }
+}
+
+export function useMapaProvincial(opts: {
+  detail?: MapaDetail
+  jurisdiccion?: MapaJurisdiccion
+  año?: number | null
+} = {}) {
+  const detail = opts.detail ?? 'meso'
+  const jurisdiccion = opts.jurisdiccion ?? 'ambas'
+  const año = opts.año ?? null
+  return useQuery({
+    queryKey: ['grafo', 'mapa-provincial', detail, jurisdiccion, año],
+    queryFn: () => {
+      const params = new URLSearchParams({ detail, jurisdiccion })
+      if (año) params.set('año', String(año))
+      return fetchJSON<MapaProvincialResponse>(`/api/grafo/mapa-provincial?${params}`)
+    },
+    staleTime: 5 * 60_000,
+  })
+}
