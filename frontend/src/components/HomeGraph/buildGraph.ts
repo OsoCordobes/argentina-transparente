@@ -205,11 +205,12 @@ export function buildGraph(data: MapaProvincialResponse): Graph<GraphNodeAttrs, 
   ministeriosByJur.capital.sort((a, b) => b.weight - a.weight)
 
   // ─── Step 2: posicionar cluster centers en zonas separadas ────────────
-  // World units: definimos un canvas conceptual de 200x100. Provincia
-  // ocupa x=[-100, -10], Capital ocupa x=[+10, +100].
-  const PROV_CX = -55
-  const CAP_CX = +55
-  const HALF_HEIGHT = 50  // y va de -50 a +50 dentro de cada zona
+  // World units: provincia y capital muy separadas para que sus clusters
+  // no se mezclen visualmente. Eje vertical es libre, los ministerios
+  // ocupan toda la altura disponible.
+  const PROV_CX = -90
+  const CAP_CX = +90
+  const HALF_HEIGHT = 65  // y va de -65 a +65 dentro de cada zona
 
   const ministerioPos = new Map<string, { x: number; y: number }>()
 
@@ -320,33 +321,33 @@ export function buildGraph(data: MapaProvincialResponse): Graph<GraphNodeAttrs, 
       const c = clusterCenter(node.jurisdiccion ?? 'capital')
       return { x: c.x + (hashFloat(node.id) - 0.5) * 30, y: (hashFloat(node.id + '#y') - 0.5) * 60 }
     }
-    // Empresas: gravita hacia su ministerio principal (heaviest contrata)
+    // Empresas: gravita hacia su ministerio principal (heaviest contrata).
+    // Radio reducido para que el cluster sea apretado — las empresas se
+    // ven claramente "alrededor" del ministerio padre.
     if (node.type === 'empresa') {
       const cluster = empresaPrimaryCluster.get(node.id)
       const center = cluster ? ministerioPos.get(cluster) : null
       const fallback = node.jurisdiccion ? clusterCenter(node.jurisdiccion) : { x: 0, y: 0 }
       const c = center ?? fallback
       const angle = hashFloat(node.id) * 2 * Math.PI
-      const r = 4 + hashFloat(node.id + '#r') * 5
+      const r = 5 + hashFloat(node.id + '#r') * 4   // 5-9 unidades del ministerio
       return { x: c.x + Math.cos(angle) * r, y: c.y + Math.sin(angle) * r }
     }
-    // Direcciones: inferir parent por keyword, fallback jurisdicción
+    // Direcciones: parent por keyword, radio chico (cluster apretado)
     if (node.type === 'direccion') {
       const inferred = inferDireccionParent(node.label, node.jurisdiccion)
       const center = inferred ? ministerioPos.get(inferred) : null
       const fallback = node.jurisdiccion ? clusterCenter(node.jurisdiccion) : { x: 0, y: 0 }
       const c = center ?? fallback
       const angle = hashFloat(node.id) * 2 * Math.PI
-      const r = 3 + hashFloat(node.id + '#r') * 3
+      const r = 2.5 + hashFloat(node.id + '#r') * 2.5  // 2.5-5 unidades
       return { x: c.x + Math.cos(angle) * r, y: c.y + Math.sin(angle) * r }
     }
-    // Personas: si tienen reparticion ID en la primera arista trabaja_en, usar ese
-    // (no tenemos cluster directo aquí — las personas se quedan al lado de la
-    // jurisdicción, FA2 las acomodará por sus aristas)
+    // Personas: distribuidas en band exterior de su jurisdicción
     if (node.type === 'persona' || node.type === 'empleado') {
       const c = node.jurisdiccion ? clusterCenter(node.jurisdiccion) : { x: 0, y: 0 }
       const angle = hashFloat(node.id) * 2 * Math.PI
-      const r = 8 + hashFloat(node.id + '#r') * 6
+      const r = 12 + hashFloat(node.id + '#r') * 8
       return { x: c.x + Math.cos(angle) * r, y: c.y + Math.sin(angle) * r }
     }
     // Default fallback
@@ -397,12 +398,28 @@ export function buildGraph(data: MapaProvincialResponse): Graph<GraphNodeAttrs, 
   }
 
   // ─── INSERT EDGES ─────────────────────────────────────────────────────
+  // Las aristas que cruzan jurisdicciones (empresa de capital con contrato
+  // a un ministerio de provincia, o viceversa) se dibujan más tenues para
+  // no contaminar visualmente la zonificación.
+  function nodeJur(id: string): 'provincia' | 'capital' | null {
+    const n = data.nodes.find(x => x.id === id)
+    return n?.jurisdiccion ?? null
+  }
+
   for (const e of data.edges) {
     if (!graph.hasNode(e.source) || !graph.hasNode(e.target)) continue
+    const sJur = nodeJur(e.source)
+    const tJur = nodeJur(e.target)
+    const crossJur = sJur && tJur && sJur !== tJur && e.kind !== 'comparte_jurisdiccion'
+    let color = edgeColor(e.kind)
+    if (crossJur) {
+      // tinte gris translucent para no contaminar
+      color = 'rgba(100, 116, 139, 0.18)'
+    }
     try {
       graph.addEdge(e.source, e.target, {
-        size: edgeSize(e.kind, e.weight),
-        color: edgeColor(e.kind),
+        size: edgeSize(e.kind, e.weight) * (crossJur ? 0.6 : 1),
+        color,
         type: 'curve',
         kind: e.kind,
         weight: e.weight,
