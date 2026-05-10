@@ -192,6 +192,55 @@ NO:
 - Renderizar señales sin VerificationBadge
 - Mostrar más nodes que el cap visible (siempre con banner si overflow)
 
+## Mock data convention (CRITICAL)
+
+Prompts include literal example values (e.g. "$24.310.000.000", "PINTURAS CAVAZZON SRL",
+"73%") so the prototype renders a visually realistic layout. These are **mock fixtures
+for visualization only** — they MUST NOT be hardcoded in production JSX.
+
+Rules every prototype must follow:
+
+1. **All literal values** that look like real data (amounts, names, CUITs, percentages,
+   counts, dates) must be wrapped in clearly-labeled mock fixtures. In the generated
+   code, render them via a top-of-file constant block:
+
+   ```ts
+   // MOCK FIXTURE — Replace with API fetch during Claude Code integration.
+   // Source endpoint: GET /api/dinero?año=2024 (see CLAUDE-DESIGN-CONTEXT.md)
+   const MOCK_DINERO_2024 = {
+     etapas: [...],
+     totales: [...],
+     por_programa: [...]
+   };
+   ```
+
+2. **Component-level data binding** must reference variables, never inline literals:
+
+   ```tsx
+   // ✓ GOOD — driven by data, mock or real
+   <NorthStar metric={fmt(data.totales[3])} label="ejecutados" sub={`${data.pct_pagado}% pagado`} />
+
+   // ✗ BAD — literal value baked into JSX
+   <NorthStar metric="$24.310.000.000" label="ejecutados" sub="73% pagado" />
+   ```
+
+3. **Each mock block must include**:
+   - Comment `// MOCK FIXTURE — Replace with API fetch during Claude Code integration.`
+   - Comment `// Source endpoint: GET /api/...` with the real endpoint URL
+   - The shape matching exactly the real API contract documented above
+
+4. **Tooltips, hover cards, and labels** must use template strings interpolating the
+   mock data, not literal strings. e.g. `` `${prog.nombre} → Pagado: ${fmt(prog.pagado)}` ``
+   not `"Educación → Pagado: $3.1B"`.
+
+5. **Empty states must remain functional** — when mock data is replaced with real
+   API responses that may be empty, the EmptyState component renders correctly.
+   Test by setting the mock to `[]` or `{}` and verifying the screen handles it.
+
+This convention ensures the integration phase (Claude Design handoff → Claude Code) is
+mechanical: search for `MOCK FIXTURE`, replace with `useQuery(...)` hooks against the
+documented endpoints. Zero hardcoded production data. Zero hallucinations.
+
 ## Repo file pointers (only what prototypes need)
 
 - `frontend/src/styles/tokens.css` — canonical design tokens
