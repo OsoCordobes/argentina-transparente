@@ -10,6 +10,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { ArgosShell } from '@/components/argos/ArgosShell'
+import { EmptyState, ErrorState } from '@/components/argos/primitives'
 import { getCaso, saveCaso, exportCaso, DESTINATARIOS, type CasoLS } from '@/lib/argos/caso-storage'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
@@ -38,15 +39,24 @@ export default function CasoD7() {
 
   if (!caso) {
     return (
-      <ArgosShell title="Expediente no encontrado">
-        <div style={{ textAlign: 'center', paddingTop: 60 }}>
-          <div style={{ color: '#9BA3B4', fontSize: 14, marginBottom: 16 }}>
-            Caso no encontrado
-          </div>
-          <Link to="/casos" style={{ color: '#7da3ff', textDecoration: 'none' }}>
-            ← Volver a mis casos
-          </Link>
-        </div>
+      <ArgosShell title="Caso no encontrado">
+        <EmptyState
+          title="Caso no encontrado"
+          body="Es posible que haya sido eliminado o que el ID sea inválido."
+          secondaryAction={
+            <Link
+              to="/casos"
+              style={{
+                color: 'var(--accent-primary)',
+                fontSize: 'var(--text-base)',
+                fontFamily: 'var(--font-sans)',
+                textDecoration: 'none',
+              }}
+            >
+              ← Volver a Mis casos
+            </Link>
+          }
+        />
       </ArgosShell>
     )
   }
@@ -118,9 +128,9 @@ export default function CasoD7() {
 
   return (
     <ArgosShell
-      title={caso.titulo || 'Expediente sin título'}
+      title={caso.titulo || 'Caso sin título'}
       rightSlot={
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
           <button onClick={exportJson} style={s.headBtn}>↓ Exportar JSON</button>
           <button onClick={() => navigate('/casos')} style={s.headBtn}>← Volver</button>
           <button onClick={generarPdf} disabled={generatingPdf} style={s.primaryBtn}>
@@ -129,42 +139,26 @@ export default function CasoD7() {
         </div>
       }
     >
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 'var(--space-4)' }}>
         <input
           type="text" value={caso.titulo}
           onChange={e => update('titulo', e.target.value)}
           style={s.headTitle}
           placeholder="Título del caso"
         />
-        <div style={{ fontSize: 11, color: '#9BA3B4', marginTop: 4 }}>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>
           {caso.estado.toUpperCase()} · creado {new Date(caso.creadoEn).toLocaleDateString('es-AR')}
           · modificado {new Date(caso.modificadoEn).toLocaleString('es-AR')}
         </div>
       </div>
         {pdfError && (
-          <div style={{
-            padding: 12, background: '#3a1d1d', color: '#E25656', borderRadius: 4,
-            marginBottom: 12, fontSize: 12, fontFamily: 'ui-monospace, monospace',
-            display: 'flex', alignItems: 'center', gap: 12,
-          }}>
-            <span style={{ flex: 1 }}>{pdfError}</span>
-            <button
-              onClick={() => navigator.clipboard.writeText(pdfError)
-                .then(() => setPdfError(null))
-                .catch(() => undefined)}
-              style={{
-                background: 'transparent', border: '1px solid #E25656',
-                color: '#E25656', padding: '4px 10px', borderRadius: 3, fontSize: 11,
-                cursor: 'pointer',
-              }}
-            >Copiar detalle</button>
-            <button
-              onClick={() => setPdfError(null)}
-              style={{
-                background: 'transparent', border: 'none', color: '#E25656',
-                cursor: 'pointer', fontSize: 14,
-              }}
-            >×</button>
+          <div style={{ marginBottom: 'var(--space-3)' }}>
+            <ErrorState
+              compact
+              title="No se pudo generar el PDF"
+              detail={pdfError}
+              onRetry={generarPdf}
+            />
           </div>
         )}
 
@@ -247,7 +241,7 @@ function SectionSenales({ caso, onRemove }: { caso: CasoLS; onRemove: (id: strin
   if (caso.senalIds.length === 0) {
     return (
       <div style={s.emptySection}>
-        <div style={{ color: '#9BA3B4', marginBottom: 12 }}>
+        <div style={{ color: 'var(--text-secondary)', marginBottom: 'var(--space-3)' }}>
           Sin señales adjuntadas todavía. Agregalas desde <Link to="/senales" style={s.link}>/senales</Link>.
         </div>
       </div>
@@ -257,7 +251,7 @@ function SectionSenales({ caso, onRemove }: { caso: CasoLS; onRemove: (id: strin
     <ul style={s.list}>
       {caso.senalIds.map(id => (
         <li key={id} style={s.listItem}>
-          <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11, color: '#9BA3B4', flex: 1 }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', flex: 1 }}>
             {id}
           </span>
           <button onClick={() => onRemove(id)} style={s.removeBtn}>×</button>
@@ -274,7 +268,7 @@ function SectionActores({ caso, onRemovePj, onRemovePf }: {
   if (empty) {
     return (
       <div style={s.emptySection}>
-        <div style={{ color: '#9BA3B4' }}>
+        <div style={{ color: 'var(--text-secondary)' }}>
           Sin actores adjuntados. Agregalos desde <Link to="/actores" style={s.link}>/actores</Link>
           {' '}o desde un perfil con +Caso.
         </div>
@@ -289,8 +283,8 @@ function SectionActores({ caso, onRemovePj, onRemovePf }: {
           <ul style={s.list}>
             {caso.entidadCuits.map(cuit => (
               <li key={cuit} style={s.listItem}>
-                <span style={{ color: '#ff9b5c', marginRight: 8 }}>■</span>
-                <Link to={`/empresa/${cuit}`} style={{ ...s.link, flex: 1, fontFamily: 'ui-monospace, monospace' }}>
+                <span style={{ color: 'var(--entity-empresa)', marginRight: 'var(--space-2)' }}>■</span>
+                <Link to={`/empresa/${cuit}`} style={{ ...s.link, flex: 1, fontFamily: 'var(--font-mono)' }}>
                   {cuit}
                 </Link>
                 <button onClick={() => onRemovePj(cuit)} style={s.removeBtn}>×</button>
@@ -305,8 +299,8 @@ function SectionActores({ caso, onRemovePj, onRemovePf }: {
           <ul style={s.list}>
             {caso.personaDnis.map(dni => (
               <li key={dni} style={s.listItem}>
-                <span style={{ color: '#7da3ff', marginRight: 8 }}>●</span>
-                <Link to={`/persona/${dni}`} style={{ ...s.link, flex: 1, fontFamily: 'ui-monospace, monospace' }}>
+                <span style={{ color: 'var(--accent-primary)', marginRight: 'var(--space-2)' }}>●</span>
+                <Link to={`/persona/${dni}`} style={{ ...s.link, flex: 1, fontFamily: 'var(--font-mono)' }}>
                   {dni}
                 </Link>
                 <button onClick={() => onRemovePf(dni)} style={s.removeBtn}>×</button>
@@ -473,102 +467,117 @@ function PreviewPDF({ caso }: { caso: CasoLS }) {
 const s: Record<string, React.CSSProperties> = {
   page: {
     minHeight: '100vh', display: 'flex', flexDirection: 'column',
-    background: '#0d1117', color: '#dde3ee',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    background: 'var(--surface-base)', color: 'var(--text-primary)',
+    fontFamily: 'var(--font-sans)',
   },
-  main: { flex: 1, maxWidth: 1480, width: '100%', margin: '0 auto', padding: '20px 24px' },
+  main: { flex: 1, maxWidth: 1480, width: '100%', margin: '0 auto', padding: 'var(--space-5) var(--space-6)' },
   head: {
-    display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 18,
-    paddingBottom: 14, borderBottom: '1px solid #1f2937',
+    display: 'flex', alignItems: 'flex-start', gap: 'var(--space-4)', marginBottom: 'var(--space-4)',
+    paddingBottom: 'var(--space-3)', borderBottom: '1px solid var(--hairline-2)',
   },
   headTitle: {
-    background: 'transparent', border: 'none', borderBottom: '1px dashed #2a3140',
-    color: '#dde3ee', fontSize: 20, fontWeight: 600, padding: '4px 0',
-    width: '100%', outline: 'none',
+    background: 'transparent', border: 'none', borderBottom: '1px dashed var(--hairline-2)',
+    color: 'var(--text-primary)', fontSize: 'var(--text-xl)', fontWeight: 'var(--weight-semibold)',
+    padding: 'var(--space-1) 0', width: '100%', outline: 'none',
   },
   headBtn: {
-    background: 'transparent', border: '1px solid #2a3140', color: '#dde3ee',
-    padding: '6px 12px', borderRadius: 3, fontSize: 12, cursor: 'pointer',
+    background: 'transparent', border: '1px solid var(--hairline-2)', color: 'var(--text-primary)',
+    padding: 'var(--space-1-5) var(--space-3)', borderRadius: 'var(--radius-sm)',
+    fontSize: 'var(--text-base)', cursor: 'pointer',
   },
   primaryBtn: {
-    background: '#62C7A022', border: '1px solid #62C7A0', color: '#62C7A0',
-    padding: '6px 14px', borderRadius: 3, fontSize: 12, cursor: 'pointer',
+    background: 'color-mix(in oklab, var(--semantic-success) 13%, transparent)',
+    border: '1px solid var(--semantic-success)', color: 'var(--semantic-success)',
+    padding: 'var(--space-1-5) var(--space-3)', borderRadius: 'var(--radius-sm)',
+    fontSize: 'var(--text-base)', cursor: 'pointer',
   },
 
   twoPane: {
-    display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16,
+    display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)',
     height: 'calc(100vh - 200px)', minHeight: 500,
   },
   formPane: {
-    background: '#161b22', border: '1px solid #2a3140', borderRadius: 4,
+    background: 'var(--surface-overlay)', border: '1px solid var(--hairline-2)', borderRadius: 'var(--radius-md)',
     overflow: 'hidden', display: 'flex', flexDirection: 'column',
   },
   previewPane: {
-    background: '#161b22', border: '1px solid #2a3140', borderRadius: 4,
+    background: 'var(--surface-overlay)', border: '1px solid var(--hairline-2)', borderRadius: 'var(--radius-md)',
     overflow: 'hidden', display: 'flex', flexDirection: 'column',
   },
   previewLabel: {
-    fontSize: 10, letterSpacing: 1.5, color: '#9BA3B4', fontWeight: 600,
-    textTransform: 'uppercase' as const,
-    padding: '10px 14px', borderBottom: '1px solid #1f2937',
+    fontSize: 'var(--text-xs)', letterSpacing: 'var(--tracking-wider)', color: 'var(--text-secondary)',
+    fontWeight: 'var(--weight-semibold)', textTransform: 'uppercase' as const,
+    padding: 'var(--space-3) var(--space-3)', borderBottom: '1px solid var(--hairline-2)',
   },
   previewDoc: {
     flex: 1, overflow: 'auto', background: '#fff', color: '#222',
-    padding: '32px 40px',
+    padding: 'var(--space-8) var(--space-10)',
     fontFamily: 'Georgia, "Times New Roman", serif',
   },
 
   tabs: {
-    display: 'flex', gap: 0, borderBottom: '1px solid #1f2937', overflow: 'auto',
+    display: 'flex', gap: 0, borderBottom: '1px solid var(--hairline-2)', overflow: 'auto',
   },
   tab: {
     background: 'transparent', border: 'none',
-    color: '#9BA3B4', padding: '10px 14px', fontSize: 12, cursor: 'pointer',
-    borderBottom: '2px solid transparent',
-    fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' as const,
+    color: 'var(--text-secondary)', padding: 'var(--space-3) var(--space-3)', fontSize: 'var(--text-base)',
+    cursor: 'pointer', borderBottom: '2px solid transparent',
+    fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 'var(--space-1-5)',
+    whiteSpace: 'nowrap' as const,
   },
   tabActive: {
-    color: '#dde3ee', borderBottom: '2px solid #62C7A0',
+    color: 'var(--text-primary)', borderBottom: '2px solid var(--semantic-success)',
   },
   tabBadge: {
-    background: '#1f2937', color: '#dde3ee',
-    fontSize: 10, padding: '1px 6px', borderRadius: 8, minWidth: 18, textAlign: 'center' as const,
-    fontFamily: 'ui-monospace, monospace',
+    background: 'var(--hairline-2)', color: 'var(--text-primary)',
+    fontSize: 'var(--text-xs)', padding: '1px 6px', borderRadius: 'var(--radius-pill)',
+    minWidth: 18, textAlign: 'center' as const,
+    fontFamily: 'var(--font-mono)',
   },
 
-  formGrid: { display: 'flex', flexDirection: 'column' as const, gap: 14, padding: 16, overflow: 'auto' },
-  labelText: { fontSize: 10, color: '#9BA3B4', letterSpacing: 1, marginBottom: 4, textTransform: 'uppercase' as const },
+  formGrid: {
+    display: 'flex', flexDirection: 'column' as const, gap: 'var(--space-3)',
+    padding: 'var(--space-4)', overflow: 'auto',
+  },
+  labelText: {
+    fontSize: 'var(--text-xs)', color: 'var(--text-secondary)',
+    letterSpacing: 'var(--tracking-wider)', marginBottom: 'var(--space-1)',
+    textTransform: 'uppercase' as const,
+  },
   input: {
-    width: '100%', background: '#0d1117', border: '1px solid #2a3140',
-    color: '#dde3ee', padding: '7px 10px', borderRadius: 3, fontSize: 12,
+    width: '100%', background: 'var(--surface-base)', border: '1px solid var(--hairline-2)',
+    color: 'var(--text-primary)', padding: 'var(--space-1-5) var(--space-3)',
+    borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-base)',
     boxSizing: 'border-box' as const,
   },
   textarea: {
-    width: '100%', background: '#0d1117', border: '1px solid #2a3140',
-    color: '#dde3ee', padding: 10, borderRadius: 3, fontSize: 12,
-    boxSizing: 'border-box' as const, fontFamily: 'inherit', resize: 'vertical' as const,
+    width: '100%', background: 'var(--surface-base)', border: '1px solid var(--hairline-2)',
+    color: 'var(--text-primary)', padding: 'var(--space-3)', borderRadius: 'var(--radius-sm)',
+    fontSize: 'var(--text-base)', boxSizing: 'border-box' as const,
+    fontFamily: 'inherit', resize: 'vertical' as const,
   },
   select: {
-    background: '#0d1117', border: '1px solid #2a3140',
-    color: '#dde3ee', padding: '7px 10px', borderRadius: 3, fontSize: 12,
+    background: 'var(--surface-base)', border: '1px solid var(--hairline-2)',
+    color: 'var(--text-primary)', padding: 'var(--space-1-5) var(--space-3)',
+    borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-base)',
   },
 
-  emptySection: { padding: 16, fontSize: 13 },
+  emptySection: { padding: 'var(--space-4)', fontSize: 'var(--text-base)' },
   list: { listStyle: 'none', padding: 0, margin: 0 },
   listItem: {
-    display: 'flex', alignItems: 'center', gap: 8,
-    padding: '8px 16px', borderBottom: '1px solid #1f2937',
+    display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
+    padding: 'var(--space-2) var(--space-4)', borderBottom: '1px solid var(--hairline-2)',
   },
   removeBtn: {
-    background: 'transparent', border: 'none', color: '#9BA3B4',
-    cursor: 'pointer', fontSize: 16, padding: '0 6px',
+    background: 'transparent', border: 'none', color: 'var(--text-secondary)',
+    cursor: 'pointer', fontSize: 16, padding: '0 var(--space-1-5)',
   },
   subhead: {
-    fontSize: 10, letterSpacing: 1.5, color: '#9BA3B4',
-    textTransform: 'uppercase' as const, padding: '12px 16px 6px',
+    fontSize: 'var(--text-xs)', letterSpacing: 'var(--tracking-wider)', color: 'var(--text-secondary)',
+    textTransform: 'uppercase' as const, padding: 'var(--space-3) var(--space-4) var(--space-1-5)',
   },
 
-  link: { color: '#7da3ff', textDecoration: 'none' },
+  link: { color: 'var(--accent-primary)', textDecoration: 'none' },
 }
 
 const pdf: Record<string, React.CSSProperties> = {

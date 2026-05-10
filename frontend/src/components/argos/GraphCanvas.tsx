@@ -30,6 +30,7 @@ import {
   forceLink,
   forceCenter,
   forceCollide,
+  forceRadial,
   forceX,
   forceY,
   type Simulation,
@@ -60,15 +61,47 @@ const TYPE_COLOR: Record<ArgosNodeType, string> = {
   reparticion: '#6FB8E8',       // celeste (jurisdicción/área del Estado)
 }
 
+/**
+ * Profundidad jerárquica del nodo (0 = raíz, 1 = nivel intermedio, 2+ = hojas).
+ * Si el backend ya calculó depth y lo serializó en `data.depth`, lo usamos.
+ * Fallback: inferimos por tipo — jurisdiccion=0, reparticion=1, resto=2.
+ * Esto soporta tanto el grafo /api/grafo/jerarquia (Estado→Repartición→Empresa)
+ * como el grafo dashboard legacy donde no hay depth explícito.
+ */
+function getNodeDepth(n: ArgosNode): number {
+  const raw = (n.data as { depth?: unknown } | undefined)?.depth
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+  const t = n.type
+  if (t === 'jurisdiccion') return 0
+  if (t === 'reparticion') return 1
+  return 2
+}
+
+/** Radio del anillo concéntrico para una profundidad dada. Usado por
+ *  forceRadial y por las guías visuales (dashed circles). */
+function depthRadius(depth: number, span: number): number {
+  if (depth <= 0) return 0
+  if (depth === 1) return span * 0.35
+  if (depth === 2) return span * 0.7
+  return span * 0.95
+}
+
 function nodeBaseRadius(n: ArgosNode): number {
   const t = n.type
   const w = n.weight ?? 0.4
-  if (t === 'jurisdiccion' || t === 'reparticion') return 14 + w * 16
-  if (t === 'proveedor' || t === 'empresa') return 6 + w * 14
-  if (t === 'señal') return 7 + w * 8
-  if (t === 'director' || t === 'persona') return 6 + w * 8
-  if (t === 'funcionario') return 5 + w * 6
-  return 3 + w * 5
+  let r: number
+  if (t === 'jurisdiccion' || t === 'reparticion') r = 14 + w * 16
+  else if (t === 'proveedor' || t === 'empresa') r = 6 + w * 14
+  else if (t === 'señal') r = 7 + w * 8
+  else if (t === 'director' || t === 'persona') r = 6 + w * 8
+  else if (t === 'funcionario') r = 5 + w * 6
+  else r = 3 + w * 5
+
+  // GAP 4: depth multiplier — la jerarquía debe ser visualmente obvia.
+  const d = getNodeDepth(n)
+  if (d === 0) r *= 1.5
+  else if (d === 1) r *= 1.2
+  return r
 }
 
 function colorFor(n: ArgosNode): string {
@@ -76,6 +109,55 @@ function colorFor(n: ArgosNode): string {
   if (sev === 'grave') return '#E5484D'
   if (sev === 'moderada') return '#F5B544'
   return TYPE_COLOR[n.type] ?? '#9BA3B4'
+}
+
+/**
+ * Path SVG para arista curva tipo "rama de árbol genealógico".
+ * Punto de control en el midpoint perpendicularmente desplazado ~10% de
+ * la longitud de la arista. Da sensación orgánica (vs rayos rectos).
+ *
+ * Para edge_length L, con normal unitaria (nx, ny), la curva sale ~0.1L
+ * del lado donde el target está más bajo (para que padre→hijo se vea
+ * "fluyendo hacia abajo" en el árbol).
+ */
+function quadraticPathD(sx: number, sy: number, tx: number, ty: number): string {
+  const dx = tx - sx
+  const dy = ty - sy
+  const len = Math.hypot(dx, dy) || 1
+  // Vector normal perpendicular (rotado 90° antihorario).
+  const nx = -dy / len
+  const ny = dx / len
+  // Offset proporcional a la longitud (10% de L) con cap a 36px en edges
+  // muy largas. Para edges cortas (<60px) baja a 6-8px → curva apenas
+  // perceptible, evita que nodos cercanos se solapen con la curva.
+  const k = Math.max(6, Math.min(36, len * 0.1))
+  const cpx = (sx + tx) / 2 + nx * k
+  const cpy = (sy + ty) / 2 + ny * k
+  return `M${sx.toFixed(1)},${sy.toFixed(1)} Q${cpx.toFixed(1)},${cpy.toFixed(1)} ${tx.toFixed(1)},${ty.toFixed(1)}`
+}
+
+/** Path recto (M sx,sy L tx,ty) — para aristas no-jerárquicas. */
+function straightPathD(sx: number, sy: number, tx: number, ty: number): string {
+  return `M${sx.toFixed(1)},${sy.toFixed(1)} L${tx.toFixed(1)},${ty.toFixed(1)}`
+}
+
+/**
+ * ¿Es una arista jerárquica (padre→hijo del árbol genealógico)?
+ *
+ * Reconoce:
+ *   - 'gano' — Empresa → Repartición (canonical Cordoba dataset)
+ *   - 'opera_en' — Empresa → Jurisdicción (alias)
+ *   - 'tiene_director' — Empresa → PersonaFisica (estructura de gobernanza)
+ *   - 'pertenece_a' — Repartición → Estado (cuando el backend lo emita
+ *     por /api/grafo/jerarquia; no está en ArgosEdgeKind aún, comparamos string).
+ */
+function isHierarchicalEdge(kind: ArgosEdgeKind | string): boolean {
+  return (
+    kind === 'gano' ||
+    kind === 'opera_en' ||
+    kind === 'tiene_director' ||
+    kind === 'pertenece_a'
+  )
 }
 
 // ─── Tipado d3-force ──────────────────────────────────────────────────────────
@@ -111,7 +193,10 @@ interface NodeDOMRefs {
 }
 
 interface EdgeDOMRefs {
-  lineEl: SVGLineElement
+  /** Elemento SVG. Mantengo el nombre `lineEl` por compatibilidad histórica
+   *  pero ahora apunta a un <path> (mucho más flexible: rectos para no
+   *  jerárquicas, curvas Bézier para padre→hijo del árbol). */
+  lineEl: SVGPathElement
 }
 
 interface SimBundle {
@@ -182,6 +267,51 @@ function GraphCanvasInner({
   // JSX pueda mapear nodes/edges con sus refs.
   const [, setSimTick] = useState(0)
 
+  // Premium touch D — tooltip flotante. La posición vive en un ref + RAF
+  // imperativo (NO en React state) — onMouseMove dispara por pixel y
+  // setState provocaría reconciliación de los 60+ <g> nodos por frame.
+  // Solo el `hoveredTooltipId` está en React state porque cambia 1 vez
+  // por enter/leave, no por movimiento.
+  const [hoveredTooltipId, setHoveredTooltipId] = useState<string | null>(null)
+  const tooltipDivRef = useRef<HTMLDivElement | null>(null)
+  const tooltipRafRef = useRef<number | null>(null)
+  const tooltipPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+
+  const scheduleTooltipMove = useCallback((clientX: number, clientY: number) => {
+    if (!wrapRef.current) return
+    const rect = wrapRef.current.getBoundingClientRect()
+    tooltipPosRef.current = { x: clientX - rect.left, y: clientY - rect.top }
+    if (tooltipRafRef.current != null) return
+    tooltipRafRef.current = requestAnimationFrame(() => {
+      tooltipRafRef.current = null
+      const el = tooltipDivRef.current
+      if (!el) return
+      const { x, y } = tooltipPosRef.current
+      el.style.transform = `translate(${x + 12}px, ${y + 12}px)`
+    })
+  }, [])
+
+  // Premium touch E — tracking de nodos que ya completaron su entry
+  // animation. La clase `.node-entering` solo debe aplicarse en el primer
+  // mount del nodo dentro del snapshot; sin este Set, cualquier re-render
+  // del padre re-aplicaría la clase y el usuario vería flicker entre
+  // paint y el RAF que la quita.
+  const enteredRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    enteredRef.current = new Set()
+  }, [snapshot])
+
+  // Cleanup del RAF del tooltip al desmontar (evita disparar setAttribute
+  // sobre un div ya removido del DOM).
+  useEffect(() => {
+    return () => {
+      if (tooltipRafRef.current != null) {
+        cancelAnimationFrame(tooltipRafRef.current)
+        tooltipRafRef.current = null
+      }
+    }
+  }, [])
+
   // ─── Refs imperativos para animación ─────────────────────────────────────
 
   const viewRef = useRef<ViewState>({ tx: 0, ty: 0, k: 1 })
@@ -207,9 +337,31 @@ function GraphCanvasInner({
 
   useEffect(() => {
     if (!wrapRef.current) return
+    let pending = false
+    // Bug fix: en flex containers con `overflow: hidden` (ej. Señales pane), un
+    // setState directo dentro del callback de ResizeObserver dispara un loop:
+    // setState → re-render → layout shift sub-pixel → RO fires → setState …
+    // El grafo "crece" aparentando overflow infinito al hacer scroll.
+    // Solución: coalescer múltiples eventos en un solo update por frame con
+    // requestAnimationFrame, y skip-update si las dimensiones no cambiaron de
+    // forma observable (>= 1px). Esto rompe el loop de feedback positivo.
     const ro = new ResizeObserver((entries) => {
-      const cr = entries[0].contentRect
-      setSize({ w: cr.width, h: cr.height })
+      if (pending) return
+      pending = true
+      requestAnimationFrame(() => {
+        pending = false
+        const cr = entries[0]?.contentRect
+        if (!cr) return
+        setSize((prev) => {
+          if (
+            Math.abs(prev.w - cr.width) < 1 &&
+            Math.abs(prev.h - cr.height) < 1
+          ) {
+            return prev
+          }
+          return { w: cr.width, h: cr.height }
+        })
+      })
     })
     ro.observe(wrapRef.current)
     return () => ro.disconnect()
@@ -289,6 +441,25 @@ function GraphCanvasInner({
           .radius((d) => nodeBaseRadius(d) + 8)
           .strength(0.9),
       )
+      // GAP 3: forceRadial — cada profundidad tiene un anillo concéntrico,
+      // amarrando los nodos a su nivel jerárquico. Sin esto, los hijos
+      // "flotan" sin estructura visible.
+      //   depth 0 (Estado): pegado al centro (strength 0.6)
+      //   depth 1 (Reparticiones): cling al primer anillo (strength 0.35)
+      //   depth 2+ (Empresas): cling al anillo exterior (strength 0.25)
+      .force(
+        'radial',
+        forceRadial<NodeDatum>(
+          (d) => depthRadius(getNodeDepth(d), span),
+          cx,
+          cy,
+        ).strength((d) => {
+          const depth = getNodeDepth(d)
+          if (depth === 0) return 0.6
+          if (depth === 1) return 0.35
+          return 0.25
+        }),
+      )
       .alphaDecay(0.04)
       // reduceMotion: alphaMin=0.001 para que la sim se detenga al decaer.
       // Movimiento sutil: alphaMin=0 + alphaTarget>0 mantiene la sim viva.
@@ -297,7 +468,10 @@ function GraphCanvasInner({
 
     const nodeMap = new Map<string, NodeDatum>(nodes.map((n) => [n.id, n]))
 
-    // ── IMPERATIVE TICK: mutamos x1/y1/x2/y2 + transform directo en SVG ──
+    // ── IMPERATIVE TICK: mutamos `d` del path + transform directo en <g> ──
+    // path.setAttribute('d', ...) es ~tan barato como x1/y1/x2/y2 en
+    // browsers modernos (Skia rasteriza ambos del mismo modo). Beneficio:
+    // soportamos curvas Bézier para aristas jerárquicas sin perder perf.
     const writeFrame = () => {
       const eRefs = edgeRefs.current
       for (let i = 0; i < edges.length; i++) {
@@ -307,10 +481,10 @@ function GraphCanvasInner({
         const s = endpointNode(e.source, nodeMap)
         const t = endpointNode(e.target, nodeMap)
         if (!s || !t || s.x == null || t.x == null || s.y == null || t.y == null) continue
-        ref.lineEl.setAttribute('x1', String(s.x))
-        ref.lineEl.setAttribute('y1', String(s.y))
-        ref.lineEl.setAttribute('x2', String(t.x))
-        ref.lineEl.setAttribute('y2', String(t.y))
+        const d = isHierarchicalEdge(e.kind)
+          ? quadraticPathD(s.x, s.y, t.x, t.y)
+          : straightPathD(s.x, s.y, t.x, t.y)
+        ref.lineEl.setAttribute('d', d)
       }
       nodeRefs.current.forEach((ref, id) => {
         if (!ref?.gEl) return
@@ -611,9 +785,22 @@ function GraphCanvasInner({
 
       if (ref.labelEl) {
         const r0Base = nodeBaseRadius(n)
+        const depth = getNodeDepth(n)
+        // GAP 2: labels visibles by default cuando el nodo es estructural.
+        //   - depth 0 (Estado raíz): SIEMPRE
+        //   - depth 1 (Reparticiones): SIEMPRE
+        //   - weight > 0.6: SIEMPRE (top empresas por monto)
+        //   - severidad grave: SIEMPRE (alarmas)
+        // El comportamiento aditivo (focus/hover/expand) se preserva.
+        const isStructural = depth <= 1
+        const isHeavy = (n.weight ?? 0) > 0.6
+        const isAlarm = n.flags?.severidad === 'grave'
         const isLargeJ = n.type === 'jurisdiccion' && r0Base >= 18
         const inExpand = labelExpandSet ? labelExpandSet.has(id) : false
         const showLabel =
+          isStructural ||
+          isHeavy ||
+          isAlarm ||
           isHero ||
           isLargeJ ||
           isFocus ||
@@ -637,11 +824,43 @@ function GraphCanvasInner({
       const inFocus = neighborSet ? neighborSet.has(sId) && neighborSet.has(tId) : false
       const touchesHero = !focusedId && (sId === heroNodeId || tId === heroNodeId)
       const isHi = highlighted && (highlighted.has(sId) || highlighted.has(tId))
-      let op = focusedId ? (inFocus ? 0.5 : 0.04) : touchesHero ? 0.22 : 0.08
-      if (isHi) op = 0.75
+      // GAP 6: edge raised opacity si la fuente o destino están hovered.
+      const touchesHover = hoveredId != null && (sId === hoveredId || tId === hoveredId)
+
+      // GAP 1: baseline opacity por kind. Aristas jerárquicas (gano,
+      // pertenece_a, opera_en, tiene_director) deben ser visibles SIEMPRE
+      // — son el esqueleto del árbol. conflicto_con queda 0.65 (alarma roja).
+      // Otras kinds intermedias 0.22 (visibles, no dominantes).
+      const isHier = isHierarchicalEdge(e.kind)
+      let baseline: number
+      if (e.kind === 'conflicto_con') baseline = 0.65
+      else if (isHier) baseline = 0.5
+      else baseline = 0.22
+
+      let op: number
+      if (focusedId) {
+        op = inFocus ? Math.max(0.55, baseline) : 0.04
+      } else if (isHi) {
+        op = 0.85
+      } else if (touchesHover) {
+        // +0.3 sobre baseline, capped at 0.85.
+        op = Math.min(0.85, baseline + 0.3)
+      } else if (touchesHero) {
+        op = Math.max(baseline, 0.32)
+      } else {
+        op = baseline
+      }
       ref.lineEl.setAttribute('stroke-opacity', String(op))
     })
-  }, [focusedId, hoveredId, highlighted, neighborSet, labelExpandSet, idle, heroNodeId, nodes, edges])
+    // MAJOR 4: NO incluir `nodes` ni `edges` en las deps. Ambos se
+    // recalculan vía `simRef.current?.nodes ?? []` en cada render →
+    // referencias frescas → este effect correría en cada render del
+    // padre. La sim solo cambia cuando rebuild, lo cual ya señala
+    // `setSimTick` (no listado pero gatilla render → este effect lee
+    // simRef.current vía `nodes`/`edges` cerrados arriba). Las deps
+    // listadas representan los inputs reales de visibilidad/highlight.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusedId, hoveredId, highlighted, neighborSet, labelExpandSet, idle, heroNodeId])
 
   const handleHover = useCallback((id: string | null) => onHover(id), [onHover])
   const handleSelect = useCallback((id: string) => onSelect(id), [onSelect])
@@ -690,9 +909,39 @@ function GraphCanvasInner({
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
+          {/* Premium touch B — glow para el Estado raíz y top reparticiones.
+              Usado vía filter="url(#argos-glow)" en nodos depth 0 / depth 1
+              con weight > 0.7. Mismo patrón visual que Maltego/Palantir. */}
+          <filter id="argos-glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="3.5" result="g" />
+            <feComposite in="SourceGraphic" in2="g" operator="over" />
+          </filter>
         </defs>
 
         <g ref={gRef}>
+          {/* Premium touch C — guías de profundidad (anillos concéntricos
+              tenues). Ayudan a "leer" la jerarquía sin agregar ruido visual.
+              Renderizadas PRIMERO para quedar detrás de aristas y nodos. */}
+          <g className="depth-guides" pointerEvents="none">
+            {[1, 2].map((d) => {
+              const span = Math.min(size.w, size.h) * 0.45
+              const r = depthRadius(d, span)
+              if (r <= 0) return null
+              return (
+                <circle
+                  key={`ring-${d}`}
+                  cx={size.w / 2}
+                  cy={size.h / 2}
+                  r={r}
+                  fill="none"
+                  stroke="rgba(255,255,255,0.05)"
+                  strokeDasharray="2 6"
+                  strokeWidth={1}
+                />
+              )
+            })}
+          </g>
+
           {/* edges-group */}
           <g className="edges-group">
             {edges.map((e, i) => {
@@ -709,16 +958,24 @@ function GraphCanvasInner({
                 ? 1.2 + (e.weight || 0.5) * 2.0
                 : 0.6 + (e.weight || 0.3) * 1.6
               const dash = e.kind === 'conflicto_con' ? '4 3' : undefined
+              // Baseline strokeOpacity por kind (GAP 1). El imperative
+              // effect lo sobreescribe por focus/hover, esto es solo el
+              // estado de partida antes del primer tick del effect.
+              const baselineOp = e.kind === 'conflicto_con' ? 0.65
+                : isHierarchicalEdge(e.kind) ? 0.5
+                : 0.22
               return (
-                <line
+                <path
                   key={i}
                   ref={(el) => {
                     if (el) edgeRefs.current[i] = { lineEl: el }
                   }}
+                  fill="none"
                   stroke={stroke}
                   strokeWidth={sw}
-                  strokeOpacity={e.kind === 'conflicto_con' ? 0.65 : 0.08}
+                  strokeOpacity={baselineOp}
                   strokeDasharray={dash}
+                  strokeLinecap="round"
                 />
               )
             })}
@@ -726,7 +983,7 @@ function GraphCanvasInner({
 
           {/* nodes-group */}
           <g className="nodes-group">
-            {nodes.map((n) => {
+            {nodes.map((n, idx) => {
               const r0Base = nodeBaseRadius(n)
               const c = colorFor(n)
               const sev: ArgosSeveridad | undefined = n.flags?.severidad
@@ -739,6 +996,7 @@ function GraphCanvasInner({
               const haloR = r * 4
               const initX = n.x ?? 0
               const initY = n.y ?? 0
+              const depth = getNodeDepth(n)
 
               let fill = c
               let fillOp = 0.85
@@ -759,13 +1017,38 @@ function GraphCanvasInner({
                 strokeOp = 0.10
               }
 
-              const labelText = n.label.length > 28 ? n.label.slice(0, 26) + '…' : n.label
+              // GAP 5: label truncation y styling diferenciado por depth.
+              const truncLen = depth <= 1 ? 32 : 24
+              const labelText =
+                n.label.length > truncLen ? n.label.slice(0, truncLen - 2) + '…' : n.label
+              const labelFontSize =
+                depth === 0 ? 13 : depth === 1 ? 12 : depth === 2 ? 10 : 9
+              const labelFontWeight = depth <= 1 ? 600 : 500
+              const labelFill = colorFor(n)
 
+              // Premium touch B — glow para Estado raíz + top reparticiones.
+              const applyGlow =
+                depth === 0 || (depth === 1 && (n.weight ?? 0) > 0.7)
+
+              // Premium touch E — entry transition. Stagger por idx, max 600ms.
+              // Usamos CSS transition vía style + key dinámica del snapshot
+              // para reiniciar al cambiar nodos. La clase .node-entering
+              // arranca con opacity 0 y se anima a 1 vía CSS.
+              const entryDelay = Math.min(idx * 20, 600)
+
+              // BLOCKER 1: solo aplicamos `node-entering` si el nodo aún
+              // no terminó su transición. El Set `enteredRef` se resetea
+              // al cambiar snapshot. En re-renders por hover/etc el nodo
+              // ya está marcado y NO recibe la clase, evitando flicker.
+              const isEntering = !enteredRef.current.has(n.id)
               return (
                 <g
                   key={n.id}
-                  className={`node ${n.type === 'señal' ? 'is-señal' : ''}`}
+                  className={`node${isEntering ? ' node-entering' : ''}${n.type === 'señal' ? ' is-señal' : ''}`}
                   transform={`translate(${initX},${initY})`}
+                  style={{
+                    transition: `opacity 400ms ease-out ${entryDelay}ms`,
+                  }}
                   ref={(el) => {
                     if (!el) return
                     nodeRefs.current.set(n.id, {
@@ -775,9 +1058,41 @@ function GraphCanvasInner({
                       dotEl: el.querySelector('.dot'),
                       labelEl: el.querySelector('.node-label'),
                     })
+                    // Premium touch E — tras montar, removemos la clase
+                    // .node-entering en el siguiente frame y marcamos al
+                    // nodo como "ya entró" para evitar re-aplicación en
+                    // futuros renders. Idempotente.
+                    if (isEntering) {
+                      requestAnimationFrame(() => {
+                        el.classList.remove('node-entering')
+                        enteredRef.current.add(n.id)
+                      })
+                    }
                   }}
-                  onMouseEnter={() => handleHover(n.id)}
-                  onMouseLeave={() => handleHover(null)}
+                  onMouseEnter={(ev) => {
+                    handleHover(n.id)
+                    // BLOCKER 2: la posición se mueve via RAF imperativo,
+                    // solo `hoveredTooltipId` toca React state (1 update
+                    // por enter/leave, no por pixel).
+                    setHoveredTooltipId(n.id)
+                    scheduleTooltipMove(ev.clientX, ev.clientY)
+                  }}
+                  onMouseMove={(ev) => {
+                    // BLOCKER 2: NO setState. RAF-batched, ref-driven.
+                    if (hoveredTooltipId === n.id) {
+                      scheduleTooltipMove(ev.clientX, ev.clientY)
+                    }
+                  }}
+                  onMouseLeave={() => {
+                    handleHover(null)
+                    setHoveredTooltipId(null)
+                    // Cancelar cualquier RAF pendiente para evitar que un
+                    // último move post-leave lo reposicione.
+                    if (tooltipRafRef.current != null) {
+                      cancelAnimationFrame(tooltipRafRef.current)
+                      tooltipRafRef.current = null
+                    }
+                  }}
                   onClick={(ev) => {
                     ev.stopPropagation()
                     handleSelect(n.id)
@@ -806,8 +1121,19 @@ function GraphCanvasInner({
                     stroke={strokeCol}
                     strokeWidth={strokeW}
                     strokeOpacity={strokeOp}
+                    filter={applyGlow ? 'url(#argos-glow)' : undefined}
                   />
-                  <text className="node-label" y={r + 14} style={{ display: 'none' }}>
+                  <text
+                    className="node-label"
+                    y={r + 14}
+                    style={{
+                      display: 'none',
+                      fontSize: `${labelFontSize}px`,
+                      fontWeight: labelFontWeight,
+                      fill: labelFill,
+                      pointerEvents: 'none',
+                    }}
+                  >
                     {labelText}
                   </text>
                 </g>
@@ -816,6 +1142,87 @@ function GraphCanvasInner({
           </g>
         </g>
       </svg>
+      {/* Premium touch D — tooltip flotante. Pointer-events: none para no
+          interceptar mouseleave del nodo. La posición se actualiza
+          imperativamente vía `scheduleTooltipMove` (RAF batched) → el
+          contenedor se renderiza UNA vez y solo cambia su contenido
+          cuando `hoveredTooltipId` cambia (enter/leave, no por pixel).
+          fontSize 11 + font-mono según pattern del diseño forense. */}
+      <div
+        ref={tooltipDivRef}
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          transform: 'translate(-9999px, -9999px)',
+          maxWidth: 280,
+          background: 'rgba(12,15,22,0.96)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 4,
+          padding: '8px 10px',
+          fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+          fontSize: 11,
+          color: 'var(--text-1)',
+          pointerEvents: 'none',
+          // z-index: var(--z-tooltip) — debe estar por encima del search bar
+          // (var(--z-search)=500) cuando el cursor toca un nodo en cualquier vista.
+          zIndex: 1000,
+          boxShadow: '0 4px 18px rgba(0,0,0,0.45)',
+          opacity: hoveredTooltipId ? 1 : 0,
+          willChange: 'transform',
+          display: hoveredTooltipId ? 'block' : 'none',
+        }}
+      >
+        {(() => {
+          if (!hoveredTooltipId) return null
+          const node = nodes.find((nx) => nx.id === hoveredTooltipId)
+          if (!node) return null
+          const subtitle =
+            node.subtitle
+            || (node.data?.cuit ? `CUIT ${String(node.data.cuit)}` : undefined)
+            || (node.type === 'jurisdiccion' || node.type === 'reparticion'
+                ? node.type === 'jurisdiccion' ? 'Estado' : 'Repartición'
+                : undefined)
+          const monto = typeof node.data?.monto === 'number'
+            ? node.data.monto as number
+            : null
+          const contratos = typeof node.data?.contratos === 'number'
+            ? node.data.contratos as number
+            : (typeof node.data?.totalContratos === 'number'
+                ? node.data.totalContratos as number
+                : null)
+          const fmtMonto = (v: number): string => {
+            if (v >= 1e9) return `$${(v / 1e9).toFixed(1)} mil M`
+            if (v >= 1e6) return `$${(v / 1e6).toFixed(1)} M`
+            if (v >= 1e3) return `$${(v / 1e3).toFixed(0)} k`
+            return `$${v.toFixed(0)}`
+          }
+          return (
+            <>
+              <div style={{ fontWeight: 600, color: colorFor(node) }}>
+                {node.label}
+              </div>
+              {subtitle && (
+                <div style={{ color: 'var(--text-3)', marginTop: 2 }}>
+                  {subtitle}
+                </div>
+              )}
+              {monto != null && (
+                <div style={{ marginTop: 4 }}>
+                  <span style={{ color: 'var(--text-3)' }}>monto: </span>
+                  {fmtMonto(monto)}
+                </div>
+              )}
+              {contratos != null && (
+                <div>
+                  <span style={{ color: 'var(--text-3)' }}>contratos: </span>
+                  {contratos}
+                </div>
+              )}
+            </>
+          )
+        })()}
+      </div>
     </div>
   )
 }

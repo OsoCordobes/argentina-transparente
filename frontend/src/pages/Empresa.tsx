@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ExplorarLayout } from '@/components/argos/ExplorarLayout'
+import { EmptyState, LoadingState } from '@/components/argos/primitives'
 import { graphFromNeo4j } from '@/lib/argos/graphFromData'
 import { getPersonaJuridicaStub } from '@/lib/argos/fixtures/personas-stub'
 import type { PersonaJuridica, ArgosGraph, ArgosNode, ArgosEdge } from '@/lib/argos/types'
@@ -171,14 +172,15 @@ function FixtureBanner() {
   return (
     <div
       style={{
-        background: '#3a2d1d',
-        color: '#F5B544',
-        padding: '8px 16px',
-        fontSize: 12,
-        fontFamily: 'ui-monospace, monospace',
-        borderBottom: '1px solid #F5B544',
+        background: 'color-mix(in srgb, var(--semantic-warn) 18%, var(--surface-base))',
+        color: 'var(--semantic-warn)',
+        padding: 'var(--space-2) var(--space-4)',
+        fontSize: 'var(--text-base)',
+        fontFamily: 'var(--font-mono)',
+        borderBottom: '1px solid var(--semantic-warn)',
         position: 'sticky',
         top: 0,
+        // var(--z-overlay): banner sticky sobre el contenido.
         zIndex: 100,
       }}
     >
@@ -192,16 +194,13 @@ function ProfileLoading() {
   return (
     <div
       style={{
-        background: '#0d1117',
-        color: '#9BA3B4',
+        position: 'relative',
+        background: 'var(--surface-base)',
+        color: 'var(--text-secondary)',
         minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: 13,
       }}
     >
-      Cargando empresa…
+      <LoadingState mode="overlay" label="Cargando empresa…" />
     </div>
   )
 }
@@ -210,35 +209,31 @@ function NotFound({ cuit }: { cuit: string }) {
   return (
     <div
       style={{
-        background: '#0d1117',
-        color: '#dde3ee',
+        background: 'var(--surface-base)',
         minHeight: '100vh',
-        padding: '24px 28px',
         display: 'flex',
-        flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 16,
+        padding: 'var(--space-6) var(--space-8)',
       }}
     >
-      <h1 style={{ fontSize: 22, color: '#eef2f9', margin: 0 }}>Empresa no encontrada</h1>
-      <p style={{ fontSize: 13, color: '#9aa5bb', maxWidth: 480, textAlign: 'center', lineHeight: 1.5 }}>
-        CUIT{' '}
-        <code
-          style={{
-            background: '#171b24',
-            padding: '1px 6px',
-            borderRadius: 3,
-            fontFamily: 'ui-monospace, monospace',
-          }}
-        >
-          {cuit}
-        </code>{' '}
-        no figura en backend ni en fixtures.
-      </p>
-      <Link to="/" style={{ color: '#5a8ad6', fontSize: 13 }}>
-        ← Volver al inicio
-      </Link>
+      <EmptyState
+        title="Empresa no encontrada"
+        body={`El CUIT ${cuit} no figura en backend ni en fixtures.`}
+        secondaryAction={
+          <Link
+            to="/"
+            style={{
+              color: 'var(--accent-primary)',
+              fontSize: 'var(--text-base)',
+              fontFamily: 'var(--font-sans)',
+              textDecoration: 'none',
+            }}
+          >
+            ← Volver al inicio
+          </Link>
+        }
+      />
     </div>
   )
 }

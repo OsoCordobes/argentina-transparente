@@ -188,7 +188,8 @@ const s: Record<string, React.CSSProperties> = {
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   },
   headerSticky: {
-    position: 'sticky', top: 0, zIndex: 20,
+    // var(--z-overlay): sticky header dentro del flujo, debe estar sobre rows.
+    position: 'sticky', top: 0, zIndex: 100,
     background: '#0d1117', borderBottom: '1px solid #1f2937',
   },
   headerInner: {

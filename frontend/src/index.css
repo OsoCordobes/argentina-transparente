@@ -1,3 +1,11 @@
+/* CRÍTICO: los @import deben venir ANTES de cualquier otra regla CSS,
+   incluyendo @tailwind. Si no, el navegador (y PostCSS Import) los
+   ignoran silenciosamente y todas las custom properties (--surface-base,
+   --entity-estado, --font-sans, etc.) quedan undefined → todo el grafo
+   renderiza fill=black sobre bg=black. */
+@import './styles/tokens.css';
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Source+Serif+4:wght@400;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,8 +13,6 @@
 /* Argentina Transparente - Design System
    Civic transparency portal - Professional, neutral, accessible
    All colors in HSL format */
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:wght@400;600&display=swap');
 
 @layer base {
   :root {

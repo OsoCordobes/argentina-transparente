@@ -485,6 +485,67 @@ export function useGrafoNucleo(limite = 200) {
   })
 }
 
+// ─── Grafo jerárquico (DuckDB) ──────────────────────────────────────────────
+// Estado → Reparticion → Empresa servido directo desde DuckDB. Es la fuente
+// preferida del home (graph-first) — no depende de Neo4j.
+
+export interface GrafoJerarquiaNode {
+  id: string
+  type: 'jurisdiccion' | 'reparticion' | 'empresa' | 'funcionario'
+  label: string
+  subtitle?: string
+  weight: number
+  data: {
+    depth: number
+    monto?: number
+    contratos?: number
+    cuit?: string
+    area?: string
+    jurisdiccion?: string
+    [k: string]: unknown
+  }
+}
+
+export interface GrafoJerarquiaEdge {
+  source: string
+  target: string
+  kind: 'pertenece_a' | 'gano' | 'opera_en'
+  weight: number
+}
+
+export interface GrafoJerarquiaResponse {
+  nodes: GrafoJerarquiaNode[]
+  edges: GrafoJerarquiaEdge[]
+  graphAvailable: true
+  fuente: 'duckdb-jerarquia'
+  meta: {
+    jurisdicciones: string[]
+    totalReparticiones: number
+    totalEmpresas: number
+    montoTotal: number
+  }
+}
+
+export interface UseGrafoJerarquiaOpts {
+  jurisdiccion?: 'cordoba-capital' | 'cordoba-provincia' | 'all'
+  maxReparticiones?: number
+  maxEmpresasPorReparticion?: number
+}
+
+export function useGrafoJerarquia(opts: UseGrafoJerarquiaOpts = {}) {
+  const j = opts.jurisdiccion ?? 'all'
+  const r = opts.maxReparticiones ?? 12
+  const e = opts.maxEmpresasPorReparticion ?? 4
+  return useQuery({
+    queryKey: ['grafo', 'jerarquia', j, r, e],
+    queryFn: () =>
+      fetchJSON<GrafoJerarquiaResponse>(
+        `/api/grafo/jerarquia?jurisdiccion=${j}&maxReparticiones=${r}&maxEmpresasPorReparticion=${e}`
+      ),
+    staleTime: 5 * 60_000,
+  })
+}
+
 export interface GrafoStatsResponse {
   graphAvailable: boolean
   nodos?: { empresa: number; persona: number; funcionario: number; reparticion: number; contrato: number; señal: number }
@@ -582,5 +643,107 @@ export function useCoberturaGlobal() {
     queryFn: () => fetchJSON<CoberturaGlobalResponse>('/api/cobertura'),
     staleTime: 5 * 60_000,
     retry: 0,
+  })
+}
+
+// ─── Grafo jerárquico v2 (depth-structured) — Wave PR-1 ───────────────────
+
+export interface GrafoJerarquiaV2DepthLevel {
+  nodes: GrafoJerarquiaNode[]
+  edges: GrafoJerarquiaEdge[]
+}
+
+export interface GrafoJerarquiaV2Response {
+  depth0: GrafoJerarquiaV2DepthLevel
+  depth1: GrafoJerarquiaV2DepthLevel
+  depth2: GrafoJerarquiaV2DepthLevel
+  depth3: GrafoJerarquiaV2DepthLevel
+  meta: {
+    jurisdiccion: string
+    totalNodos: number
+    totalAristas: number
+    montoTotal: number
+  }
+}
+
+export function useGrafoJerarquiaV2(
+  jurisdiccion: 'cordoba-capital' | 'cordoba-provincia' | 'all' = 'cordoba-capital'
+) {
+  return useQuery({
+    queryKey: ['grafo', 'jerarquia-v2', jurisdiccion],
+    queryFn: () =>
+      fetchJSON<GrafoJerarquiaV2Response>(`/api/grafo/jerarquia/v2?jurisdiccion=${jurisdiccion}`),
+    staleTime: 5 * 60_000,
+  })
+}
+
+// ─── Mapa Provincial Comprehensive (Phase A 2026-05-05) ───────────────────
+// Reemplaza al jerarquia/v2 para el home. Multi-fuente: contratos +
+// agentes_publicos + entes_estatales + (deep) personas. 270 nodos en
+// meso, 415 en deep.
+
+export type MapaDetail = 'macro' | 'meso' | 'deep'
+export type MapaJurisdiccion = 'ambas' | 'provincia' | 'capital'
+
+export interface MapaNode {
+  id: string
+  type: 'jurisdiccion' | 'ministerio' | 'direccion' | 'organismo' | 'empresa' | 'persona' | 'empleado'
+  label: string
+  subtitle?: string
+  weight: number
+  depth: 0 | 1 | 2 | 3
+  jurisdiccion: 'provincia' | 'capital' | null
+  data: Record<string, unknown>
+  flags?: { senalGrave?: boolean; senalModerada?: boolean; cuitVerificado?: boolean }
+}
+
+export interface MapaEdge {
+  source: string
+  target: string
+  kind:
+    | 'contiene'
+    | 'comparte_jurisdiccion'
+    | 'contrata'
+    | 'trabaja_en'
+    | 'dirige'
+    | 'preside'
+    | 'conflicto_con'
+    | 'comparte_director'
+  weight: number
+  data?: Record<string, unknown>
+}
+
+export interface MapaProvincialResponse {
+  nodes: MapaNode[]
+  edges: MapaEdge[]
+  meta: {
+    detail: MapaDetail
+    jurisdicciones: ('provincia' | 'capital')[]
+    totalNodos: number
+    totalAristas: number
+    porTipo: Record<string, number>
+    montoTotal: number
+    empleadosTotal: number
+    fuentes: string[]
+    año: number | null
+  }
+}
+
+export function useMapaProvincial(opts: {
+  detail?: MapaDetail
+  jurisdiccion?: MapaJurisdiccion
+  año?: number | null
+} = {}) {
+  const detail = opts.detail ?? 'meso'
+  const jurisdiccion = opts.jurisdiccion ?? 'ambas'
+  const año = opts.año ?? null
+  return useQuery({
+    queryKey: ['grafo', 'mapa-provincial', detail, jurisdiccion, año],
+    queryFn: () => {
+      const params = new URLSearchParams({ detail, jurisdiccion })
+      if (año) params.set('año', String(año))
+      return fetchJSON<MapaProvincialResponse>(`/api/grafo/mapa-provincial?${params}`)
+    },
+    staleTime: 5 * 60_000,
   })
 }

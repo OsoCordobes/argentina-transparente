@@ -4,9 +4,10 @@
  * Compara 2 empresas lado a lado con métricas idénticas + diff col.
  * Output: URL shareable, agregar a caso, exportar CSV.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { ArgosShell } from '@/components/argos/ArgosShell'
+import { EmptyState, LoadingState } from '@/components/argos/primitives'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 
@@ -112,6 +113,11 @@ export default function Comparar() {
     navigate(`/casos?adjuntar=${encodeURIComponent(ids)}&kind=pj`)
   }
 
+  // Loading durante comparación = ambos slots tienen cuit pero no terminamos
+  // de cargar la métrica de al menos uno (y no hay error en ese slot).
+  const loadingComparacion =
+    Boolean(cuitA && cuitB) && ((cuitA && !a && !errorA) || (cuitB && !b && !errorB))
+
   return (
     <ArgosShell title="Comparar · empresa vs empresa">
       <p style={s.subtitle}>
@@ -125,13 +131,30 @@ export default function Comparar() {
           <SlotPicker label="Empresa B" cuit={cuitB} m={b} error={errorB} onPick={c => setSlot('b', c)} />
         </div>
 
+        {loadingComparacion && (
+          <div style={{
+            position: 'relative',
+            minHeight: 240,
+            background: 'var(--surface-overlay)',
+            border: '1px solid var(--hairline-2)',
+            borderRadius: 'var(--radius-md)',
+            marginBottom: 'var(--space-4)',
+          }}>
+            <LoadingState mode="overlay" label="Cruzando datos…" />
+          </div>
+        )}
+
         {a && b && (
           <>
             <div style={s.actionBar}>
               <button onClick={shareUrl} style={s.bulkBtn}>Copiar URL</button>
               <button onClick={addToCase} style={s.bulkBtn}>+ Caso (ambas)</button>
               <button onClick={exportCsv} style={s.bulkBtn}>↓ Exportar CSV</button>
-              {shareToast && <span style={{ fontSize: 11, color: '#62C7A0' }}>{shareToast}</span>}
+              {shareToast && (
+                <span style={{ fontSize: 'var(--text-sm)', color: 'var(--semantic-success)' }}>
+                  {shareToast}
+                </span>
+              )}
             </div>
 
             <div style={s.tableWrap}>
@@ -170,10 +193,11 @@ export default function Comparar() {
           </>
         )}
 
-      {(!a || !b) && (
-        <div style={s.muted}>
-          Seleccioná dos empresas (slot A y slot B) para empezar a comparar.
-        </div>
+      {(!a || !b) && !loadingComparacion && (
+        <EmptyState
+          title="Compará 2 empresas"
+          body="Buscá una empresa en cada panel para ver sus diferencias. Compará monto contratado, jurisdicciones, evolución temporal y señales detectadas."
+        />
       )}
     </ArgosShell>
   )
@@ -186,9 +210,13 @@ function Row({ label, a, b, mono = false }: {
   return (
     <tr style={s.tr}>
       <td style={s.td}>{label}</td>
-      <td style={{ ...s.td, ...(mono ? { fontFamily: 'ui-monospace, monospace' } : null) }}>{a}</td>
-      <td style={{ ...s.td, ...(mono ? { fontFamily: 'ui-monospace, monospace' } : null) }}>{b}</td>
-      <td style={{ ...s.td, color: same ? '#3a4150' : '#dde3ee', fontFamily: 'ui-monospace, monospace' }}>
+      <td style={{ ...s.td, ...(mono ? { fontFamily: 'var(--font-mono)' } : null) }}>{a}</td>
+      <td style={{ ...s.td, ...(mono ? { fontFamily: 'var(--font-mono)' } : null) }}>{b}</td>
+      <td style={{
+        ...s.td,
+        color: same ? 'var(--text-muted)' : 'var(--text-primary)',
+        fontFamily: 'var(--font-mono)',
+      }}>
         {same ? '=' : '≠'}
       </td>
     </tr>
@@ -201,13 +229,13 @@ function RowNum({ label, aN, bN, format }: {
   const f = format ?? ((n: number) => n.toLocaleString('es-AR'))
   const diffStr = diffNum(aN, bN)
   const aMore = aN > bN
-  const color = aN === bN ? '#3a4150' : '#62C7A0'
+  const color = aN === bN ? 'var(--text-muted)' : 'var(--semantic-success)'
   return (
     <tr style={s.tr}>
       <td style={s.td}>{label}</td>
-      <td style={{ ...s.td, fontFamily: 'ui-monospace, monospace' }}>{f(aN)}</td>
-      <td style={{ ...s.td, fontFamily: 'ui-monospace, monospace' }}>{f(bN)}</td>
-      <td style={{ ...s.td, color, fontFamily: 'ui-monospace, monospace' }}>
+      <td style={{ ...s.td, fontFamily: 'var(--font-mono)' }}>{f(aN)}</td>
+      <td style={{ ...s.td, fontFamily: 'var(--font-mono)' }}>{f(bN)}</td>
+      <td style={{ ...s.td, color, fontFamily: 'var(--font-mono)' }}>
         {diffStr}{aMore ? ' (A)' : aN < bN ? ' (B)' : ''}
       </td>
     </tr>
@@ -216,14 +244,14 @@ function RowNum({ label, aN, bN, format }: {
 
 function SparkInline({ data }: { data: Array<{ anio: number; monto: number }> }) {
   if (!data || data.length === 0) {
-    return <span style={{ color: '#3a4150', fontFamily: 'ui-monospace, monospace' }}>—</span>
+    return <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>—</span>
   }
   const max = Math.max(...data.map(d => d.monto), 1)
   const blocks = '▁▂▃▄▅▆▇█'
   const chars = data.map(d => blocks[Math.min(blocks.length - 1, Math.floor((d.monto / max) * blocks.length))]).join('')
   return (
     <span
-      style={{ fontFamily: 'ui-monospace, monospace', color: '#62C7A0' }}
+      style={{ fontFamily: 'var(--font-mono)', color: 'var(--semantic-success)' }}
       title={data.map(d => `${d.anio}: ${formatPesos(d.monto)}`).join('\n')}
     >{chars}</span>
   )
@@ -271,10 +299,10 @@ function SlotPicker({
       <div style={s.slot}>
         <div style={s.slotLabel}>{label}</div>
         <div style={s.slotName}>{m.razonSocial}</div>
-        <div style={{ fontSize: 11, color: '#9BA3B4', fontFamily: 'ui-monospace, monospace' }}>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
           {m.cuit}
         </div>
-        <div style={{ marginTop: 10, display: 'flex', gap: 6 }}>
+        <div style={{ marginTop: 'var(--space-3)', display: 'flex', gap: 'var(--space-1-5)' }}>
           <Link to={`/empresa/${m.cuit}`} style={s.slotLink}>Ver perfil →</Link>
           <button onClick={() => { onPick(null); setSearch('') }} style={s.slotBtn}>cambiar</button>
         </div>
@@ -285,7 +313,7 @@ function SlotPicker({
   return (
     <div style={s.slot}>
       <div style={s.slotLabel}>{label}</div>
-      {error && <div style={{ ...s.error, marginBottom: 8 }}>{error}</div>}
+      {error && <div style={{ ...s.error, marginBottom: 'var(--space-2)' }}>{error}</div>}
       <input
         type="text"
         value={search}
@@ -308,12 +336,12 @@ function SlotPicker({
         </div>
       )}
       {lookupError && (
-        <div style={{ ...s.error, marginTop: 6, fontSize: 11 }}>
+        <div style={{ ...s.error, marginTop: 'var(--space-1-5)', fontSize: 'var(--text-sm)' }}>
           Buscador no disponible: {lookupError}
         </div>
       )}
       {cuit && !m && (
-        <div style={{ ...s.muted, fontSize: 11, marginTop: 6 }}>
+        <div style={{ ...s.muted, fontSize: 'var(--text-sm)', marginTop: 'var(--space-1-5)' }}>
           Cargando empresa {cuit}…
         </div>
       )}
@@ -348,72 +376,87 @@ function formatPesos(n: number): string {
 }
 
 const s: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: '100vh', display: 'flex', flexDirection: 'column',
-    background: '#0d1117', color: '#dde3ee',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  subtitle: {
+    fontSize: 'var(--text-base)', color: 'var(--text-secondary)',
+    marginTop: 'var(--space-1-5)', maxWidth: 720, lineHeight: 'var(--leading-normal)',
   },
-  main: { flex: 1, maxWidth: 1480, width: '100%', margin: '0 auto', padding: '24px' },
-  head: { marginBottom: 20, paddingBottom: 14, borderBottom: '1px solid #1f2937' },
-  h1: { fontSize: 20, margin: 0, color: '#dde3ee', fontWeight: 600 },
-  subtitle: { fontSize: 12, color: '#9BA3B4', marginTop: 6, maxWidth: 720, lineHeight: 1.5 },
 
   slots: {
-    display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 18,
+    display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)',
+    marginBottom: 'var(--space-4)',
   },
   slot: {
-    background: '#161b22', border: '1px solid #2a3140', borderRadius: 4, padding: 14,
+    background: 'var(--surface-overlay)', border: '1px solid var(--hairline-2)',
+    borderRadius: 'var(--radius-md)', padding: 'var(--space-3)',
     minHeight: 120,
   },
   slotLabel: {
-    fontSize: 10, color: '#9BA3B4', letterSpacing: 1.5, fontWeight: 600,
-    textTransform: 'uppercase' as const, marginBottom: 8,
+    fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', letterSpacing: 'var(--tracking-wider)',
+    fontWeight: 'var(--weight-semibold)', textTransform: 'uppercase' as const,
+    marginBottom: 'var(--space-2)',
   },
-  slotName: { fontSize: 16, color: '#dde3ee', fontWeight: 600, marginBottom: 4 },
+  slotName: {
+    fontSize: 'var(--text-lg)', color: 'var(--text-primary)',
+    fontWeight: 'var(--weight-semibold)', marginBottom: 'var(--space-1)',
+  },
   slotLink: {
-    color: '#7da3ff', textDecoration: 'none', fontSize: 11,
+    color: 'var(--accent-primary)', textDecoration: 'none', fontSize: 'var(--text-sm)',
   },
   slotBtn: {
-    background: 'transparent', border: '1px solid #2a3140', color: '#9BA3B4',
-    padding: '2px 8px', borderRadius: 3, fontSize: 11, cursor: 'pointer',
+    background: 'transparent', border: '1px solid var(--hairline-2)', color: 'var(--text-secondary)',
+    padding: '2px var(--space-2)', borderRadius: 'var(--radius-sm)',
+    fontSize: 'var(--text-sm)', cursor: 'pointer',
   },
   input: {
-    width: '100%', background: '#0d1117', border: '1px solid #2a3140',
-    color: '#dde3ee', padding: '7px 10px', borderRadius: 3, fontSize: 12,
+    width: '100%', background: 'var(--surface-base)', border: '1px solid var(--hairline-2)',
+    color: 'var(--text-primary)', padding: 'var(--space-1-5) var(--space-3)',
+    borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-base)',
     boxSizing: 'border-box' as const,
   },
   suggestions: {
-    marginTop: 6, background: '#0d1117', border: '1px solid #2a3140',
-    borderRadius: 3, padding: 4,
+    marginTop: 'var(--space-1-5)', background: 'var(--surface-base)',
+    border: '1px solid var(--hairline-2)', borderRadius: 'var(--radius-sm)',
+    padding: 'var(--space-1)',
   },
   suggestionItem: {
     background: 'transparent', border: 'none', textAlign: 'left' as const,
-    width: '100%', padding: '6px 10px', borderRadius: 3, fontSize: 12,
-    cursor: 'pointer', color: '#dde3ee', display: 'flex', alignItems: 'center',
+    width: '100%', padding: 'var(--space-1-5) var(--space-3)', borderRadius: 'var(--radius-sm)',
+    fontSize: 'var(--text-base)', cursor: 'pointer', color: 'var(--text-primary)',
+    display: 'flex', alignItems: 'center',
   },
-  suggestionId: { color: '#9BA3B4', fontFamily: 'ui-monospace, monospace', fontSize: 10, marginLeft: 8 },
+  suggestionId: {
+    color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)',
+    fontSize: 'var(--text-xs)', marginLeft: 'var(--space-2)',
+  },
 
   actionBar: {
-    display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12,
+    display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-3)',
   },
   bulkBtn: {
-    background: 'transparent', border: '1px solid #2a3140', color: '#dde3ee',
-    padding: '5px 12px', borderRadius: 3, fontSize: 11, cursor: 'pointer',
+    background: 'transparent', border: '1px solid var(--hairline-2)', color: 'var(--text-primary)',
+    padding: 'var(--space-1) var(--space-3)', borderRadius: 'var(--radius-sm)',
+    fontSize: 'var(--text-sm)', cursor: 'pointer',
   },
 
   tableWrap: {
-    background: '#161b22', border: '1px solid #2a3140', borderRadius: 4,
-    overflow: 'hidden',
+    background: 'var(--surface-overlay)', border: '1px solid var(--hairline-2)',
+    borderRadius: 'var(--radius-md)', overflow: 'hidden',
   },
-  table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: 12 },
+  table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: 'var(--text-base)' },
   th: {
-    padding: '10px 12px', textAlign: 'left' as const,
-    fontSize: 10, color: '#9BA3B4', letterSpacing: 1.5,
-    textTransform: 'uppercase' as const, fontWeight: 600,
-    borderBottom: '1px solid #1f2937',
+    padding: 'var(--space-3) var(--space-3)', textAlign: 'left' as const,
+    fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', letterSpacing: 'var(--tracking-wider)',
+    textTransform: 'uppercase' as const, fontWeight: 'var(--weight-semibold)',
+    borderBottom: '1px solid var(--hairline-2)',
   },
-  tr: { borderBottom: '1px solid #1f2937' },
-  td: { padding: '10px 12px', color: '#dde3ee' },
-  error: { padding: 8, background: '#3a1d1d', color: '#E25656', borderRadius: 3, fontSize: 11 },
-  muted: { color: '#9BA3B4', fontSize: 13, padding: 24, textAlign: 'center' as const },
+  tr: { borderBottom: '1px solid var(--hairline-2)' },
+  td: { padding: 'var(--space-3) var(--space-3)', color: 'var(--text-primary)' },
+  error: {
+    padding: 'var(--space-2)', background: 'color-mix(in oklab, var(--semantic-danger) 22%, var(--surface-base))',
+    color: 'var(--semantic-danger)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--text-sm)',
+  },
+  muted: {
+    color: 'var(--text-secondary)', fontSize: 'var(--text-base)',
+    padding: 'var(--space-6)', textAlign: 'center' as const,
+  },
 }

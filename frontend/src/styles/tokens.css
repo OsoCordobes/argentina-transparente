@@ -1,0 +1,262 @@
+/**
+ * tokens.css — Design tokens canónicos de ARGOS.
+ *
+ * Single source of truth para colores, tipografía, espaciado, motion,
+ * elevación y stroke widths. Cualquier valor hardcodeado en CSS o JSX
+ * debe poder reemplazarse por una de estas variables.
+ *
+ * Basado en research forense (Palantir/Maltego/Linkurious/Linear) — ver
+ * docs/PLAN-LAUNCH-V2.md sección "Surface scale + tipografía dual".
+ *
+ * Reglas no negociables:
+ *   - Stroke widths: SOLO múltiplos de 0.5 (1, 1.5, 2, 2.5)
+ *   - Border radius: máx 6px en superficies forenses (12+ lee "consumer")
+ *   - Surface scale: LCH-based, +5-8% L por nivel
+ *   - Tipografía dual: sans para UI, mono para CUITs/IDs/montos exactos
+ *
+ * IMPORTACIÓN: este archivo se importa primero en main.tsx (antes que
+ * argos.css o argos-forensic.css) para que las variables estén
+ * disponibles en todos los componentes.
+ */
+
+:root {
+  /* ─── SURFACE SCALE (LCH dark forensic) ──────────────────────────────────
+     4 niveles de profundidad. Cada nivel +5-8% L sobre el anterior. */
+  --surface-base:    #0B1020;  /* fondo absoluto, body */
+  --surface-raised:  #141A2E;  /* cards, panels, secciones elevadas */
+  --surface-overlay: #1E2540;  /* dropdown, popover */
+  --surface-popover: #2A3354;  /* tooltip, side panel modal */
+
+  /* ─── TEXT (3 niveles + muted) ────────────────────────────────────────── */
+  --text-primary:   #E5E7EB;  /* títulos, valores principales */
+  --text-secondary: #94A3B8;  /* descripciones, subtítulos */
+  --text-muted:     #64748B;  /* placeholders, hints */
+  --text-inverse:   #0B1020;  /* texto sobre superficies claras */
+
+  /* ─── ACCENT por entidad (taxonomía visual ARGOS) ──────────────────────
+     Cada tipo de entidad tiene un color base para nodos en el grafo y
+     en cualquier badge/lámina relacionada en otras páginas. */
+  --entity-estado:    #4A9EFF;  /* azul institucional */
+  --entity-estado-border: #1E40AF;
+  --entity-persona:   #94A3B8;  /* neutro (con borde más oscuro) */
+  --entity-persona-border: #475569;
+  --entity-empresa:   #F59E0B;  /* ámbar */
+  --entity-empresa-border: #B45309;
+  --entity-documento: #22D3EE;  /* cyan frío */
+  --entity-documento-border: #0E7490;
+  --entity-senal-grave:    #EF4444;
+  --entity-senal-moderada: #F97316;
+
+  /* ─── SEMANTIC (tier, severity, status) ───────────────────────────────── */
+  --semantic-success: #10B981;  /* tier 1 verificado, ok */
+  --semantic-warn:    #F59E0B;  /* tier 2 inferido, warning */
+  --semantic-danger:  #EF4444;  /* señal grave, error */
+  --semantic-info:    #3B82F6;  /* info, neutral action */
+
+  /* Tier badge colors específicos (mismos que semantic, alias por claridad) */
+  --tier-1: var(--semantic-success);  /* verificado por CUIT/DNI canónico */
+  --tier-2: var(--semantic-warn);     /* inferido por matching determinista */
+  --tier-3: var(--text-muted);        /* sin verificación, queue de revisión */
+
+  /* ─── ACCENT primary (UI: focus, selected, links) ─────────────────────── */
+  --accent-primary:    #4A9EFF;  /* coincide con entity-estado, color de marca */
+  --accent-secondary:  #7DC3FF;  /* hover/active state */
+
+  /* ─── HAIRLINES (bordes sutiles para separar layers) ──────────────────── */
+  --hairline-1: rgba(255, 255, 255, 0.06);  /* divider muy sutil */
+  --hairline-2: rgba(255, 255, 255, 0.12);  /* divider visible */
+  --hairline-strong: rgba(255, 255, 255, 0.20);  /* sección importante */
+
+  /* ─── TYPOGRAPHY ───────────────────────────────────────────────────────── */
+  /*
+   * Geist Sans (Vercel) + Geist Mono — pair distintivo, técnico, alineado a
+   * herramienta forense gubernamental. NO usamos Inter/Roboto/Arial: leen
+   * "AI default" y diluyen el carácter. Geist tiene rasgos geométricos
+   * + apertura visual + diseñado específicamente para data-heavy UIs.
+   * Inter queda como fallback hasta que Geist cargue.
+   */
+  --font-sans: 'Geist', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+  --font-display: 'Geist', var(--font-sans);
+
+  /* Type scale (prefer múltiplos de px-grid 1px) */
+  --text-xs:   10px;
+  --text-sm:   11px;
+  --text-base: 13px;  /* body default */
+  --text-md:   14px;
+  --text-lg:   16px;
+  --text-xl:   20px;
+  --text-2xl:  24px;
+  --text-3xl:  32px;
+
+  /* Line heights */
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  /* Letter spacing */
+  --tracking-tight: -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;
+  --tracking-wider: 0.10em;  /* eyebrow labels */
+
+  /* Weights */
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* ─── SPACING (px grid) ──────────────────────────────────────────────── */
+  --space-px: 1px;
+  --space-0-5: 2px;
+  --space-1:   4px;
+  --space-1-5: 6px;
+  --space-2:   8px;
+  --space-3:   12px;
+  --space-4:   16px;
+  --space-5:   20px;
+  --space-6:   24px;
+  --space-8:   32px;
+  --space-10:  40px;
+  --space-12:  48px;
+  --space-16:  64px;
+
+  /* ─── BORDER RADIUS ────────────────────────────────────────────────────
+     Forensic = small rounding. Máximo 6px. */
+  --radius-none: 0;
+  --radius-sm:   2px;
+  --radius-md:   4px;
+  --radius-lg:   6px;       /* cap superior — botones, cards */
+  --radius-pill: 999px;     /* solo para badges/chips */
+
+  /* ─── STROKE WIDTHS (siempre múltiplos de 0.5) ────────────────────────── */
+  --stroke-1:   1px;
+  --stroke-1-5: 1.5px;
+  --stroke-2:   2px;
+  --stroke-2-5: 2.5px;
+  --stroke-3:   3px;
+
+  /* ─── ELEVATION (4 niveles + glass morphism) ──────────────────────────── */
+  --elevation-0: none;
+  --elevation-1: 0 1px 2px rgba(0, 0, 0, 0.30), 0 1px 1px rgba(0, 0, 0, 0.20);
+  --elevation-2: 0 4px 8px rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.20);
+  --elevation-3: 0 12px 24px rgba(0, 0, 0, 0.45), 0 4px 8px rgba(0, 0, 0, 0.25);
+  --elevation-4: 0 24px 48px rgba(0, 0, 0, 0.55), 0 8px 16px rgba(0, 0, 0, 0.30);
+  --glass-blur: blur(12px) saturate(1.4);
+  --glass-bg: rgba(20, 26, 46, 0.72);  /* surface-raised con alpha para overlays */
+
+  /* ─── MOTION ───────────────────────────────────────────────────────────── */
+  --motion-instant: 80ms;
+  --motion-fast:    160ms;
+  --motion-normal:  220ms;
+  --motion-slow:    380ms;
+  --motion-slower:  560ms;
+
+  /* Easing curves */
+  --ease-out:        cubic-bezier(0.16, 1, 0.3, 1);     /* default UI */
+  --ease-in-out:     cubic-bezier(0.65, 0, 0.35, 1);    /* transiciones de estado */
+  --ease-in:         cubic-bezier(0.7, 0, 0.84, 0);     /* exits */
+  --ease-spring:     cubic-bezier(0.34, 1.56, 0.64, 1); /* feedback gestual */
+
+  /* ─── FOCUS RING (a11y + premium feel) ────────────────────────────────── */
+  --focus-ring: 0 0 0 2px var(--surface-base), 0 0 0 4px var(--accent-primary);
+  --focus-ring-inset: inset 0 0 0 2px var(--accent-primary);
+
+  /* ─── SCROLLBAR (consistente en toda la app) ──────────────────────────── */
+  --scrollbar-track: var(--surface-base);
+  --scrollbar-thumb: var(--surface-overlay);
+  --scrollbar-thumb-hover: var(--surface-popover);
+}
+
+/* ─── REDUCED MOTION (a11y) ──────────────────────────────────────────────
+   Si el usuario tiene prefers-reduced-motion, eliminamos transitions y
+   animations de manera uniforme. Sigue habiendo cambio de estado, solo
+   sin animación. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-instant: 0ms;
+    --motion-fast:    0ms;
+    --motion-normal:  0ms;
+    --motion-slow:    0ms;
+    --motion-slower:  0ms;
+  }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─── LEGACY TOKEN ALIASES ────────────────────────────────────────────────
+   Mapeo de las variables viejas (--bg-0, --text-1, --hairline-soft, etc.)
+   a las canónicas. Permite que el código existente siga funcionando
+   mientras migramos progresivamente. NO USAR EN CÓDIGO NUEVO — usar las
+   canónicas de arriba. */
+:root {
+  /* Surfaces */
+  --bg-0: var(--surface-base);
+  --bg-1: var(--surface-raised);
+  --bg-2: var(--surface-overlay);
+  --bg-forensic-0: var(--surface-base);
+  --bg-forensic-1: var(--surface-raised);
+  --bg-forensic-2: var(--surface-overlay);
+
+  /* Text */
+  --text: var(--text-primary);
+  --text-1: var(--text-primary);
+  --text-2: var(--text-secondary);
+  --text-3: var(--text-muted);
+  --text-4: var(--text-muted);
+
+  /* Hairlines */
+  --hairline-soft: var(--hairline-1);
+
+  /* Semantic (legacy names from current code) */
+  --select: var(--accent-primary);
+  --alarm: var(--semantic-danger);
+  --warn: var(--semantic-warn);
+  --ok: var(--semantic-success);
+  --accent-chrome: var(--text-secondary);
+
+  /* Header */
+  --header-h: 42px;
+}
+
+/* ─── PRIMITIVE ANIMATIONS ────────────────────────────────────────────────
+   Keyframes consumidas por componentes primitives (LoadingState shimmer,
+   EntityIcon pulse halo). Centralizadas acá para que las animations sean
+   también design tokens (no hardcodeadas en cada componente).
+
+   Respeto a prefers-reduced-motion: el block global más arriba
+   (animation-duration: 0.01ms !important) ya las neutraliza. */
+
+@keyframes argos-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes argos-pulse-halo {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 0;
+  }
+}
+
+@keyframes argos-dot-pulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(0.95);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+

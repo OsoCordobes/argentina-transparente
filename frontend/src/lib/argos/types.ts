@@ -57,6 +57,8 @@ export type ArgosEdgeKind =
   | 'trabaja_en'              // Funcionario → Reparticion
   | 'es_la_misma_persona'     // Funcionario → PersonaFisica
   | 'conflicto_con'           // Funcionario → Empresa (cruce calculado)
+  // Aristas jerárquicas (DuckDB-only, fuente: getJerarquiaCordoba)
+  | 'pertenece_a'             // Reparticion → Estado (jurisdiccion)
 
 export interface ArgosEdge {
   source: string | ArgosNode

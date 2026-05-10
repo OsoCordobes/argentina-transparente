@@ -19,6 +19,7 @@ import type {
   DashboardResponse,
   EntidadDetalle,
   GrafoNeo4jResponse,
+  GrafoJerarquiaResponse,
 } from '../queries'
 
 // ─── Normalización ────────────────────────────────────────────────────────────
@@ -98,6 +99,29 @@ export function mergeNeo4jIntoGraph(
       weight: e.weight,
     })
   }
+  return { nodes, edges }
+}
+
+// ─── Desde Jerarquía DuckDB (Estado → Reparticion → Empresa) ────────────────
+//
+// Fuente preferida del home — no depende de Neo4j. La depth viene en `data.depth`
+// y la usa GraphCanvas para colocar los nodos en anillos radiales.
+
+export function graphFromJerarquia(resp: GrafoJerarquiaResponse): ArgosGraph {
+  const nodes: ArgosNode[] = resp.nodes.map((n) => ({
+    id: n.id,
+    type: n.type as ArgosNodeType,
+    label: n.label,
+    subtitle: n.subtitle,
+    weight: n.weight,
+    data: n.data,
+  }))
+  const edges: ArgosEdge[] = resp.edges.map((e) => ({
+    source: e.source,
+    target: e.target,
+    kind: e.kind as ArgosEdgeKind,
+    weight: e.weight,
+  }))
   return { nodes, edges }
 }
 

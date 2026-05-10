@@ -7,9 +7,16 @@
  * - estado: ok | stale | manual | (derivado de ultimo_crawl + tipo)
  *
  * Disclaimer top con explicación tier (T1/T2/T3).
+ *
+ * Wave 3.C — design tokens canónicos + primitives:
+ *   - hex/legacy alias → var(--token) canónicos
+ *   - LoadingState/EmptyState/ErrorState reemplazan ad-hoc divs
+ *   - TierBadge consistente por confianza (en columna TIER)
+ *   - health indicator (estado scraper) usa --semantic-success/warn/danger
  */
 import { useEffect, useMemo, useState } from 'react'
 import { ArgosShell } from '@/components/argos/ArgosShell'
+import { EmptyState, LoadingState, ErrorState, TierBadge } from '@/components/argos/primitives'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 
@@ -61,13 +68,22 @@ function formatSinc(iso: string | null, registrado: string): string {
   }
 }
 
-function estadoFromTipoSync(tipo: string, ultimoCrawl: string | null, registrado: string): { label: string; tone: 'ok' | 'stale' | 'manual' } {
+type EstadoTone = 'ok' | 'stale' | 'manual'
+
+function estadoFromTipoSync(tipo: string, ultimoCrawl: string | null, registrado: string): { label: string; tone: EstadoTone } {
   const ref = ultimoCrawl ?? registrado
   if (!ref) return { label: 'MANUAL', tone: 'manual' }
   const days = (Date.now() - new Date(ref).getTime()) / (1000 * 60 * 60 * 24)
   if (tipo === 'scraping' || tipo === 'pdf_ocr') return { label: 'MANUAL', tone: 'manual' }
   if (days < 7) return { label: 'OK', tone: 'ok' }
   return { label: 'STALE', tone: 'stale' }
+}
+
+/** Color semántico del health indicator de scraper. */
+function estadoColor(tone: EstadoTone): string {
+  if (tone === 'ok') return 'var(--semantic-success)'
+  if (tone === 'stale') return 'var(--semantic-warn)'
+  return 'var(--text-muted)'
 }
 
 export default function Fuentes() {
@@ -102,52 +118,60 @@ export default function Fuentes() {
 
   return (
     <ArgosShell title="Fuentes · procedencia">
-      <div style={{ margin: '-24px -32px -48px' }}>
+      <div style={{ margin: 'calc(-1 * var(--space-6)) calc(-1 * var(--space-8)) calc(-1 * var(--space-12))' }}>
         {/* Disclaimer top con explicación tier */}
         <div
           style={{
-            padding: '18px 26px',
+            padding: 'var(--space-4) var(--space-6)',
             borderBottom: '1px solid var(--hairline-1)',
-            background: 'var(--bg-forensic-1)',
-            fontSize: 12.5,
-            color: 'var(--text-2)',
-            lineHeight: 1.55,
+            background: 'var(--surface-raised)',
+            fontSize: 'var(--text-base)',
+            color: 'var(--text-secondary)',
+            lineHeight: 'var(--leading-normal)',
+            fontFamily: 'var(--font-sans)',
           }}
         >
-          ARGOS describe lo que cargó. <span style={{ color: 'var(--text-1)' }}>Toda cifra, vínculo y señal trae link a la fuente original.</span>{' '}
+          ARGOS describe lo que cargó.{' '}
+          <span style={{ color: 'var(--text-primary)' }}>Toda cifra, vínculo y señal trae link a la fuente original.</span>{' '}
           El tier indica método y verificabilidad:{' '}
-          <span style={{ color: 'var(--ok)' }}>T1</span> oficial verificado ·{' '}
-          <span style={{ color: 'var(--warn)' }}>T2</span> oficial inferido ·{' '}
-          <span style={{ color: 'var(--alarm)' }}>T3</span> scraped sujeto a revisión.
+          <span style={{ color: 'var(--semantic-success)' }}>T1</span> oficial verificado ·{' '}
+          <span style={{ color: 'var(--semantic-warn)' }}>T2</span> oficial inferido ·{' '}
+          <span style={{ color: 'var(--semantic-danger)' }}>T3</span> scraped sujeto a revisión.
         </div>
 
         {error && (
-          <div style={{ padding: 14, color: 'var(--alarm)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-            Error: {error}
+          <div style={{ padding: 'var(--space-4) var(--space-6)' }}>
+            <ErrorState
+              title="No se pudieron cargar las fuentes"
+              detail={error}
+              onRetry={() => window.location.reload()}
+              compact
+            />
           </div>
         )}
-        {loading && (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
-            cargando fuentes…
+
+        {loading && !error && (
+          <div style={{ padding: 'var(--space-5) var(--space-6)' }}>
+            <LoadingState mode="block" lines={5} label="Cargando fuentes" />
           </div>
         )}
 
         {/* Tabla densa */}
         {rows.length > 0 && (
-          <div style={{ padding: '20px 26px' }}>
+          <div style={{ padding: 'var(--space-5) var(--space-6)' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ background: 'var(--bg-forensic-1)', borderBottom: '1px solid var(--hairline-1)' }}>
+                <tr style={{ background: 'var(--surface-raised)', borderBottom: '1px solid var(--hairline-1)' }}>
                   {['CÓDIGO', 'JURISDICCIÓN', 'URL', 'TIER', 'ÚLTIMA SINC', 'FORMATO', 'ESTADO'].map((h, i) => (
                     <th
                       key={i}
                       style={{
-                        padding: '10px 16px',
+                        padding: '10px var(--space-4)',
                         fontSize: 9,
-                        color: 'var(--text-3)',
-                        letterSpacing: '0.18em',
+                        color: 'var(--text-muted)',
+                        letterSpacing: 'var(--tracking-wider)',
                         fontFamily: 'var(--font-mono)',
-                        fontWeight: 500,
+                        fontWeight: 'var(--weight-medium)',
                         textAlign: 'left',
                       }}
                     >
@@ -158,69 +182,115 @@ export default function Fuentes() {
               </thead>
               <tbody>
                 {rows.map((f) => (
-                  <tr key={f.id} style={{ borderBottom: '1px solid var(--hairline-soft)' }}>
-                    <td style={{ padding: '12px 16px', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-2)', letterSpacing: '0.04em' }}>
+                  <tr key={f.id} style={{ borderBottom: '1px solid var(--hairline-1)' }}>
+                    <td
+                      style={{
+                        padding: 'var(--space-3) var(--space-4)',
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 'var(--text-sm)',
+                        color: 'var(--text-secondary)',
+                        letterSpacing: 'var(--tracking-wide)',
+                      }}
+                    >
                       {f.code}
                     </td>
-                    <td style={{ padding: '12px 16px', fontSize: 13, color: 'var(--text-1)' }}>
+                    <td
+                      style={{
+                        padding: 'var(--space-3) var(--space-4)',
+                        fontSize: 'var(--text-base)',
+                        color: 'var(--text-primary)',
+                        fontFamily: 'var(--font-sans)',
+                      }}
+                    >
                       {f.jurisdiccion}
                       {f.notas && (
-                        <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 3, fontFamily: 'var(--font-mono)' }}>
+                        <div
+                          style={{
+                            fontSize: 'var(--text-xs)',
+                            color: 'var(--text-muted)',
+                            marginTop: 'var(--space-0-5)',
+                            fontFamily: 'var(--font-mono)',
+                          }}
+                        >
                           {f.notas.length > 90 ? f.notas.slice(0, 88) + '…' : f.notas}
                         </div>
                       )}
                     </td>
-                    <td style={{ padding: '12px 16px', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--accent-chrome)' }}>
+                    <td
+                      style={{
+                        padding: 'var(--space-3) var(--space-4)',
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 'var(--text-sm)',
+                      }}
+                    >
                       <a
                         href={f.url}
                         target="_blank"
                         rel="noreferrer noopener"
-                        style={{ color: 'var(--accent-chrome)', textDecoration: 'none' }}
+                        style={{ color: 'var(--text-secondary)', textDecoration: 'none' }}
                       >
                         {f.hostname}
                       </a>
                     </td>
+                    <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                      <TierBadge tier={f.tier} size="sm" />
+                    </td>
                     <td
                       style={{
-                        padding: '12px 16px',
+                        padding: 'var(--space-3) var(--space-4)',
                         fontFamily: 'var(--font-mono)',
-                        fontSize: 11,
-                        color: f.tier === 1 ? 'var(--ok)' : f.tier === 2 ? 'var(--warn)' : 'var(--alarm)',
+                        fontSize: 'var(--text-sm)',
+                        color: 'var(--text-secondary)',
                       }}
                     >
-                      T{f.tier}
-                    </td>
-                    <td style={{ padding: '12px 16px', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-2)' }}>
                       {f.sinc}
                     </td>
-                    <td style={{ padding: '12px 16px', fontSize: 11, color: 'var(--text-2)', fontFamily: 'var(--font-mono)' }}>
+                    <td
+                      style={{
+                        padding: 'var(--space-3) var(--space-4)',
+                        fontSize: 'var(--text-sm)',
+                        color: 'var(--text-secondary)',
+                        fontFamily: 'var(--font-mono)',
+                      }}
+                    >
                       {f.formato}
                     </td>
                     <td
                       style={{
-                        padding: '12px 16px',
+                        padding: 'var(--space-3) var(--space-4)',
                         fontFamily: 'var(--font-mono)',
-                        fontSize: 10,
-                        color: f.estado.tone === 'ok' ? 'var(--ok)' : f.estado.tone === 'stale' ? 'var(--warn)' : 'var(--text-3)',
-                        letterSpacing: '0.06em',
+                        fontSize: 'var(--text-xs)',
+                        color: estadoColor(f.estado.tone),
+                        letterSpacing: 'var(--tracking-wide)',
                       }}
                     >
-                      ● {f.estado.label}
+                      <span aria-hidden style={{ marginRight: 'var(--space-1)' }}>●</span>
+                      {f.estado.label}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <div style={{ marginTop: 16, fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--font-mono)', letterSpacing: '0.04em' }}>
+            <div
+              style={{
+                marginTop: 'var(--space-4)',
+                fontSize: 'var(--text-xs)',
+                color: 'var(--text-muted)',
+                fontFamily: 'var(--font-mono)',
+                letterSpacing: 'var(--tracking-wide)',
+              }}
+            >
               {rows.length} fuentes registradas · {rows.filter(r => r.tier === 1).length} T1 · {rows.filter(r => r.tier === 2).length} T2 · {rows.filter(r => r.tier === 3).length} T3
             </div>
           </div>
         )}
 
-        {fuentes && fuentes.length === 0 && (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)' }}>
-            Sin fuentes registradas todavía.
-          </div>
+        {fuentes && fuentes.length === 0 && !error && !loading && (
+          <EmptyState
+            eyebrow="FUENTES · 0 REGISTRADAS"
+            title="Sin fuentes registradas"
+            body="Las fuentes se cargan automáticamente al ejecutar los seeds del backend."
+          />
         )}
       </div>
     </ArgosShell>
