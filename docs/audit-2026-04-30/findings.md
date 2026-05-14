@@ -200,3 +200,52 @@ export default defineConfig({
 Esto **garantiza** aislamiento total entre tests y producción. Cero pollution posible. 1-2 horas de implementación + verificación.
 
 ---
+
+---
+
+## ⚠️ Aclaración importante sobre el alcance del audit
+
+**El sandbox de esta sesión no tiene la DB poblada del usuario** (+1M nodos en Neo4j, 2.7M filas en DuckDB según `AUDIT-DATOS-NEO4J.md`). Verificado:
+
+```bash
+$ cat backend/.gitignore | grep -E "duckdb|data/"
+backend/data/
+*.duckdb
+```
+
+La DB vive en la máquina local del usuario. El repo no contiene dumps. Los seeds requieren red para bajar XLSX/CSVs de portales oficiales (cordoba.gob.ar, datos.jus.gob.ar, AFIP) y Neo4j vía docker-compose.
+
+**Implicancia**: este audit es **estático** — analiza código (schemas, seeds, endpoints, queries) que es la fuente de verdad reproducible. Lo que NO se pudo validar dinámicamente:
+- Row counts reales por tabla
+- % NULL por columna en datos vivos
+- Coherencia Neo4j real (porcentaje del universo que cumple cada arquetipo)
+- Query plans / indices efectivos
+- Drift desde el snapshot 2026-04-26
+
+**Para que el usuario complete el audit dinámicamente en su máquina**, los siguientes 3 comandos cubren el 80% de lo pendiente:
+
+```bash
+# 1. Test pollution check (debe retornar 0 después del fix de hoy)
+cd backend && npx ts-node -e "
+import { initDb, dbAll } from './src/lib/db'
+initDb().then(async () => {
+  const r = await dbAll(\"SELECT COUNT(*) as n FROM personas_fisicas WHERE apellido_nombre LIKE 'Test %' OR apellido_nombre LIKE '%FIXTURE%'\")
+  console.log('Test pollution residual:', r[0].n)
+})"
+
+# 2. Row counts reales por tabla (audit dinámico de Fase 1)
+npx ts-node -e "
+import { initDb, dbAll } from './src/lib/db'
+initDb().then(async () => {
+  const tables = await dbAll(\"SELECT table_name FROM information_schema.tables WHERE table_schema='main' ORDER BY 1\")
+  for (const t of tables) {
+    const c = await dbAll(\`SELECT COUNT(*) as n FROM \"\${t.table_name}\"\`)
+    console.log(t.table_name + ': ' + c[0].n)
+  }
+})"
+
+# 3. Coherencia Neo4j arquetipos (audit dinámico Fase 2 — requiere Neo4j up)
+docker compose up -d argos-neo4j   # si no está
+# Después correr las 5 queries Cypher documentadas en 02-neo4j-coherence.md
+```
+
